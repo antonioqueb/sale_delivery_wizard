@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Delivery Document Form -->
+    <record id="sale_delivery_document_form" model="ir.ui.view">
+        <field name="name">sale.delivery.document.form</field>
+        <field name="model">sale.delivery.document</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_prepare" string="Preparar"
+                            type="object" class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_confirm" string="Confirmar"
+                            type="object" class="btn-primary"
+                            invisible="state not in ('draft', 'prepared')"/>
+                    <button name="action_cancel" string="Cancelar"
+                            type="object"
+                            invisible="state in ('confirmed', 'cancelled')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,prepared,confirmed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="document_type"/>
+                            <field name="sale_order_id"/>
+                            <field name="partner_id"/>
+                            <field name="remission_number"
+                                   invisible="document_type != 'remission'"/>
+                            <field name="picking_id"
+                                   invisible="document_type == 'return'"/>
+                            <field name="return_picking_id"
+                                   invisible="document_type != 'return'"/>
+                        </group>
+                        <group>
+                            <field name="delivery_date"/>
+                            <field name="delivery_address"/>
+                            <field name="special_instructions"/>
+                            <field name="return_reason_id"
+                                   invisible="document_type != 'return'"/>
+                            <field name="return_action"
+                                   invisible="document_type != 'return'"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Líneas">
+                            <field name="line_ids">
+                                <list editable="bottom">
+                                    <field name="product_id"/>
+                                    <field name="lot_id"/>
+                                    <field name="qty_selected"/>
+                                    <field name="qty_done"/>
+                                    <field name="qty_returned"
+                                           column_invisible="parent.document_type != 'return'"/>
+                                    <field name="source_location_id"/>
+                                    <field name="is_swap_origin" column_invisible="1"/>
+                                    <field name="is_swap_target" column_invisible="1"/>
+                                    <field name="sale_line_id" optional="hide"/>
+                                    <field name="move_id" optional="hide"/>
+                                </list>
+                            </field>
+                            <group>
+                                <field name="total_qty"/>
+                            </group>
+                        </page>
+                        <page string="Firma y Evidencia">
+                            <group>
+                                <field name="signed_by"/>
+                                <field name="signature_image" widget="image"/>
+                            </group>
+                            <field name="attachment_ids" widget="many2many_binary"/>
+                            <field name="photo_count"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Delivery Document List -->
+    <record id="sale_delivery_document_list" model="ir.ui.view">
+        <field name="name">sale.delivery.document.list</field>
+        <field name="model">sale.delivery.document</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="document_type"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'confirmed'"
+                       decoration-warning="state == 'prepared'"
+                       decoration-danger="state == 'cancelled'"/>
+                <field name="sale_order_id"/>
+                <field name="partner_id"/>
+                <field name="remission_number"/>
+                <field name="total_qty"/>
+                <field name="delivery_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Menu & Actions -->
+    <record id="action_sale_delivery_documents" model="ir.actions.act_window">
+        <field name="name">Documentos de Entrega</field>
+        <field name="res_model">sale.delivery.document</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_sale_return_reasons" model="ir.actions.act_window">
+        <field name="name">Motivos de Devolución</field>
+        <field name="res_model">sale.return.reason</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_delivery_root"
+              name="Entregas STONIA"
+              parent="sale.sale_menu_root"
+              sequence="15"/>
+    <menuitem id="menu_delivery_documents"
+              name="Documentos de Entrega"
+              parent="menu_delivery_root"
+              action="action_sale_delivery_documents"
+              sequence="10"/>
+    <menuitem id="menu_return_reasons"
+              name="Motivos de Devolución"
+              parent="menu_delivery_root"
+              action="action_sale_return_reasons"
+              sequence="20"
+              groups="sale_delivery_wizard.group_delivery_manager"/>
+</odoo>

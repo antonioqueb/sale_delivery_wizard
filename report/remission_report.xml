@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_remission" model="ir.actions.report">
+        <field name="name">Remisión</field>
+        <field name="model">sale.delivery.document</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">sale_delivery_wizard.report_remission</field>
+        <field name="report_file">sale_delivery_wizard.report_remission</field>
+        <field name="binding_model_id" ref="model_sale_delivery_document"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <template id="report_remission">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <h2 class="text-center mb-4">
+                            REMISIÓN
+                        </h2>
+
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <table class="table table-sm table-borderless">
+                                    <tr>
+                                        <td class="fw-bold" style="width:45%;">No. Remisión:</td>
+                                        <td><t t-esc="doc.remission_number or doc.name"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Pedido:</td>
+                                        <td><t t-esc="doc.sale_order_id.name"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Cliente:</td>
+                                        <td><t t-esc="doc.partner_id.name"/></td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="col-6">
+                                <table class="table table-sm table-borderless">
+                                    <tr>
+                                        <td class="fw-bold" style="width:45%;">Fecha Salida:</td>
+                                        <td><t t-esc="doc.delivery_date or doc.create_date"
+                                               t-options="{'widget': 'datetime'}"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Dirección Entrega:</td>
+                                        <td><t t-esc="doc.delivery_address or '-'"/></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+
+                        <t t-if="doc.special_instructions">
+                            <div class="alert alert-info p-2 mb-3">
+                                <strong>Instrucciones:</strong>
+                                <t t-esc="doc.special_instructions"/>
+                            </div>
+                        </t>
+
+                        <!-- NO PRECIOS - Packing list -->
+                        <table class="table table-sm table-bordered">
+                            <thead>
+                                <tr class="bg-dark text-white">
+                                    <th style="width:5%;">#</th>
+                                    <th style="width:40%;">Producto / Material</th>
+                                    <th style="width:25%;">Lote / Placa</th>
+                                    <th style="width:15%;" class="text-end">Cantidad</th>
+                                    <th style="width:15%;">UdM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-set="idx" t-value="0"/>
+                                <t t-foreach="doc.line_ids" t-as="line">
+                                    <t t-set="idx" t-value="idx + 1"/>
+                                    <tr>
+                                        <td><t t-esc="idx"/></td>
+                                        <td><t t-esc="line.product_id.display_name"/></td>
+                                        <td><t t-esc="line.lot_id.name or '-'"/></td>
+                                        <td class="text-end">
+                                            <t t-esc="'%.2f' % line.qty_done"/>
+                                        </td>
+                                        <td>
+                                            <t t-esc="line.product_id.uom_id.name or ''"/>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                            <tfoot>
+                                <tr class="fw-bold">
+                                    <td colspan="3" class="text-end">Total:</td>
+                                    <td class="text-end">
+                                        <t t-esc="'%.2f' % sum(doc.line_ids.mapped('qty_done'))"/>
+                                    </td>
+                                    <td/>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <!-- Firma -->
+                        <div class="row mt-5">
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
+                                    Entregó
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
+                                    Transportó
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <t t-if="doc.signature_image">
+                                    <img t-att-src="image_data_uri(doc.signature_image)"
+                                         style="max-height: 50px;"/>
+                                    <br/>
+                                </t>
+                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
+                                    Recibió: <t t-esc="doc.signed_by or '________________'"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-center mt-3" style="font-size: 10px; color: #999;">
+                            Este documento NO incluye precios. Para información fiscal consulte su factura.
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

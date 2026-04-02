@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="return_reason_damaged" model="sale.return.reason">
+            <field name="name">Material Dañado</field>
+            <field name="code">DAMAGED</field>
+            <field name="sequence">10</field>
+        </record>
+        <record id="return_reason_wrong_size" model="sale.return.reason">
+            <field name="name">Medidas Incorrectas</field>
+            <field name="code">WRONG_SIZE</field>
+            <field name="sequence">20</field>
+        </record>
+        <record id="return_reason_no_unload" model="sale.return.reason">
+            <field name="name">No se Pudo Descargar</field>
+            <field name="code">NO_UNLOAD</field>
+            <field name="sequence">30</field>
+        </record>
+        <record id="return_reason_not_requested" model="sale.return.reason">
+            <field name="name">Material No Solicitado</field>
+            <field name="code">NOT_REQUESTED</field>
+            <field name="sequence">40</field>
+        </record>
+        <record id="return_reason_quality" model="sale.return.reason">
+            <field name="name">Problema de Calidad</field>
+            <field name="code">QUALITY</field>
+            <field name="sequence">50</field>
+        </record>
+        <record id="return_reason_other" model="sale.return.reason">
+            <field name="name">Otro</field>
+            <field name="code">OTHER</field>
+            <field name="sequence">99</field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_delivery" model="ir.module.category">
+        <field name="name">Entregas STONIA</field>
+        <field name="sequence">50</field>
+    </record>
+
+    <record id="group_delivery_user" model="res.groups">
+        <field name="name">Usuario de Entregas</field>
+        <field name="category_id" ref="module_category_delivery"/>
+    </record>
+
+    <record id="group_delivery_authorizer" model="res.groups">
+        <field name="name">Autorizador de Entregas</field>
+        <field name="category_id" ref="module_category_delivery"/>
+        <field name="implied_ids" eval="[(4, ref('group_delivery_user'))]"/>
+    </record>
+
+    <record id="group_delivery_manager" model="res.groups">
+        <field name="name">Gerente de Entregas</field>
+        <field name="category_id" ref="module_category_delivery"/>
+        <field name="implied_ids" eval="[(4, ref('group_delivery_authorizer'))]"/>
+    </record>
+
+    <record id="group_delivery_driver" model="res.groups">
+        <field name="name">Chofer (Solo Lectura)</field>
+        <field name="category_id" ref="module_category_delivery"/>
+    </record>
+</odoo>

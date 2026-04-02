@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_swap_wizard_form" model="ir.ui.view">
+        <field name="name">sale.swap.wizard.form</field>
+        <field name="model">sale.swap.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Swap de Lotes">
+                <group>
+                    <field name="sale_order_id" readonly="1"/>
+                </group>
+                <separator string="Lotes a Intercambiar"/>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="product_id"/>
+                        <field name="origin_lot_id"
+                               string="Lote Actual"
+                               domain="[('product_id', '=', product_id)]"/>
+                        <field name="target_lot_id"
+                               string="Lote Nuevo"
+                               domain="[('product_id', '=', product_id)]"/>
+                        <field name="qty"/>
+                    </list>
+                </field>
+                <div class="alert alert-warning mt-2" role="alert">
+                    El swap reemplaza el lote asignado en el picking pendiente.
+                    Verifique disponibilidad y que el lote destino no esté apartado en otra orden.
+                </div>
+                <footer>
+                    <button name="action_confirm_swap"
+                            string="Ejecutar Swap"
+                            type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

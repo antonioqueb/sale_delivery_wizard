@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_pick_ticket" model="ir.actions.report">
+        <field name="name">Pick Ticket</field>
+        <field name="model">sale.delivery.document</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">sale_delivery_wizard.report_pick_ticket</field>
+        <field name="report_file">sale_delivery_wizard.report_pick_ticket</field>
+        <field name="binding_model_id" ref="model_sale_delivery_document"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <template id="report_pick_ticket">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <h2 class="text-center mb-4">
+                            PICK TICKET
+                        </h2>
+
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <table class="table table-sm table-borderless">
+                                    <tr>
+                                        <td class="fw-bold" style="width:40%;">No. Pick Ticket:</td>
+                                        <td><t t-esc="doc.name"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Pedido:</td>
+                                        <td><t t-esc="doc.sale_order_id.name"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Cliente:</td>
+                                        <td><t t-esc="doc.partner_id.name"/></td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="col-6">
+                                <table class="table table-sm table-borderless">
+                                    <tr>
+                                        <td class="fw-bold" style="width:40%;">Fecha:</td>
+                                        <td><t t-esc="doc.create_date" t-options="{'widget': 'date'}"/></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Dirección:</td>
+                                        <td><t t-esc="doc.delivery_address or '-'"/></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+
+                        <t t-if="doc.special_instructions">
+                            <div class="alert alert-warning p-2 mb-3">
+                                <strong>Instrucciones Especiales:</strong>
+                                <t t-esc="doc.special_instructions"/>
+                            </div>
+                        </t>
+
+                        <table class="table table-sm table-bordered">
+                            <thead>
+                                <tr class="bg-dark text-white">
+                                    <th style="width:5%;">#</th>
+                                    <th style="width:35%;">Producto</th>
+                                    <th style="width:20%;">Lote / Placa</th>
+                                    <th style="width:15%;">Ubicación</th>
+                                    <th style="width:10%;" class="text-end">Cantidad</th>
+                                    <th style="width:15%;">Recolectado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-set="idx" t-value="0"/>
+                                <t t-foreach="doc.line_ids" t-as="line">
+                                    <t t-set="idx" t-value="idx + 1"/>
+                                    <tr>
+                                        <td><t t-esc="idx"/></td>
+                                        <td><t t-esc="line.product_id.display_name"/></td>
+                                        <td><t t-esc="line.lot_id.name or '-'"/></td>
+                                        <td><t t-esc="line.source_location_id.name or '-'"/></td>
+                                        <td class="text-end">
+                                            <t t-esc="'%.2f' % line.qty_selected"/>
+                                        </td>
+                                        <td class="text-center">
+                                            <span style="font-size:18px;">☐</span>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                            <tfoot>
+                                <tr class="fw-bold">
+                                    <td colspan="4" class="text-end">Total:</td>
+                                    <td class="text-end">
+                                        <t t-esc="'%.2f' % doc.total_qty"/>
+                                    </td>
+                                    <td/>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <div class="row mt-5">
+                            <div class="col-6 text-center">
+                                <div style="border-top: 1px solid #000; margin-top: 40px; padding-top: 5px;">
+                                    Preparado por
+                                </div>
+                            </div>
+                            <div class="col-6 text-center">
+                                <div style="border-top: 1px solid #000; margin-top: 40px; padding-top: 5px;">
+                                    Revisado por
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

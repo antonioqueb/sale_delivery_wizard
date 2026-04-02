@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Sale Order Form: Delivery Cockpit -->
+    <record id="sale_order_form_delivery_cockpit" model="ir.ui.view">
+        <field name="name">sale.order.form.delivery.cockpit</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <!-- Buttons in header -->
+            <xpath expr="//header" position="inside">
+                <button name="action_open_delivery_wizard"
+                        string="Entregar"
+                        type="object"
+                        class="btn-primary"
+                        invisible="state not in ('sale', 'done')"
+                        groups="sale_delivery_wizard.group_delivery_user"/>
+                <button name="action_open_return_wizard"
+                        string="Devolución"
+                        type="object"
+                        class="btn-warning"
+                        invisible="state not in ('sale', 'done')"
+                        groups="sale_delivery_wizard.group_delivery_user"/>
+                <button name="action_open_swap_wizard"
+                        string="Swap"
+                        type="object"
+                        invisible="state not in ('sale', 'done')"
+                        groups="sale_delivery_wizard.group_delivery_user"/>
+            </xpath>
+
+            <!-- Stat buttons -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_pick_tickets"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-clipboard"
+                        invisible="x_pick_ticket_count == 0">
+                    <field name="x_pick_ticket_count"
+                           widget="statinfo"
+                           string="Pick Tickets"/>
+                </button>
+                <button name="action_view_remissions"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-truck"
+                        invisible="x_remission_count == 0">
+                    <field name="x_remission_count"
+                           widget="statinfo"
+                           string="Remisiones"/>
+                </button>
+                <button name="action_view_returns"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-undo"
+                        invisible="x_return_count == 0">
+                    <field name="x_return_count"
+                           widget="statinfo"
+                           string="Devoluciones"/>
+                </button>
+            </xpath>
+
+            <!-- Delivery summary cards before notebook -->
+            <xpath expr="//notebook" position="before">
+                <div class="row mt-2 mb-3" invisible="state not in ('sale', 'done')">
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-light text-center p-2">
+                            <small class="text-muted">Demanda</small>
+                            <h5><field name="x_total_demand_qty" class="mb-0"/></h5>
+                        </div>
+                    </div>
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-info text-white text-center p-2">
+                            <small>Asignado</small>
+                            <h5><field name="x_total_assigned_qty" class="mb-0"/></h5>
+                        </div>
+                    </div>
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-success text-white text-center p-2">
+                            <small>Entregado Neto</small>
+                            <h5><field name="x_total_delivered_net_qty" class="mb-0"/></h5>
+                        </div>
+                    </div>
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-warning text-center p-2">
+                            <small>Devuelto</small>
+                            <h5><field name="x_total_returned_qty" class="mb-0"/></h5>
+                        </div>
+                    </div>
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-secondary text-white text-center p-2">
+                            <small>Pendiente</small>
+                            <h5><field name="x_total_pending_delivery_qty" class="mb-0"/></h5>
+                        </div>
+                    </div>
+                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
+                        <div class="card bg-primary text-white text-center p-2">
+                            <small>Fulfillment</small>
+                            <h5><field name="x_fulfillment_net_pct" widget="float" digits="[3,1]" class="mb-0"/>%</h5>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+
+            <!-- Delivery history page in notebook -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Historial de Entregas" name="delivery_history"
+                      invisible="x_delivery_document_count == 0">
+                    <field name="delivery_document_ids" readonly="1">
+                        <list>
+                            <field name="name"/>
+                            <field name="document_type"/>
+                            <field name="state"
+                                   decoration-success="state == 'confirmed'"
+                                   decoration-warning="state == 'prepared'"
+                                   decoration-danger="state == 'cancelled'"
+                                   widget="badge"/>
+                            <field name="remission_number"/>
+                            <field name="total_qty"/>
+                            <field name="return_reason_id"/>
+                            <field name="return_action"/>
+                            <field name="delivery_date"/>
+                            <field name="create_date"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+
+            <!-- Add delivery status to order lines -->
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
+                <field name="x_delivered_net_qty" string="Entregado Neto" optional="show"/>
+                <field name="x_returned_qty" string="Devuelto" optional="hide"/>
+                <field name="x_pending_qty" string="Pendiente" optional="show"/>
+                <field name="x_delivery_status" string="Estado Entrega"
+                       widget="badge"
+                       decoration-success="x_delivery_status == 'entregado'"
+                       decoration-warning="x_delivery_status in ('parcial_entregado', 'parcial_asignado')"
+                       decoration-danger="x_delivery_status == 'sin_asignar'"
+                       decoration-info="x_delivery_status == 'asignado'"
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Hidden fields for counts -->
+    <record id="sale_order_form_delivery_fields" model="ir.ui.view">
+        <field name="name">sale.order.form.delivery.fields</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="x_delivery_document_count" invisible="1"/>
+                <field name="x_total_delivered_gross_qty" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

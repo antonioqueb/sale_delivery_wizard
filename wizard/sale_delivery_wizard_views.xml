@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_delivery_wizard_form" model="ir.ui.view">
+        <field name="name">sale.delivery.wizard.form</field>
+        <field name="model">sale.delivery.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Entregar Material">
+                <group>
+                    <group>
+                        <field name="sale_order_id" readonly="1"/>
+                        <field name="partner_id" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="delivery_address"/>
+                        <field name="special_instructions"
+                               placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
+                    </group>
+                </group>
+                <group>
+                    <div class="d-flex gap-2 mb-2">
+                        <button name="action_select_all" string="Seleccionar Todo"
+                                type="object" class="btn-secondary btn-sm"/>
+                        <button name="action_deselect_all" string="Deseleccionar Todo"
+                                type="object" class="btn-secondary btn-sm"/>
+                    </div>
+                </group>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="is_selected" widget="boolean_toggle"/>
+                        <field name="product_name" string="Producto"/>
+                        <field name="lot_name" string="Lote"/>
+                        <field name="source_location_id" string="Ubicación" optional="hide"/>
+                        <field name="qty_available" string="Disponible" readonly="1"/>
+                        <field name="qty_to_deliver" string="A Entregar"/>
+                        <field name="product_id" column_invisible="1"/>
+                        <field name="lot_id" column_invisible="1"/>
+                        <field name="picking_id" column_invisible="1"/>
+                        <field name="move_id" column_invisible="1"/>
+                        <field name="move_line_id" column_invisible="1"/>
+                        <field name="sale_line_id" column_invisible="1"/>
+                    </list>
+                </field>
+                <group>
+                    <group>
+                        <field name="total_selected" string="Total a Entregar"/>
+                        <field name="total_available" string="Total Disponible"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_generate_pick_ticket"
+                            string="Generar Pick Ticket"
+                            type="object" class="btn-secondary"
+                            help="Genera documento de preparación sin descontar inventario"/>
+                    <button name="action_generate_remission"
+                            string="Generar Remisión"
+                            type="object" class="btn-primary"
+                            help="Genera remisión y descuenta inventario"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

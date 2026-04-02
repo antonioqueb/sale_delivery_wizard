@@ -1,0 +1,18 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_sale_delivery_document_user,sale.delivery.document user,model_sale_delivery_document,group_delivery_user,1,1,1,0
+access_sale_delivery_document_manager,sale.delivery.document manager,model_sale_delivery_document,group_delivery_manager,1,1,1,1
+access_sale_delivery_document_line_user,sale.delivery.document.line user,model_sale_delivery_document_line,group_delivery_user,1,1,1,0
+access_sale_delivery_document_line_manager,sale.delivery.document.line manager,model_sale_delivery_document_line,group_delivery_manager,1,1,1,1
+access_sale_return_reason_user,sale.return.reason user,model_sale_return_reason,group_delivery_user,1,0,0,0
+access_sale_return_reason_manager,sale.return.reason manager,model_sale_return_reason,group_delivery_manager,1,1,1,1
+access_sale_delivery_wizard_user,sale.delivery.wizard user,model_sale_delivery_wizard,group_delivery_user,1,1,1,1
+access_sale_delivery_wizard_line_user,sale.delivery.wizard.line user,model_sale_delivery_wizard_line,group_delivery_user,1,1,1,1
+access_sale_return_wizard_user,sale.return.wizard user,model_sale_return_wizard,group_delivery_user,1,1,1,1
+access_sale_return_wizard_line_user,sale.return.wizard.line user,model_sale_return_wizard_line,group_delivery_user,1,1,1,1
+access_sale_swap_wizard_user,sale.swap.wizard user,model_sale_swap_wizard,group_delivery_user,1,1,1,1
+access_sale_swap_wizard_line_user,sale.swap.wizard.line user,model_sale_swap_wizard_line,group_delivery_user,1,1,1,1
+access_sale_delivery_document_sales,sale.delivery.document sales,model_sale_delivery_document,sales_team.group_sale_salesman,1,0,0,0
+access_sale_delivery_document_line_sales,sale.delivery.document.line sales,model_sale_delivery_document_line,sales_team.group_sale_salesman,1,0,0,0
+access_sale_return_reason_sales,sale.return.reason sales,model_sale_return_reason,sales_team.group_sale_salesman,1,0,0,0
+access_sale_delivery_driver,sale.delivery.document driver,model_sale_delivery_document,group_delivery_driver,1,0,0,0
+access_sale_delivery_document_line_driver,sale.delivery.document.line driver,model_sale_delivery_document_line,group_delivery_driver,1,0,0,0
