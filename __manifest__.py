@@ -1,5 +1,5 @@
 {
-    'name': 'Sale Delivery Wizard - STONIA',
+    'name': 'Sale Delivery Wizard - SOM',
     'version': '19.0.1.0.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',

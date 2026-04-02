@@ -2,21 +2,21 @@
 <odoo>
     <data noupdate="1">
         <record id="seq_pick_ticket" model="ir.sequence">
-            <field name="name">Pick Ticket STONIA</field>
+            <field name="name">Pick Ticket SOM</field>
             <field name="code">sale.delivery.pick.ticket</field>
             <field name="prefix">PT/%(year)s/</field>
             <field name="padding">5</field>
         </record>
 
         <record id="seq_remission" model="ir.sequence">
-            <field name="name">Remisión STONIA</field>
+            <field name="name">Remisión SOM</field>
             <field name="code">sale.delivery.remission</field>
             <field name="prefix">REM/%(year)s/</field>
             <field name="padding">5</field>
         </record>
 
         <record id="seq_return" model="ir.sequence">
-            <field name="name">Devolución STONIA</field>
+            <field name="name">Devolución SOM</field>
             <field name="code">sale.delivery.return</field>
             <field name="prefix">DEV/%(year)s/</field>
             <field name="padding">5</field>

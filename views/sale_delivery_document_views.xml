@@ -116,7 +116,7 @@
     </record>
 
     <menuitem id="menu_delivery_root"
-              name="Entregas STONIA"
+              name="Entregas SOM"
               parent="sale.sale_menu_root"
               sequence="15"/>
     <menuitem id="menu_delivery_documents"

@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="group_delivery_user" model="res.groups">
-        <field name="name">Entregas STONIA / Usuario de Entregas</field>
+        <field name="name">Entregas SOM / Usuario de Entregas</field>
     </record>
 
     <record id="group_delivery_authorizer" model="res.groups">
-        <field name="name">Entregas STONIA / Autorizador de Entregas</field>
+        <field name="name">Entregas SOM / Autorizador de Entregas</field>
         <field name="implied_ids" eval="[(4, ref('group_delivery_user'))]"/>
     </record>
 
     <record id="group_delivery_manager" model="res.groups">
-        <field name="name">Entregas STONIA / Gerente de Entregas</field>
+        <field name="name">Entregas SOM / Gerente de Entregas</field>
         <field name="implied_ids" eval="[(4, ref('group_delivery_authorizer'))]"/>
     </record>
 
     <record id="group_delivery_driver" model="res.groups">
-        <field name="name">Entregas STONIA / Chofer (Solo Lectura)</field>
+        <field name="name">Entregas SOM / Chofer (Solo Lectura)</field>
     </record>
 </odoo>
