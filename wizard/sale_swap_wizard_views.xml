@@ -4,7 +4,7 @@
         <field name="name">sale.swap.wizard.form</field>
         <field name="model">sale.swap.wizard</field>
         <field name="arch" type="xml">
-            <form string="Swap de Lotes">
+            <form string="Swap de Lotes" class="sale_swap_wizard_form">
                 <group>
                     <field name="sale_order_id" readonly="1"/>
                 </group>

@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -33,6 +33,11 @@
         'report/pick_ticket_report.xml',
         'report/remission_report.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'sale_delivery_wizard/static/src/scss/delivery_wizard.scss',
+        ],
+    },
     'installable': True,
     'application': False,
     'license': 'LGPL-3',

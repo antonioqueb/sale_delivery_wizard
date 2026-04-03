@@ -1,0 +1,53 @@
+// ============================================================
+// Sale Delivery Wizard - Full-screen dialogs
+// All wizards from this module should occupy 95% of viewport
+// ============================================================
+
+.o_dialog {
+    &:has(.sale_delivery_wizard_form),
+    &:has(.sale_return_wizard_form),
+    &:has(.sale_swap_wizard_form) {
+        .modal-dialog {
+            max-width: 95vw !important;
+            width: 95vw !important;
+            margin: 1.5vh auto !important;
+        }
+
+        .modal-content {
+            max-height: 95vh !important;
+            height: auto;
+        }
+
+        .modal-body {
+            max-height: calc(95vh - 120px) !important;
+            overflow-y: auto;
+        }
+
+        .o_list_renderer {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+    }
+}
+
+// Fallback for older Odoo dialog structure
+.modal {
+    &:has(.sale_delivery_wizard_form),
+    &:has(.sale_return_wizard_form),
+    &:has(.sale_swap_wizard_form) {
+        .modal-dialog {
+            max-width: 95vw !important;
+            width: 95vw !important;
+            margin: 1.5vh auto !important;
+        }
+
+        .modal-content {
+            max-height: 95vh !important;
+        }
+
+        .modal-body {
+            max-height: calc(95vh - 120px) !important;
+            overflow-y: auto;
+        }
+    }
+}

@@ -21,12 +21,30 @@ class SaleDeliveryWizard(models.TransientModel):
     total_available = fields.Float(
         compute='_compute_totals', string='Total Disponible')
 
+    # Reference to pick ticket if one was generated in this session
+    pick_ticket_id = fields.Many2one(
+        'sale.delivery.document', string='Pick Ticket Generado')
+
     @api.depends('line_ids.qty_to_deliver', 'line_ids.is_selected')
     def _compute_totals(self):
         for wiz in self:
             selected_lines = wiz.line_ids.filtered('is_selected')
             wiz.total_selected = sum(selected_lines.mapped('qty_to_deliver'))
             wiz.total_available = sum(wiz.line_ids.mapped('qty_available'))
+
+    def _get_move_line_available_qty(self, ml, move):
+        """Get the available/reserved quantity from a stock.move.line.
+        In Odoo 19, the field name can vary. We try several options.
+        """
+        # Try reserved_qty first (Odoo 19 standard)
+        if hasattr(ml, 'reserved_qty') and ml.reserved_qty > 0:
+            return ml.reserved_qty
+        # Try quantity (in some Odoo 19 builds this is the reserved qty
+        # when the move is in 'assigned' state)
+        if ml.quantity and ml.quantity > 0:
+            return ml.quantity
+        # Fallback to the move's demand
+        return move.product_uom_qty
 
     @api.model
     def default_get(self, fields_list):
@@ -45,25 +63,25 @@ class SaleDeliveryWizard(models.TransientModel):
                 and p.picking_type_code == 'outgoing'):
             for move in picking.move_ids.filtered(
                     lambda m: m.state in ('assigned', 'confirmed')):
-                for ml in move.move_line_ids:
-                    qty_available = ml.quantity
-                    if qty_available <= 0:
-                        # Try reserved qty
-                        qty_available = ml.quantity
-                    lines.append((0, 0, {
-                        'picking_id': picking.id,
-                        'move_id': move.id,
-                        'move_line_id': ml.id,
-                        'sale_line_id': move.sale_line_id.id,
-                        'product_id': move.product_id.id,
-                        'lot_id': ml.lot_id.id if ml.lot_id else False,
-                        'qty_available': ml.quantity or move.product_uom_qty,
-                        'qty_to_deliver': 0.0,
-                        'is_selected': False,
-                        'source_location_id': ml.location_id.id,
-                    }))
-                # If no move lines yet, create from move
-                if not move.move_line_ids:
+                if move.move_line_ids:
+                    for ml in move.move_line_ids:
+                        qty_avail = self._get_move_line_available_qty(ml, move)
+                        if qty_avail <= 0:
+                            continue
+                        lines.append((0, 0, {
+                            'picking_id': picking.id,
+                            'move_id': move.id,
+                            'move_line_id': ml.id,
+                            'sale_line_id': move.sale_line_id.id,
+                            'product_id': move.product_id.id,
+                            'lot_id': ml.lot_id.id if ml.lot_id else False,
+                            'qty_available': qty_avail,
+                            'qty_to_deliver': 0.0,
+                            'is_selected': False,
+                            'source_location_id': ml.location_id.id,
+                        }))
+                else:
+                    # No move lines yet, create from move
                     lines.append((0, 0, {
                         'picking_id': picking.id,
                         'move_id': move.id,
@@ -91,11 +109,20 @@ class SaleDeliveryWizard(models.TransientModel):
         return self._reopen()
 
     def action_generate_pick_ticket(self):
-        """Generate pick ticket without inventory impact."""
+        """Generate pick ticket without inventory impact.
+        Keeps the selection stored in pick_ticket for subsequent remission.
+        """
         self.ensure_one()
         selected = self.line_ids.filtered('is_selected')
         if not selected:
             raise UserError(_('Seleccione al menos una línea para el pick ticket.'))
+
+        # Validate quantities
+        for line in selected:
+            if line.qty_to_deliver <= 0:
+                raise UserError(_(
+                    'La cantidad a entregar debe ser mayor a 0 para %s.',
+                    line.product_id.display_name))
 
         doc = self.env['sale.delivery.document'].create({
             'document_type': 'pick_ticket',
@@ -114,18 +141,45 @@ class SaleDeliveryWizard(models.TransientModel):
         })
         doc.action_prepare()
 
+        # Store reference so remission can use it
+        self.pick_ticket_id = doc.id
+
         # Print pick ticket
         return self.env.ref(
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(doc)
 
     def action_generate_remission(self):
-        """Generate remission with inventory impact."""
+        """Generate remission with inventory impact.
+        If a pick ticket was generated in this session, auto-load its lines.
+        Otherwise use current wizard selection.
+        """
         self.ensure_one()
+
         selected = self.line_ids.filtered('is_selected')
+
+        # If nothing selected but we have a pick ticket, load from it
+        if not selected and self.pick_ticket_id:
+            self._load_from_pick_ticket()
+            selected = self.line_ids.filtered('is_selected')
+
+        # If STILL nothing selected, try to find the latest pick ticket
+        # for this order that hasn't been converted to remission yet
+        if not selected:
+            latest_pt = self.env['sale.delivery.document'].search([
+                ('sale_order_id', '=', self.sale_order_id.id),
+                ('document_type', '=', 'pick_ticket'),
+                ('state', '=', 'prepared'),
+            ], order='create_date desc', limit=1)
+            if latest_pt:
+                self.pick_ticket_id = latest_pt.id
+                self._load_from_pick_ticket()
+                selected = self.line_ids.filtered('is_selected')
+
         if not selected:
             raise UserError(_(
-                'Seleccione al menos una línea para la remisión.'))
+                'Seleccione al menos una línea para la remisión, '
+                'o genere primero un Pick Ticket.'))
 
         # Check delivery auth
         order = self.sale_order_id
@@ -173,6 +227,10 @@ class SaleDeliveryWizard(models.TransientModel):
                     'source_location_id': line.source_location_id.id,
                 }) for line in lines],
             })
+            if self.pick_ticket_id:
+                doc.message_post(body=_(
+                    'Remisión generada desde Pick Ticket: %s',
+                    self.pick_ticket_id.name))
             doc.action_confirm()
             docs |= doc
 
@@ -190,6 +248,30 @@ class SaleDeliveryWizard(models.TransientModel):
                 'sticky': False,
             },
         }
+
+    def _load_from_pick_ticket(self):
+        """Load selection from the previously generated pick ticket."""
+        if not self.pick_ticket_id:
+            return
+        pt = self.pick_ticket_id
+        for pt_line in pt.line_ids:
+            # Find matching wizard line
+            wiz_line = False
+            if pt_line.move_line_id:
+                wiz_line = self.line_ids.filtered(
+                    lambda l: l.move_line_id.id == pt_line.move_line_id.id)
+            if not wiz_line and pt_line.move_id and pt_line.lot_id:
+                wiz_line = self.line_ids.filtered(
+                    lambda l: l.move_id.id == pt_line.move_id.id
+                    and l.lot_id.id == pt_line.lot_id.id)
+            if not wiz_line:
+                wiz_line = self.line_ids.filtered(
+                    lambda l: l.product_id.id == pt_line.product_id.id
+                    and l.lot_id.id == pt_line.lot_id.id)
+            if wiz_line:
+                wiz_line = wiz_line[0]
+                wiz_line.is_selected = True
+                wiz_line.qty_to_deliver = pt_line.qty_selected
 
     def _reopen(self):
         return {

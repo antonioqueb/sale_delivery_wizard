@@ -4,7 +4,7 @@
         <field name="name">sale.return.wizard.form</field>
         <field name="model">sale.return.wizard</field>
         <field name="arch" type="xml">
-            <form string="Devolución de Material">
+            <form string="Devolución de Material" class="sale_return_wizard_form">
                 <group>
                     <group>
                         <field name="sale_order_id" readonly="1"/>

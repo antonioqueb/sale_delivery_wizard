@@ -4,11 +4,14 @@
         <field name="name">sale.delivery.wizard.form</field>
         <field name="model">sale.delivery.wizard</field>
         <field name="arch" type="xml">
-            <form string="Entregar Material">
+            <form string="Entregar Material" class="sale_delivery_wizard_form">
                 <group>
                     <group>
                         <field name="sale_order_id" readonly="1"/>
                         <field name="partner_id" readonly="1"/>
+                        <field name="pick_ticket_id" readonly="1"
+                               invisible="not pick_ticket_id"
+                               string="Pick Ticket"/>
                     </group>
                     <group>
                         <field name="delivery_address"/>
