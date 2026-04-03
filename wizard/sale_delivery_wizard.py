@@ -32,20 +32,6 @@ class SaleDeliveryWizard(models.TransientModel):
             wiz.total_selected = sum(selected_lines.mapped('qty_to_deliver'))
             wiz.total_available = sum(wiz.line_ids.mapped('qty_available'))
 
-    def _get_move_line_available_qty(self, ml, move):
-        """Get the available/reserved quantity from a stock.move.line.
-        In Odoo 19, the field name can vary. We try several options.
-        """
-        # Try reserved_qty first (Odoo 19 standard)
-        if hasattr(ml, 'reserved_qty') and ml.reserved_qty > 0:
-            return ml.reserved_qty
-        # Try quantity (in some Odoo 19 builds this is the reserved qty
-        # when the move is in 'assigned' state)
-        if ml.quantity and ml.quantity > 0:
-            return ml.quantity
-        # Fallback to the move's demand
-        return move.product_uom_qty
-
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -65,9 +51,11 @@ class SaleDeliveryWizard(models.TransientModel):
                     lambda m: m.state in ('assigned', 'confirmed')):
                 if move.move_line_ids:
                     for ml in move.move_line_ids:
-                        qty_avail = self._get_move_line_available_qty(ml, move)
+                        # Odoo 19: ml.quantity = reserved qty on assigned moves
+                        # ml.qty_done = done qty (0 until picking is validated)
+                        qty_avail = ml.quantity
                         if qty_avail <= 0:
-                            continue
+                            qty_avail = move.product_uom_qty
                         lines.append((0, 0, {
                             'picking_id': picking.id,
                             'move_id': move.id,
@@ -109,9 +97,7 @@ class SaleDeliveryWizard(models.TransientModel):
         return self._reopen()
 
     def action_generate_pick_ticket(self):
-        """Generate pick ticket without inventory impact.
-        Keeps the selection stored in pick_ticket for subsequent remission.
-        """
+        """Generate pick ticket without inventory impact."""
         self.ensure_one()
         selected = self.line_ids.filtered('is_selected')
         if not selected:
@@ -151,20 +137,18 @@ class SaleDeliveryWizard(models.TransientModel):
 
     def action_generate_remission(self):
         """Generate remission with inventory impact.
-        If a pick ticket was generated in this session, auto-load its lines.
-        Otherwise use current wizard selection.
+        If no lines selected, auto-load from the last pick ticket.
         """
         self.ensure_one()
 
         selected = self.line_ids.filtered('is_selected')
 
-        # If nothing selected but we have a pick ticket, load from it
+        # If nothing selected but we have a pick ticket ref, load from it
         if not selected and self.pick_ticket_id:
             self._load_from_pick_ticket()
             selected = self.line_ids.filtered('is_selected')
 
-        # If STILL nothing selected, try to find the latest pick ticket
-        # for this order that hasn't been converted to remission yet
+        # If STILL nothing, find the latest prepared pick ticket for this order
         if not selected:
             latest_pt = self.env['sale.delivery.document'].search([
                 ('sale_order_id', '=', self.sale_order_id.id),
@@ -255,7 +239,6 @@ class SaleDeliveryWizard(models.TransientModel):
             return
         pt = self.pick_ticket_id
         for pt_line in pt.line_ids:
-            # Find matching wizard line
             wiz_line = False
             if pt_line.move_line_id:
                 wiz_line = self.line_ids.filtered(
