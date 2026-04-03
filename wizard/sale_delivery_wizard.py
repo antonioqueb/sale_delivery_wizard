@@ -1,5 +1,8 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleDeliveryWizard(models.TransientModel):
@@ -44,15 +47,12 @@ class SaleDeliveryWizard(models.TransientModel):
             order.partner_shipping_id.contact_address or '')
 
         lines = []
-        # Find ALL pickings linked to this SO that are ready
-        # Don't filter by picking_type_code — SOM uses internal picks
         for picking in order.picking_ids.filtered(
                 lambda p: p.state in ('assigned', 'confirmed')):
             for move in picking.move_ids.filtered(
                     lambda m: m.state in ('assigned', 'confirmed')):
                 if move.move_line_ids:
                     for ml in move.move_line_ids:
-                        # Odoo 19: ml.quantity = reserved qty on assigned moves
                         qty_avail = ml.quantity
                         if qty_avail <= 0:
                             qty_avail = move.product_uom_qty
@@ -69,7 +69,6 @@ class SaleDeliveryWizard(models.TransientModel):
                             'source_location_id': ml.location_id.id,
                         }))
                 else:
-                    # No move lines yet, create from move
                     lines.append((0, 0, {
                         'picking_id': picking.id,
                         'move_id': move.id,
@@ -82,28 +81,43 @@ class SaleDeliveryWizard(models.TransientModel):
         res['line_ids'] = lines
         return res
 
+    def _ensure_qty_on_selected(self):
+        """For selected lines where qty_to_deliver is 0, auto-fill from
+        qty_available. Also refresh qty_available from the move line if
+        it was lost during save."""
+        for line in self.line_ids.filtered('is_selected'):
+            # Refresh qty_available from source if it's 0
+            if line.qty_available <= 0 and line.move_line_id:
+                line.qty_available = line.move_line_id.quantity or 0.0
+            if line.qty_available <= 0 and line.move_id:
+                line.qty_available = line.move_id.product_uom_qty
+            # Auto-fill qty_to_deliver if still 0
+            if line.qty_to_deliver <= 0:
+                line.qty_to_deliver = line.qty_available
+
     def action_select_all(self):
-        """Select all lines with full available qty."""
         for line in self.line_ids:
             line.is_selected = True
             line.qty_to_deliver = line.qty_available
         return self._reopen()
 
     def action_deselect_all(self):
-        """Deselect all lines."""
         for line in self.line_ids:
             line.is_selected = False
             line.qty_to_deliver = 0.0
         return self._reopen()
 
     def action_generate_pick_ticket(self):
-        """Generate pick ticket without inventory impact."""
         self.ensure_one()
         selected = self.line_ids.filtered('is_selected')
         if not selected:
             raise UserError(_('Seleccione al menos una línea para el pick ticket.'))
 
-        # Validate quantities
+        # Auto-fill qty if onchange didn't persist
+        self._ensure_qty_on_selected()
+        selected = self.line_ids.filtered('is_selected')
+
+        # Validate
         for line in selected:
             if line.qty_to_deliver <= 0:
                 raise UserError(_(
@@ -126,29 +140,22 @@ class SaleDeliveryWizard(models.TransientModel):
             }) for line in selected],
         })
         doc.action_prepare()
-
-        # Store reference so remission can use it
         self.pick_ticket_id = doc.id
 
-        # Print pick ticket
         return self.env.ref(
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(doc)
 
     def action_generate_remission(self):
-        """Generate remission with inventory impact.
-        If no lines selected, auto-load from the last pick ticket.
-        """
         self.ensure_one()
 
         selected = self.line_ids.filtered('is_selected')
 
-        # If nothing selected but we have a pick ticket ref, load from it
+        # If nothing selected, try loading from pick ticket
         if not selected and self.pick_ticket_id:
             self._load_from_pick_ticket()
             selected = self.line_ids.filtered('is_selected')
 
-        # If STILL nothing, find the latest prepared pick ticket for this order
         if not selected:
             latest_pt = self.env['sale.delivery.document'].search([
                 ('sale_order_id', '=', self.sale_order_id.id),
@@ -165,6 +172,10 @@ class SaleDeliveryWizard(models.TransientModel):
                 'Seleccione al menos una línea para la remisión, '
                 'o genere primero un Pick Ticket.'))
 
+        # Auto-fill qty if onchange didn't persist
+        self._ensure_qty_on_selected()
+        selected = self.line_ids.filtered('is_selected')
+
         # Check delivery auth
         order = self.sale_order_id
         if hasattr(order, 'delivery_auth_state'):
@@ -174,7 +185,7 @@ class SaleDeliveryWizard(models.TransientModel):
                     raise UserError(_(
                         'Entrega bloqueada: pedido sin autorización de pago.'))
 
-        # Validate quantities
+        # Validate
         for line in selected:
             if line.qty_to_deliver <= 0:
                 raise UserError(_(
@@ -234,7 +245,6 @@ class SaleDeliveryWizard(models.TransientModel):
         }
 
     def _load_from_pick_ticket(self):
-        """Load selection from the previously generated pick ticket."""
         if not self.pick_ticket_id:
             return
         pt = self.pick_ticket_id
