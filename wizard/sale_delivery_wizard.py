@@ -44,15 +44,15 @@ class SaleDeliveryWizard(models.TransientModel):
             order.partner_shipping_id.contact_address or '')
 
         lines = []
+        # Find ALL pickings linked to this SO that are ready
+        # Don't filter by picking_type_code — SOM uses internal picks
         for picking in order.picking_ids.filtered(
-                lambda p: p.state in ('assigned', 'confirmed')
-                and p.picking_type_code == 'outgoing'):
+                lambda p: p.state in ('assigned', 'confirmed')):
             for move in picking.move_ids.filtered(
                     lambda m: m.state in ('assigned', 'confirmed')):
                 if move.move_line_ids:
                     for ml in move.move_line_ids:
                         # Odoo 19: ml.quantity = reserved qty on assigned moves
-                        # ml.qty_done = done qty (0 until picking is validated)
                         qty_avail = ml.quantity
                         if qty_avail <= 0:
                             qty_avail = move.product_uom_qty
