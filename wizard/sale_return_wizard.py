@@ -36,14 +36,15 @@ class SaleReturnWizard(models.TransientModel):
             for move in picking.move_ids.filtered(
                     lambda m: m.state == 'done'):
                 for ml in move.move_line_ids:
-                    if ml.quantity > 0:
+                    qty = ml.quantity or ml.qty_done or 0.0
+                    if qty > 0:
                         lines.append((0, 0, {
                             'move_id': move.id,
                             'move_line_id': ml.id,
                             'sale_line_id': move.sale_line_id.id,
                             'product_id': move.product_id.id,
                             'lot_id': ml.lot_id.id if ml.lot_id else False,
-                            'qty_delivered': ml.quantity,
+                            'qty_delivered': qty,
                             'qty_to_return': 0.0,
                             'is_selected': False,
                         }))
@@ -158,9 +159,32 @@ class SaleReturnWizardLine(models.TransientModel):
     qty_delivered = fields.Float(string='Entregado')
     qty_to_return = fields.Float(string='A Devolver')
 
+    def _refresh_qty_delivered(self):
+        """Re-read qty_delivered from move_line if lost by transient save."""
+        if self.qty_delivered <= 0 and self.move_line_id:
+            self.qty_delivered = (
+                self.move_line_id.quantity
+                or self.move_line_id.qty_done
+                or 0.0)
+
     @api.onchange('is_selected')
     def _onchange_is_selected(self):
-        if self.is_selected and self.qty_to_return <= 0:
-            self.qty_to_return = self.qty_delivered
-        elif not self.is_selected:
+        if self.is_selected:
+            self._refresh_qty_delivered()
+            if self.qty_to_return <= 0:
+                self.qty_to_return = self.qty_delivered
+        else:
             self.qty_to_return = 0.0
+
+    @api.onchange('qty_to_return')
+    def _onchange_qty_to_return(self):
+        if self.qty_to_return > 0:
+            self.is_selected = True
+        self._refresh_qty_delivered()
+        if self.qty_to_return > self.qty_delivered and self.qty_delivered > 0:
+            return {'warning': {
+                'title': _('Cantidad excedida'),
+                'message': _(
+                    'La cantidad a devolver excede lo entregado (%s).',
+                    self.qty_delivered),
+            }}
