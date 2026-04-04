@@ -45,8 +45,8 @@ class SaleReturnWizard(models.TransientModel):
                             'product_id': move.product_id.id,
                             'lot_id': ml.lot_id.id if ml.lot_id else False,
                             'qty_delivered': qty,
-                            'qty_to_return': 0.0,
-                            'is_selected': False,
+                            'qty_to_return': qty,
+                            'is_selected': True,
                         }))
         res['line_ids'] = lines
         return res
