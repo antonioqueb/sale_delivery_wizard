@@ -211,7 +211,6 @@ class SaleReturnWizard(models.TransientModel):
 
         for wl in wizard_lines:
             move_vals = {
-                'name': _('Reentrega: %s', wl.product_id.display_name),
                 'product_id': wl.product_id.id,
                 'product_uom_qty': wl.qty_to_return,
                 'product_uom': wl.move_id.product_uom.id,
