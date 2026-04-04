@@ -154,10 +154,25 @@ class SaleReturnWizardLine(models.TransientModel):
     sale_line_id = fields.Many2one(
         'sale.order.line', string='Línea de Venta')
     product_id = fields.Many2one(
-        'product.product', string='Producto', required=True)
+        'product.product', string='Producto')
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
     qty_delivered = fields.Float(string='Entregado')
     qty_to_return = fields.Float(string='A Devolver')
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Ensure product_id and lot_id are filled from move/move_line."""
+        for vals in vals_list:
+            if not vals.get('product_id') and vals.get('move_id'):
+                move = self.env['stock.move'].browse(vals['move_id'])
+                vals['product_id'] = move.product_id.id
+            if not vals.get('lot_id') and vals.get('move_line_id'):
+                ml = self.env['stock.move.line'].browse(vals['move_line_id'])
+                vals['lot_id'] = ml.lot_id.id if ml.lot_id else False
+            if not vals.get('qty_delivered') and vals.get('move_line_id'):
+                ml = self.env['stock.move.line'].browse(vals['move_line_id'])
+                vals['qty_delivered'] = ml.quantity or ml.qty_done or 0.0
+        return super().create(vals_list)
 
     def _refresh_qty_delivered(self):
         """Re-read qty_delivered from move_line if lost by transient save."""
