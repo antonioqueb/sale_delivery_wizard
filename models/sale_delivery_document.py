@@ -99,11 +99,9 @@ class SaleDeliveryDocument(models.Model):
         return super().create(vals_list)
 
     def action_prepare(self):
-        """Mark document as prepared (pick ticket ready)."""
         self.filtered(lambda d: d.state == 'draft').write({'state': 'prepared'})
 
     def action_confirm(self):
-        """Confirm document - for remissions this triggers inventory impact."""
         for doc in self.filtered(lambda d: d.state in ('draft', 'prepared')):
             if doc.document_type == 'remission':
                 doc._action_confirm_remission()
@@ -118,10 +116,9 @@ class SaleDeliveryDocument(models.Model):
         ).write({'state': 'cancelled'})
 
     def _action_confirm_remission(self):
-        """Validate the picking chain to trigger inventory moves.
-        For 2-step delivery (pick_ship):
-          1. Validate the Pick (internal: Existencias -> Salida)
-          2. Find and validate the chained OUT (outgoing: Salida -> Customers)
+        """Validate the full picking chain (pick_ship = 2 steps).
+        Step 1: Validate Pick (internal: Existencias → Salida)
+        Step 2: Find and validate OUT (outgoing: Salida → Customers)
         """
         self.ensure_one()
         if not self.picking_id:
@@ -129,66 +126,52 @@ class SaleDeliveryDocument(models.Model):
                 'No hay picking asociado para confirmar la remisión.'))
 
         picking = self.picking_id
+
+        # ── Step 1: Validate the Pick ──
         if picking.state == 'done':
-            _logger.info('Pick %s already done, skipping validation.', picking.name)
+            _logger.info('Pick %s already done, skipping.', picking.name)
         elif picking.state in ('assigned', 'confirmed'):
-            # Set quantities done on move lines based on document lines
             for doc_line in self.line_ids:
                 if doc_line.move_line_id and doc_line.qty_selected > 0:
                     doc_line.move_line_id.quantity = doc_line.qty_selected
-            # Validate the Pick
             picking.with_context(
                 skip_backorder=False,
                 picking_ids_not_to_backorder=[],
             ).button_validate()
-            _logger.info('Pick %s validated successfully.', picking.name)
+            _logger.info('Pick %s validated.', picking.name)
         else:
             raise UserError(_(
-                'El picking %s no está en estado válido para validar (estado: %s).',
+                'El picking %s no está en estado válido (estado: %s).',
                 picking.name, picking.state))
 
-        # === Step 2: Find and validate the chained OUT picking ===
+        # ── Step 2: Find and validate the chained OUT ──
         out_picking = self._find_chained_out_picking(picking)
         if out_picking:
             self.out_picking_id = out_picking.id
             if out_picking.state == 'done':
                 _logger.info('OUT %s already done.', out_picking.name)
-            elif out_picking.state in ('assigned', 'confirmed', 'waiting'):
-                # Wait for assignment if needed
-                if out_picking.state in ('confirmed', 'waiting'):
-                    out_picking.action_assign()
+                return
 
-                if out_picking.state == 'assigned':
-                    # Set quantities done on OUT move lines
-                    for out_move in out_picking.move_ids:
-                        for out_ml in out_move.move_line_ids:
-                            if out_ml.quantity > 0:
-                                # quantity is already the reserved amount
-                                pass  # quantity field serves as both reserved and done in Odoo 19
-                    # Validate the OUT picking
-                    out_picking.with_context(
-                        skip_backorder=False,
-                        picking_ids_not_to_backorder=[],
-                    ).button_validate()
-                    _logger.info('OUT %s validated successfully.', out_picking.name)
-                else:
-                    _logger.warning(
-                        'OUT %s could not be assigned (state: %s). '
-                        'Manual validation required.',
-                        out_picking.name, out_picking.state)
+            # Assign if waiting
+            if out_picking.state in ('confirmed', 'waiting'):
+                out_picking.action_assign()
+
+            if out_picking.state == 'assigned':
+                # Quantities are already set via propagation
+                out_picking.with_context(
+                    skip_backorder=False,
+                    picking_ids_not_to_backorder=[],
+                ).button_validate()
+                _logger.info('OUT %s validated.', out_picking.name)
             else:
                 _logger.warning(
-                    'OUT %s in unexpected state: %s',
+                    'OUT %s not assignable (state: %s). Needs manual validation.',
                     out_picking.name, out_picking.state)
         else:
-            # Single-step delivery or no chained picking found
-            _logger.info('No chained OUT picking found for %s. '
-                         'Assuming single-step delivery.', picking.name)
+            _logger.info('No chained OUT picking found. Single-step delivery.')
 
     def _find_chained_out_picking(self, pick_picking):
-        """Find the outgoing (OUT) picking chained to the given internal pick.
-        Follows move_dest_ids from the pick's moves to find the OUT picking.
-        """
+        """Follow move_dest_ids to find the outgoing picking."""
         out_pickings = self.env['stock.picking']
         for move in pick_picking.move_ids:
             for dest_move in move.move_dest_ids:
@@ -199,25 +182,19 @@ class SaleDeliveryDocument(models.Model):
         if len(out_pickings) == 1:
             return out_pickings
         elif len(out_pickings) > 1:
-            # Multiple OUT pickings — return the one that's not done yet,
-            # or the first one
             pending = out_pickings.filtered(lambda p: p.state != 'done')
             return pending[0] if pending else out_pickings[0]
         return False
 
     def _action_confirm_return(self):
-        """Process return picking."""
         self.ensure_one()
         if not self.return_picking_id:
-            raise UserError(_(
-                'No hay picking de devolución asociado.'))
+            raise UserError(_('No hay picking de devolución asociado.'))
         picking = self.return_picking_id
         for doc_line in self.line_ids:
             if doc_line.move_line_id and doc_line.qty_selected > 0:
                 doc_line.move_line_id.quantity = doc_line.qty_selected
-        picking.with_context(
-            skip_backorder=False,
-        ).button_validate()
+        picking.with_context(skip_backorder=False).button_validate()
 
 
 class SaleDeliveryDocumentLine(models.Model):
@@ -230,13 +207,10 @@ class SaleDeliveryDocumentLine(models.Model):
         required=True, ondelete='cascade', index=True)
     sequence = fields.Integer(default=10)
 
-    sale_line_id = fields.Many2one(
-        'sale.order.line', string='Línea de Venta')
+    sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
     move_id = fields.Many2one('stock.move', string='Movimiento')
-    move_line_id = fields.Many2one(
-        'stock.move.line', string='Línea de Movimiento')
-    product_id = fields.Many2one(
-        'product.product', string='Producto', required=True)
+    move_line_id = fields.Many2one('stock.move.line', string='Línea de Movimiento')
+    product_id = fields.Many2one('product.product', string='Producto', required=True)
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
     quant_id = fields.Many2one('stock.quant', string='Quant')
 
@@ -244,8 +218,7 @@ class SaleDeliveryDocumentLine(models.Model):
     qty_done = fields.Float(string='Cantidad Realizada')
     qty_returned = fields.Float(string='Cantidad Devuelta')
 
-    source_location_id = fields.Many2one(
-        'stock.location', string='Ubicación Origen')
+    source_location_id = fields.Many2one('stock.location', string='Ubicación Origen')
 
     is_swap_origin = fields.Boolean(default=False)
     is_swap_target = fields.Boolean(default=False)
