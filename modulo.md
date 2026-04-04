@@ -236,11 +236,9 @@ class SaleDeliveryDocument(models.Model):
         return super().create(vals_list)
 
     def action_prepare(self):
-        """Mark document as prepared (pick ticket ready)."""
         self.filtered(lambda d: d.state == 'draft').write({'state': 'prepared'})
 
     def action_confirm(self):
-        """Confirm document - for remissions this triggers inventory impact."""
         for doc in self.filtered(lambda d: d.state in ('draft', 'prepared')):
             if doc.document_type == 'remission':
                 doc._action_confirm_remission()
@@ -255,10 +253,9 @@ class SaleDeliveryDocument(models.Model):
         ).write({'state': 'cancelled'})
 
     def _action_confirm_remission(self):
-        """Validate the picking chain to trigger inventory moves.
-        For 2-step delivery (pick_ship):
-          1. Validate the Pick (internal: Existencias -> Salida)
-          2. Find and validate the chained OUT (outgoing: Salida -> Customers)
+        """Validate the full picking chain (pick_ship = 2 steps).
+        Step 1: Validate Pick (internal: Existencias → Salida)
+        Step 2: Find and validate OUT (outgoing: Salida → Customers)
         """
         self.ensure_one()
         if not self.picking_id:
@@ -266,66 +263,52 @@ class SaleDeliveryDocument(models.Model):
                 'No hay picking asociado para confirmar la remisión.'))
 
         picking = self.picking_id
+
+        # ── Step 1: Validate the Pick ──
         if picking.state == 'done':
-            _logger.info('Pick %s already done, skipping validation.', picking.name)
+            _logger.info('Pick %s already done, skipping.', picking.name)
         elif picking.state in ('assigned', 'confirmed'):
-            # Set quantities done on move lines based on document lines
             for doc_line in self.line_ids:
                 if doc_line.move_line_id and doc_line.qty_selected > 0:
                     doc_line.move_line_id.quantity = doc_line.qty_selected
-            # Validate the Pick
             picking.with_context(
                 skip_backorder=False,
                 picking_ids_not_to_backorder=[],
             ).button_validate()
-            _logger.info('Pick %s validated successfully.', picking.name)
+            _logger.info('Pick %s validated.', picking.name)
         else:
             raise UserError(_(
-                'El picking %s no está en estado válido para validar (estado: %s).',
+                'El picking %s no está en estado válido (estado: %s).',
                 picking.name, picking.state))
 
-        # === Step 2: Find and validate the chained OUT picking ===
+        # ── Step 2: Find and validate the chained OUT ──
         out_picking = self._find_chained_out_picking(picking)
         if out_picking:
             self.out_picking_id = out_picking.id
             if out_picking.state == 'done':
                 _logger.info('OUT %s already done.', out_picking.name)
-            elif out_picking.state in ('assigned', 'confirmed', 'waiting'):
-                # Wait for assignment if needed
-                if out_picking.state in ('confirmed', 'waiting'):
-                    out_picking.action_assign()
+                return
 
-                if out_picking.state == 'assigned':
-                    # Set quantities done on OUT move lines
-                    for out_move in out_picking.move_ids:
-                        for out_ml in out_move.move_line_ids:
-                            if out_ml.quantity > 0:
-                                # quantity is already the reserved amount
-                                pass  # quantity field serves as both reserved and done in Odoo 19
-                    # Validate the OUT picking
-                    out_picking.with_context(
-                        skip_backorder=False,
-                        picking_ids_not_to_backorder=[],
-                    ).button_validate()
-                    _logger.info('OUT %s validated successfully.', out_picking.name)
-                else:
-                    _logger.warning(
-                        'OUT %s could not be assigned (state: %s). '
-                        'Manual validation required.',
-                        out_picking.name, out_picking.state)
+            # Assign if waiting
+            if out_picking.state in ('confirmed', 'waiting'):
+                out_picking.action_assign()
+
+            if out_picking.state == 'assigned':
+                # Quantities are already set via propagation
+                out_picking.with_context(
+                    skip_backorder=False,
+                    picking_ids_not_to_backorder=[],
+                ).button_validate()
+                _logger.info('OUT %s validated.', out_picking.name)
             else:
                 _logger.warning(
-                    'OUT %s in unexpected state: %s',
+                    'OUT %s not assignable (state: %s). Needs manual validation.',
                     out_picking.name, out_picking.state)
         else:
-            # Single-step delivery or no chained picking found
-            _logger.info('No chained OUT picking found for %s. '
-                         'Assuming single-step delivery.', picking.name)
+            _logger.info('No chained OUT picking found. Single-step delivery.')
 
     def _find_chained_out_picking(self, pick_picking):
-        """Find the outgoing (OUT) picking chained to the given internal pick.
-        Follows move_dest_ids from the pick's moves to find the OUT picking.
-        """
+        """Follow move_dest_ids to find the outgoing picking."""
         out_pickings = self.env['stock.picking']
         for move in pick_picking.move_ids:
             for dest_move in move.move_dest_ids:
@@ -336,25 +319,19 @@ class SaleDeliveryDocument(models.Model):
         if len(out_pickings) == 1:
             return out_pickings
         elif len(out_pickings) > 1:
-            # Multiple OUT pickings — return the one that's not done yet,
-            # or the first one
             pending = out_pickings.filtered(lambda p: p.state != 'done')
             return pending[0] if pending else out_pickings[0]
         return False
 
     def _action_confirm_return(self):
-        """Process return picking."""
         self.ensure_one()
         if not self.return_picking_id:
-            raise UserError(_(
-                'No hay picking de devolución asociado.'))
+            raise UserError(_('No hay picking de devolución asociado.'))
         picking = self.return_picking_id
         for doc_line in self.line_ids:
             if doc_line.move_line_id and doc_line.qty_selected > 0:
                 doc_line.move_line_id.quantity = doc_line.qty_selected
-        picking.with_context(
-            skip_backorder=False,
-        ).button_validate()
+        picking.with_context(skip_backorder=False).button_validate()
 
 
 class SaleDeliveryDocumentLine(models.Model):
@@ -367,13 +344,10 @@ class SaleDeliveryDocumentLine(models.Model):
         required=True, ondelete='cascade', index=True)
     sequence = fields.Integer(default=10)
 
-    sale_line_id = fields.Many2one(
-        'sale.order.line', string='Línea de Venta')
+    sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
     move_id = fields.Many2one('stock.move', string='Movimiento')
-    move_line_id = fields.Many2one(
-        'stock.move.line', string='Línea de Movimiento')
-    product_id = fields.Many2one(
-        'product.product', string='Producto', required=True)
+    move_line_id = fields.Many2one('stock.move.line', string='Línea de Movimiento')
+    product_id = fields.Many2one('product.product', string='Producto', required=True)
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
     quant_id = fields.Many2one('stock.quant', string='Quant')
 
@@ -381,8 +355,7 @@ class SaleDeliveryDocumentLine(models.Model):
     qty_done = fields.Float(string='Cantidad Realizada')
     qty_returned = fields.Float(string='Cantidad Devuelta')
 
-    source_location_id = fields.Many2one(
-        'stock.location', string='Ubicación Origen')
+    source_location_id = fields.Many2one('stock.location', string='Ubicación Origen')
 
     is_swap_origin = fields.Boolean(default=False)
     is_swap_target = fields.Boolean(default=False)
@@ -1334,13 +1307,20 @@ from . import sale_swap_wizard
         <field name="model">sale.delivery.wizard</field>
         <field name="arch" type="xml">
             <form string="Entregar Material" class="sale_delivery_wizard_form">
+                <!-- Status banner -->
+                <div class="alert alert-info p-2 mb-2 text-center"
+                     invisible="wizard_state != 'pick_ticket'">
+                    <strong>Pick Ticket generado:</strong>
+                    <field name="pick_ticket_id" readonly="1" class="d-inline"/>
+                    — Puede hacer swaps, ajustar selección, y luego generar la remisión.
+                </div>
+
+                <field name="wizard_state" invisible="1"/>
+
                 <group>
                     <group>
                         <field name="sale_order_id" readonly="1"/>
                         <field name="partner_id" readonly="1"/>
-                        <field name="pick_ticket_id" readonly="1"
-                               invisible="not pick_ticket_id"
-                               string="Pick Ticket"/>
                     </group>
                     <group>
                         <field name="delivery_address"/>
@@ -1348,6 +1328,7 @@ from . import sale_swap_wizard
                                placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
                     </group>
                 </group>
+
                 <group>
                     <div class="d-flex gap-2 mb-2">
                         <button name="action_select_all" string="Seleccionar Todo"
@@ -1356,6 +1337,7 @@ from . import sale_swap_wizard
                                 type="object" class="btn-secondary btn-sm"/>
                     </div>
                 </group>
+
                 <field name="line_ids">
                     <list editable="bottom">
                         <field name="is_selected" widget="boolean_toggle"/>
@@ -1372,21 +1354,35 @@ from . import sale_swap_wizard
                         <field name="sale_line_id" column_invisible="1"/>
                     </list>
                 </field>
+
                 <group>
                     <group>
                         <field name="total_selected" string="Total a Entregar"/>
                         <field name="total_available" string="Total Disponible"/>
                     </group>
                 </group>
+
                 <footer>
+                    <!-- Step 1: Generate Pick Ticket (only when no PT yet) -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
-                            help="Genera documento de preparación sin descontar inventario"/>
+                            invisible="wizard_state != 'select'"
+                            help="Genera documento de preparación. No descuenta inventario."/>
+
+                    <!-- Step 2: After PT generated - can print, swap, or go to remission -->
+                    <button name="action_print_pick_ticket"
+                            string="Imprimir Pick Ticket"
+                            type="object" class="btn-secondary"
+                            invisible="wizard_state == 'select'"
+                            help="Imprime el pick ticket generado."/>
+
+                    <!-- Remission available at any step -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
                             type="object" class="btn-primary"
-                            help="Genera remisión y descuenta inventario"/>
+                            help="Genera remisión y descuenta inventario. Usa la selección del Pick Ticket."/>
+
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
@@ -1414,6 +1410,12 @@ class SaleDeliveryWizard(models.TransientModel):
     delivery_address = fields.Text(string='Dirección de Entrega')
     special_instructions = fields.Text(string='Instrucciones Especiales')
 
+    # ── Wizard state ──
+    wizard_state = fields.Selection([
+        ('select', 'Selección'),
+        ('pick_ticket', 'Pick Ticket Generado'),
+    ], default='select', string='Paso')
+
     line_ids = fields.One2many(
         'sale.delivery.wizard.line', 'wizard_id', string='Líneas')
 
@@ -1422,9 +1424,8 @@ class SaleDeliveryWizard(models.TransientModel):
     total_available = fields.Float(
         compute='_compute_totals', string='Total Disponible')
 
-    # Reference to pick ticket if one was generated in this session
     pick_ticket_id = fields.Many2one(
-        'sale.delivery.document', string='Pick Ticket Generado')
+        'sale.delivery.document', string='Pick Ticket')
 
     @api.depends('line_ids.qty_to_deliver', 'line_ids.is_selected')
     def _compute_totals(self):
@@ -1444,6 +1445,29 @@ class SaleDeliveryWizard(models.TransientModel):
         res['delivery_address'] = (
             order.partner_shipping_id.contact_address or '')
 
+        # ── Check if there's a pending pick ticket for this order ──
+        pending_pt = self.env['sale.delivery.document'].search([
+            ('sale_order_id', '=', order.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ], order='create_date desc', limit=1)
+
+        if pending_pt:
+            # Load from pick ticket — only its lines, pre-selected
+            res['pick_ticket_id'] = pending_pt.id
+            res['wizard_state'] = 'pick_ticket'
+            res['delivery_address'] = pending_pt.delivery_address or res.get('delivery_address', '')
+            res['special_instructions'] = pending_pt.special_instructions or ''
+            res['line_ids'] = self._build_lines_from_pick_ticket(order, pending_pt)
+        else:
+            # Fresh wizard — all lines, all selected
+            res['wizard_state'] = 'select'
+            res['line_ids'] = self._build_lines_from_pickings(order)
+
+        return res
+
+    def _build_lines_from_pickings(self, order):
+        """Build wizard lines from all pending pickings. All pre-selected."""
         lines = []
         for picking in order.picking_ids.filtered(
                 lambda p: p.state in ('assigned', 'confirmed')):
@@ -1462,8 +1486,56 @@ class SaleDeliveryWizard(models.TransientModel):
                             'product_id': move.product_id.id,
                             'lot_id': ml.lot_id.id if ml.lot_id else False,
                             'qty_available': qty_avail,
-                            'qty_to_deliver': 0.0,
-                            'is_selected': False,
+                            'qty_to_deliver': qty_avail,
+                            'is_selected': True,
+                            'source_location_id': ml.location_id.id,
+                        }))
+                else:
+                    lines.append((0, 0, {
+                        'picking_id': picking.id,
+                        'move_id': move.id,
+                        'sale_line_id': move.sale_line_id.id,
+                        'product_id': move.product_id.id,
+                        'qty_available': move.product_uom_qty,
+                        'qty_to_deliver': move.product_uom_qty,
+                        'is_selected': True,
+                    }))
+        return lines
+
+    def _build_lines_from_pick_ticket(self, order, pt):
+        """Build wizard lines from pickings, but only select those in the PT."""
+        # Build a lookup of PT lines: (move_line_id, lot_id) -> qty
+        pt_lookup = {}
+        for pt_line in pt.line_ids:
+            key = (pt_line.move_line_id.id, pt_line.lot_id.id)
+            pt_lookup[key] = pt_line.qty_selected
+
+        lines = []
+        for picking in order.picking_ids.filtered(
+                lambda p: p.state in ('assigned', 'confirmed')):
+            for move in picking.move_ids.filtered(
+                    lambda m: m.state in ('assigned', 'confirmed')):
+                if move.move_line_ids:
+                    for ml in move.move_line_ids:
+                        qty_avail = ml.quantity
+                        if qty_avail <= 0:
+                            qty_avail = move.product_uom_qty
+
+                        # Check if this line is in the pick ticket
+                        key = (ml.id, ml.lot_id.id if ml.lot_id else False)
+                        pt_qty = pt_lookup.get(key, 0.0)
+                        is_in_pt = pt_qty > 0
+
+                        lines.append((0, 0, {
+                            'picking_id': picking.id,
+                            'move_id': move.id,
+                            'move_line_id': ml.id,
+                            'sale_line_id': move.sale_line_id.id,
+                            'product_id': move.product_id.id,
+                            'lot_id': ml.lot_id.id if ml.lot_id else False,
+                            'qty_available': qty_avail,
+                            'qty_to_deliver': pt_qty if is_in_pt else 0.0,
+                            'is_selected': is_in_pt,
                             'source_location_id': ml.location_id.id,
                         }))
                 else:
@@ -1476,51 +1548,53 @@ class SaleDeliveryWizard(models.TransientModel):
                         'qty_to_deliver': 0.0,
                         'is_selected': False,
                     }))
-        res['line_ids'] = lines
-        return res
+        return lines
 
     def _ensure_qty_on_selected(self):
-        """For selected lines where qty_to_deliver is 0, auto-fill from
-        qty_available. Also refresh qty_available from the move line if
-        it was lost during save."""
+        """Safety net: refresh qty from source if lost during save."""
         for line in self.line_ids.filtered('is_selected'):
-            # Refresh qty_available from source if it's 0
             if line.qty_available <= 0 and line.move_line_id:
                 line.qty_available = line.move_line_id.quantity or 0.0
             if line.qty_available <= 0 and line.move_id:
                 line.qty_available = line.move_id.product_uom_qty
-            # Auto-fill qty_to_deliver if still 0
             if line.qty_to_deliver <= 0:
                 line.qty_to_deliver = line.qty_available
 
-    def action_select_all(self):
-        for line in self.line_ids:
-            line.is_selected = True
-            line.qty_to_deliver = line.qty_available
-        return self._reopen()
-
-    def action_deselect_all(self):
-        for line in self.line_ids:
-            line.is_selected = False
-            line.qty_to_deliver = 0.0
-        return self._reopen()
-
-    def action_generate_pick_ticket(self):
-        self.ensure_one()
-        selected = self.line_ids.filtered('is_selected')
-        if not selected:
-            raise UserError(_('Seleccione al menos una línea para el pick ticket.'))
-
-        # Auto-fill qty if onchange didn't persist
+    def _get_selected_lines(self):
+        """Get selected lines, ensuring qty is filled."""
         self._ensure_qty_on_selected()
         selected = self.line_ids.filtered('is_selected')
-
-        # Validate
+        if not selected:
+            raise UserError(_('Seleccione al menos una línea.'))
         for line in selected:
             if line.qty_to_deliver <= 0:
                 raise UserError(_(
                     'La cantidad a entregar debe ser mayor a 0 para %s.',
                     line.product_id.display_name))
+        return selected
+
+    # ── Button actions ──
+
+    def action_select_all(self):
+        for line in self.line_ids:
+            line.is_selected = True
+            if line.qty_available > 0 and line.qty_to_deliver <= 0:
+                line.qty_to_deliver = line.qty_available
+        return self._refresh()
+
+    def action_deselect_all(self):
+        for line in self.line_ids:
+            line.is_selected = False
+            line.qty_to_deliver = 0.0
+        return self._refresh()
+
+    def action_generate_pick_ticket(self):
+        """Generate pick ticket. Closes wizard.
+        Next time user clicks 'Entregar', wizard will detect the PT
+        and pre-load its selection automatically.
+        """
+        self.ensure_one()
+        selected = self._get_selected_lines()
 
         doc = self.env['sale.delivery.document'].create({
             'document_type': 'pick_ticket',
@@ -1538,41 +1612,34 @@ class SaleDeliveryWizard(models.TransientModel):
             }) for line in selected],
         })
         doc.action_prepare()
-        self.pick_ticket_id = doc.id
 
+        # Print pick ticket — this closes the wizard
         return self.env.ref(
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(doc)
 
-    def action_generate_remission(self):
+    def action_print_pick_ticket(self):
+        """Re-print the pick ticket."""
         self.ensure_one()
+        if not self.pick_ticket_id:
+            raise UserError(_('No hay Pick Ticket para imprimir.'))
+        return self.env.ref(
+            'sale_delivery_wizard.action_report_pick_ticket'
+        ).report_action(self.pick_ticket_id)
 
-        selected = self.line_ids.filtered('is_selected')
+    def action_generate_remission(self):
+        """Generate remission ONLY for selected lines."""
+        self.ensure_one()
+        selected = self._get_selected_lines()
 
-        # If nothing selected, try loading from pick ticket
-        if not selected and self.pick_ticket_id:
-            self._load_from_pick_ticket()
-            selected = self.line_ids.filtered('is_selected')
-
-        if not selected:
-            latest_pt = self.env['sale.delivery.document'].search([
-                ('sale_order_id', '=', self.sale_order_id.id),
-                ('document_type', '=', 'pick_ticket'),
-                ('state', '=', 'prepared'),
-            ], order='create_date desc', limit=1)
-            if latest_pt:
-                self.pick_ticket_id = latest_pt.id
-                self._load_from_pick_ticket()
-                selected = self.line_ids.filtered('is_selected')
-
-        if not selected:
-            raise UserError(_(
-                'Seleccione al menos una línea para la remisión, '
-                'o genere primero un Pick Ticket.'))
-
-        # Auto-fill qty if onchange didn't persist
-        self._ensure_qty_on_selected()
-        selected = self.line_ids.filtered('is_selected')
+        # Validate no over-delivery
+        for line in selected:
+            if line.qty_to_deliver > line.qty_available:
+                raise UserError(_(
+                    'No puede entregar más de lo disponible para %s. '
+                    'Disponible: %s, Solicitado: %s',
+                    line.product_id.display_name,
+                    line.qty_available, line.qty_to_deliver))
 
         # Check delivery auth
         order = self.sale_order_id
@@ -1582,19 +1649,6 @@ class SaleDeliveryWizard(models.TransientModel):
                         'sale_delivery_wizard.group_delivery_authorizer'):
                     raise UserError(_(
                         'Entrega bloqueada: pedido sin autorización de pago.'))
-
-        # Validate
-        for line in selected:
-            if line.qty_to_deliver <= 0:
-                raise UserError(_(
-                    'La cantidad a entregar debe ser mayor a 0 para %s.',
-                    line.product_id.display_name))
-            if line.qty_to_deliver > line.qty_available:
-                raise UserError(_(
-                    'No puede entregar más de lo disponible para %s. '
-                    'Disponible: %s, Solicitado: %s',
-                    line.product_id.display_name,
-                    line.qty_available, line.qty_to_deliver))
 
         # Group by picking
         picking_lines = {}
@@ -1624,6 +1678,8 @@ class SaleDeliveryWizard(models.TransientModel):
                 doc.message_post(body=_(
                     'Remisión generada desde Pick Ticket: %s',
                     self.pick_ticket_id.name))
+                # Mark PT as confirmed (consumed)
+                self.pick_ticket_id.state = 'confirmed'
             doc.action_confirm()
             docs |= doc
 
@@ -1642,29 +1698,8 @@ class SaleDeliveryWizard(models.TransientModel):
             },
         }
 
-    def _load_from_pick_ticket(self):
-        if not self.pick_ticket_id:
-            return
-        pt = self.pick_ticket_id
-        for pt_line in pt.line_ids:
-            wiz_line = False
-            if pt_line.move_line_id:
-                wiz_line = self.line_ids.filtered(
-                    lambda l: l.move_line_id.id == pt_line.move_line_id.id)
-            if not wiz_line and pt_line.move_id and pt_line.lot_id:
-                wiz_line = self.line_ids.filtered(
-                    lambda l: l.move_id.id == pt_line.move_id.id
-                    and l.lot_id.id == pt_line.lot_id.id)
-            if not wiz_line:
-                wiz_line = self.line_ids.filtered(
-                    lambda l: l.product_id.id == pt_line.product_id.id
-                    and l.lot_id.id == pt_line.lot_id.id)
-            if wiz_line:
-                wiz_line = wiz_line[0]
-                wiz_line.is_selected = True
-                wiz_line.qty_to_deliver = pt_line.qty_selected
-
-    def _reopen(self):
+    def _refresh(self):
+        """Return action to refresh current wizard form without re-running default_get."""
         return {
             'type': 'ir.actions.act_window',
             'res_model': self._name,

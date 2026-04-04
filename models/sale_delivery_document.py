@@ -116,9 +116,11 @@ class SaleDeliveryDocument(models.Model):
         ).write({'state': 'cancelled'})
 
     def _action_confirm_remission(self):
-        """Validate the full picking chain (pick_ship = 2 steps).
-        Step 1: Validate Pick (internal: Existencias → Salida)
-        Step 2: Find and validate OUT (outgoing: Salida → Customers)
+        """Validate ONLY the selected lots/qty in the picking chain.
+        For 2-step delivery (pick_ship):
+          1. Set qty ONLY for doc lines, zero out everything else, validate Pick
+          2. Find chained OUT, do the same, validate OUT
+        Non-selected move lines get qty=0 → Odoo creates backorder automatically.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -127,24 +129,53 @@ class SaleDeliveryDocument(models.Model):
 
         picking = self.picking_id
 
-        # ── Step 1: Validate the Pick ──
+        # Collect the move_line IDs that are in this document
+        doc_ml_ids = set()
+        doc_ml_qty = {}  # move_line_id -> qty to deliver
+        for doc_line in self.line_ids:
+            if doc_line.move_line_id and doc_line.qty_selected > 0:
+                doc_ml_ids.add(doc_line.move_line_id.id)
+                doc_ml_qty[doc_line.move_line_id.id] = doc_line.qty_selected
+
+        # Collect the lot IDs for matching on the OUT picking
+        doc_lot_ids = set()
+        doc_lot_qty = {}
+        for doc_line in self.line_ids:
+            if doc_line.lot_id and doc_line.qty_selected > 0:
+                doc_lot_ids.add(doc_line.lot_id.id)
+                doc_lot_qty[doc_line.lot_id.id] = doc_line.qty_selected
+
+        # ── Step 1: Validate the Pick (partial) ──
         if picking.state == 'done':
             _logger.info('Pick %s already done, skipping.', picking.name)
         elif picking.state in ('assigned', 'confirmed'):
-            for doc_line in self.line_ids:
-                if doc_line.move_line_id and doc_line.qty_selected > 0:
-                    doc_line.move_line_id.quantity = doc_line.qty_selected
+            # Set quantity ONLY for lines in this document
+            # Zero out all others so they become backorder
+            for move in picking.move_ids:
+                for ml in move.move_line_ids:
+                    if ml.id in doc_ml_ids:
+                        ml.quantity = doc_ml_qty[ml.id]
+                        _logger.info(
+                            'Pick ML %s (lot %s): qty set to %s',
+                            ml.id, ml.lot_id.name, doc_ml_qty[ml.id])
+                    else:
+                        ml.quantity = 0
+                        _logger.info(
+                            'Pick ML %s (lot %s): qty zeroed (not in remission)',
+                            ml.id, ml.lot_id.name)
+
+            # Validate — Odoo will create backorder for the zeroed lines
             picking.with_context(
                 skip_backorder=False,
                 picking_ids_not_to_backorder=[],
             ).button_validate()
-            _logger.info('Pick %s validated.', picking.name)
+            _logger.info('Pick %s validated (partial).', picking.name)
         else:
             raise UserError(_(
                 'El picking %s no está en estado válido (estado: %s).',
                 picking.name, picking.state))
 
-        # ── Step 2: Find and validate the chained OUT ──
+        # ── Step 2: Find and validate the chained OUT (partial) ──
         out_picking = self._find_chained_out_picking(picking)
         if out_picking:
             self.out_picking_id = out_picking.id
@@ -157,15 +188,29 @@ class SaleDeliveryDocument(models.Model):
                 out_picking.action_assign()
 
             if out_picking.state == 'assigned':
-                # Quantities are already set via propagation
+                # Set quantity ONLY for lots that are in our document
+                for move in out_picking.move_ids:
+                    for ml in move.move_line_ids:
+                        lot_id = ml.lot_id.id if ml.lot_id else False
+                        if lot_id and lot_id in doc_lot_ids:
+                            ml.quantity = doc_lot_qty[lot_id]
+                            _logger.info(
+                                'OUT ML %s (lot %s): qty set to %s',
+                                ml.id, ml.lot_id.name, doc_lot_qty[lot_id])
+                        else:
+                            ml.quantity = 0
+                            _logger.info(
+                                'OUT ML %s (lot %s): qty zeroed',
+                                ml.id, ml.lot_id.name if ml.lot_id else 'N/A')
+
                 out_picking.with_context(
                     skip_backorder=False,
                     picking_ids_not_to_backorder=[],
                 ).button_validate()
-                _logger.info('OUT %s validated.', out_picking.name)
+                _logger.info('OUT %s validated (partial).', out_picking.name)
             else:
                 _logger.warning(
-                    'OUT %s not assignable (state: %s). Needs manual validation.',
+                    'OUT %s not assignable (state: %s). Manual validation needed.',
                     out_picking.name, out_picking.state)
         else:
             _logger.info('No chained OUT picking found. Single-step delivery.')
