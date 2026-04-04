@@ -57,6 +57,23 @@
                            widget="statinfo"
                            string="Devoluciones"/>
                 </button>
+                <button name="action_view_redeliveries"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-refresh"
+                        invisible="x_redelivery_count == 0">
+                    <div class="o_field_widget o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="x_redelivery_count" raw-attrs="{}"/>
+                            <span invisible="x_redelivery_pending_count == 0"
+                                  class="badge bg-warning ms-1"
+                                  title="Pendientes">
+                                <field name="x_redelivery_pending_count" raw-attrs="{}"/>
+                            </span>
+                        </span>
+                        <span class="o_stat_text">Reentregas</span>
+                    </div>
+                </button>
             </xpath>
 
             <!-- Delivery summary cards before notebook -->
@@ -151,6 +168,7 @@
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="x_delivery_document_count" invisible="1"/>
                 <field name="x_total_delivered_gross_qty" invisible="1"/>
+                <field name="x_redelivery_pending_count" invisible="1"/>
             </xpath>
         </field>
     </record>

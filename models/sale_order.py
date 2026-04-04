@@ -46,6 +46,12 @@ class SaleOrder(models.Model):
     x_pick_ticket_count = fields.Integer(
         compute='_compute_document_counts',
         string='Pick Tickets')
+    x_redelivery_count = fields.Integer(
+        compute='_compute_document_counts',
+        string='Reentregas')
+    x_redelivery_pending_count = fields.Integer(
+        compute='_compute_document_counts',
+        string='Reentregas Pendientes')
 
     @api.depends(
         'order_line.product_uom_qty',
@@ -57,7 +63,7 @@ class SaleOrder(models.Model):
             lines = order.order_line.filtered(
                 lambda l: l.product_id.type != 'service')
             demand = sum(lines.mapped('product_uom_qty'))
-            assigned = sum(lines.mapped('product_uom_qty'))  # TODO: from lot_ids
+            assigned = sum(lines.mapped('product_uom_qty'))
             delivered_gross = sum(lines.mapped('qty_delivered'))
             returned = sum(lines.mapped('x_returned_qty'))
             delivered_net = delivered_gross - returned
@@ -72,7 +78,9 @@ class SaleOrder(models.Model):
             order.x_fulfillment_net_pct = (
                 (delivered_net / demand * 100) if demand else 0.0)
 
-    @api.depends('delivery_document_ids', 'delivery_document_ids.document_type')
+    @api.depends('delivery_document_ids',
+                 'delivery_document_ids.document_type',
+                 'delivery_document_ids.state')
     def _compute_document_counts(self):
         for order in self:
             docs = order.delivery_document_ids
@@ -83,6 +91,12 @@ class SaleOrder(models.Model):
                 docs.filtered(lambda d: d.document_type == 'return'))
             order.x_pick_ticket_count = len(
                 docs.filtered(lambda d: d.document_type == 'pick_ticket'))
+            order.x_redelivery_count = len(
+                docs.filtered(lambda d: d.document_type == 'redelivery'))
+            order.x_redelivery_pending_count = len(
+                docs.filtered(
+                    lambda d: d.document_type == 'redelivery'
+                    and d.state in ('draft', 'prepared')))
 
     # ── Action buttons ──
 
@@ -93,7 +107,6 @@ class SaleOrder(models.Model):
             from odoo.exceptions import UserError
             raise UserError(_(
                 'Solo puede entregar pedidos confirmados.'))
-        # Check delivery auth if field exists
         if hasattr(self, 'delivery_auth_state'):
             if self.delivery_auth_state == 'pending':
                 if not self.env.user.has_group(
@@ -191,5 +204,18 @@ class SaleOrder(models.Model):
             'domain': [
                 ('sale_order_id', '=', self.id),
                 ('document_type', '=', 'pick_ticket'),
+            ],
+        }
+
+    def action_view_redeliveries(self):
+        self.ensure_one()
+        return {
+            'name': _('Reentregas'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.document',
+            'view_mode': 'list,form',
+            'domain': [
+                ('sale_order_id', '=', self.id),
+                ('document_type', '=', 'redelivery'),
             ],
         }

@@ -10,9 +10,13 @@
                     <button name="action_prepare" string="Preparar"
                             type="object" class="btn-primary"
                             invisible="state != 'draft'"/>
+                    <button name="action_confirm" string="Confirmar Entrega"
+                            type="object" class="btn-primary"
+                            invisible="state not in ('draft', 'prepared') or document_type != 'redelivery'"
+                            confirm="¿Confirmar la reentrega? Se validará el picking y se descontará inventario."/>
                     <button name="action_confirm" string="Confirmar"
                             type="object" class="btn-primary"
-                            invisible="state not in ('draft', 'prepared')"/>
+                            invisible="state not in ('draft', 'prepared') or document_type == 'redelivery'"/>
                     <button name="action_cancel" string="Cancelar"
                             type="object"
                             invisible="state in ('confirmed', 'cancelled')"/>
@@ -20,6 +24,14 @@
                            statusbar_visible="draft,prepared,confirmed"/>
                 </header>
                 <sheet>
+                    <!-- Redelivery banner -->
+                    <div class="alert alert-warning text-center p-3"
+                         invisible="document_type != 'redelivery' or state != 'prepared'">
+                        <strong>⏳ Reentrega Pendiente</strong> —
+                        Este material fue devuelto y reagendado.
+                        Presione <em>"Confirmar Entrega"</em> cuando el material sea entregado al cliente.
+                    </div>
+
                     <div class="oe_title">
                         <h1><field name="name"/></h1>
                     </div>
@@ -29,7 +41,7 @@
                             <field name="sale_order_id"/>
                             <field name="partner_id"/>
                             <field name="remission_number"
-                                   invisible="document_type != 'remission'"/>
+                                   invisible="document_type not in ('remission', 'redelivery')"/>
                             <field name="picking_id"
                                    invisible="document_type == 'return'"/>
                             <field name="return_picking_id"

@@ -17,6 +17,7 @@ class SaleDeliveryDocument(models.Model):
         ('pick_ticket', 'Pick Ticket'),
         ('remission', 'Remisión'),
         ('return', 'Devolución'),
+        ('redelivery', 'Reentrega'),
     ], string='Tipo', required=True, readonly=True, tracking=True)
     state = fields.Selection([
         ('draft', 'Borrador'),
@@ -96,6 +97,9 @@ class SaleDeliveryDocument(models.Model):
             elif doc_type == 'return' and vals.get('name', '/') == '/':
                 vals['name'] = self.env['ir.sequence'].next_by_code(
                     'sale.delivery.return') or '/'
+            elif doc_type == 'redelivery' and vals.get('name', '/') == '/':
+                vals['name'] = self.env['ir.sequence'].next_by_code(
+                    'sale.delivery.redelivery') or '/'
         return super().create(vals_list)
 
     def action_prepare(self):
@@ -107,6 +111,8 @@ class SaleDeliveryDocument(models.Model):
                 doc._action_confirm_remission()
             elif doc.document_type == 'return':
                 doc._action_confirm_return()
+            elif doc.document_type == 'redelivery':
+                doc._action_confirm_redelivery()
             doc.state = 'confirmed'
             doc.delivery_date = fields.Datetime.now()
 
@@ -116,9 +122,7 @@ class SaleDeliveryDocument(models.Model):
         ).write({'state': 'cancelled'})
 
     def _validate_picking_partial(self, picking, doc_ml_ids, doc_ml_qty):
-        """Validate a picking partially by setting qty only for selected move lines.
-        Handles the backorder confirmation wizard programmatically.
-        """
+        """Validate a picking partially by setting qty only for selected move lines."""
         if picking.state == 'done':
             _logger.info('Picking %s already done, skipping.', picking.name)
             return True
@@ -127,7 +131,6 @@ class SaleDeliveryDocument(models.Model):
                 'El picking %s no está en estado válido (estado: %s).',
                 picking.name, picking.state))
 
-        # Set quantities: selected lines get their qty, others get 0
         for move in picking.move_ids:
             for ml in move.move_line_ids:
                 if ml.id in doc_ml_ids:
@@ -139,42 +142,38 @@ class SaleDeliveryDocument(models.Model):
                         doc_ml_qty[ml.id])
                 else:
                     ml.quantity = 0
-                    _logger.info(
-                        'Picking %s ML %s (lot %s): qty zeroed',
-                        picking.name, ml.id,
-                        ml.lot_id.name if ml.lot_id else 'N/A')
 
-        # Try to validate — button_validate may return a wizard action
-        # for backorder confirmation
         result = picking.with_context(
             skip_backorder=False,
         ).button_validate()
 
-        # If result is a dict (wizard action), handle backorder confirmation
-        if isinstance(result, dict) and result.get('res_model') == 'stock.backorder.confirmation':
-            # Create and process the backorder confirmation wizard
-            backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
-                button_validate_picking_ids=picking.ids,
-            ).create({
-                'pick_ids': [(4, picking.id)],
-            })
-            backorder_wiz.process()
-            _logger.info('Picking %s validated with backorder created.', picking.name)
+        if isinstance(result, dict):
+            if result.get('res_model') == 'stock.backorder.confirmation':
+                backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({
+                    'pick_ids': [(4, picking.id)],
+                })
+                backorder_wiz.process()
+                _logger.info('Picking %s validated with backorder.', picking.name)
+            elif result.get('res_model') == 'stock.immediate.transfer':
+                immediate_wiz = self.env['stock.immediate.transfer'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({
+                    'pick_ids': [(4, picking.id)],
+                })
+                immediate_wiz.process()
         elif picking.state == 'done':
             _logger.info('Picking %s validated successfully.', picking.name)
         else:
             _logger.warning(
-                'Picking %s validation returned unexpected result. State: %s',
+                'Picking %s validation unexpected state: %s',
                 picking.name, picking.state)
 
         return picking.state == 'done'
 
     def _action_confirm_remission(self):
-        """Validate ONLY the selected lots/qty in the picking chain.
-        For 2-step delivery (pick_ship):
-          1. Validate Pick partially (creates backorder for remaining)
-          2. Push rule auto-creates OUT picking → find and validate it
-        """
+        """Validate ONLY the selected lots/qty in the picking chain."""
         self.ensure_one()
         if not self.picking_id:
             raise UserError(_(
@@ -182,7 +181,6 @@ class SaleDeliveryDocument(models.Model):
 
         picking = self.picking_id
 
-        # Collect the move_line IDs and lot IDs from this document
         doc_ml_ids = set()
         doc_ml_qty = {}
         doc_lot_ids = set()
@@ -195,13 +193,8 @@ class SaleDeliveryDocument(models.Model):
                 doc_lot_ids.add(doc_line.lot_id.id)
                 doc_lot_qty[doc_line.lot_id.id] = doc_line.qty_selected
 
-        # ── Step 1: Validate the Pick (partial) ──
         self._validate_picking_partial(picking, doc_ml_ids, doc_ml_qty)
 
-        # ── Step 2: Find the OUT picking (created by push rule) ──
-        # After validating the Pick, the push rule "Salida → Customers"
-        # should have auto-created an OUT picking.
-        # We look for it in the SO's pickings.
         out_picking = self._find_out_picking_for_lots(doc_lot_ids)
         if out_picking:
             self.out_picking_id = out_picking.id
@@ -209,12 +202,10 @@ class SaleDeliveryDocument(models.Model):
                 _logger.info('OUT %s already done.', out_picking.name)
                 return
 
-            # Assign if needed
             if out_picking.state in ('confirmed', 'waiting'):
                 out_picking.action_assign()
 
             if out_picking.state == 'assigned':
-                # Build ml lookup for OUT picking by lot
                 out_doc_ml_ids = set()
                 out_doc_ml_qty = {}
                 for move in out_picking.move_ids:
@@ -222,32 +213,25 @@ class SaleDeliveryDocument(models.Model):
                         lot_id = ml.lot_id.id if ml.lot_id else False
                         if lot_id and lot_id in doc_lot_ids:
                             out_doc_ml_ids.add(ml.id)
-                            out_doc_ml_qty[ml.id] = doc_lot_qty.get(lot_id, ml.quantity)
-                        else:
-                            # Not in our selection — will be zeroed
-                            pass
+                            out_doc_ml_qty[ml.id] = doc_lot_qty.get(
+                                lot_id, ml.quantity)
 
                 self._validate_picking_partial(
                     out_picking, out_doc_ml_ids, out_doc_ml_qty)
             else:
                 _logger.warning(
-                    'OUT %s not assignable (state: %s). Manual validation needed.',
+                    'OUT %s not assignable (state: %s).',
                     out_picking.name, out_picking.state)
         else:
             _logger.info(
-                'No OUT picking found for delivered lots. '
-                'May be single-step or push rule not triggered.')
+                'No OUT picking found. Single-step or push rule not triggered.')
 
     def _find_out_picking_for_lots(self, lot_ids):
-        """Find an outgoing picking for this SO that contains any of the given lots.
-        This handles the case where pickings are created via push rules
-        (no move_dest_ids chain).
-        """
+        """Find an outgoing picking for this SO that contains any of the given lots."""
         if not lot_ids:
             return False
 
         order = self.sale_order_id
-        # Look for outgoing pickings that are not done and have our lots
         out_pickings = order.picking_ids.filtered(
             lambda p: p.picking_type_code == 'outgoing'
             and p.state not in ('done', 'cancel'))
@@ -258,7 +242,6 @@ class SaleDeliveryDocument(models.Model):
             if pick_lot_ids & lot_ids:
                 return out_pick
 
-        # Also check via move_dest_ids from the pick
         if self.picking_id:
             for move in self.picking_id.move_ids:
                 for dest_move in move.move_dest_ids:
@@ -276,11 +259,9 @@ class SaleDeliveryDocument(models.Model):
             raise UserError(_('No hay picking de devolución asociado.'))
         picking = self.return_picking_id
 
-        # Assign the picking first to generate move lines
         if picking.state in ('draft', 'confirmed', 'waiting'):
             picking.action_assign()
 
-        # Build lot->qty map from document lines
         lot_qty = {}
         product_qty = {}
         for doc_line in self.line_ids:
@@ -292,23 +273,17 @@ class SaleDeliveryDocument(models.Model):
                         product_qty.get(doc_line.product_id.id, 0.0)
                         + doc_line.qty_selected)
 
-        # Set quantities on move lines
         for move in picking.move_ids:
             if move.move_line_ids:
                 for ml in move.move_line_ids:
                     lot_id = ml.lot_id.id if ml.lot_id else False
                     if lot_id and lot_id in lot_qty:
                         ml.quantity = lot_qty[lot_id]
-                        _logger.info(
-                            'Return %s ML %s (lot %s): qty set to %s',
-                            picking.name, ml.id,
-                            ml.lot_id.name, lot_qty[lot_id])
                     elif ml.product_id.id in product_qty:
                         ml.quantity = product_qty[ml.product_id.id]
                     else:
                         ml.quantity = 0
             else:
-                # No move lines — set qty_done directly on the move
                 total_qty = sum(
                     doc_line.qty_selected
                     for doc_line in self.line_ids
@@ -316,27 +291,110 @@ class SaleDeliveryDocument(models.Model):
                     and doc_line.product_id.id == move.product_id.id)
                 if total_qty > 0:
                     move.quantity = total_qty
-                    _logger.info(
-                        'Return %s Move %s: qty set to %s',
-                        picking.name, move.id, total_qty)
 
-        # Validate the picking
         result = picking.button_validate()
-        # Handle backorder confirmation if needed
-        if isinstance(result, dict) and result.get('res_model') == 'stock.backorder.confirmation':
-            backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
-                button_validate_picking_ids=picking.ids,
-            ).create({
-                'pick_ids': [(4, picking.id)],
-            })
-            backorder_wiz.process()
-            _logger.info('Return %s validated with backorder.', picking.name)
-        elif picking.state == 'done':
-            _logger.info('Return %s validated successfully.', picking.name)
+        if isinstance(result, dict):
+            if result.get('res_model') == 'stock.backorder.confirmation':
+                backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({
+                    'pick_ids': [(4, picking.id)],
+                })
+                backorder_wiz.process()
+            elif result.get('res_model') == 'stock.immediate.transfer':
+                immediate_wiz = self.env['stock.immediate.transfer'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({
+                    'pick_ids': [(4, picking.id)],
+                })
+                immediate_wiz.process()
+
+    def _action_confirm_redelivery(self):
+        """Confirm the redelivery: validate the associated outgoing picking
+        to actually deliver the material that was returned and re-scheduled.
+        This generates a remission number for the redelivery.
+        """
+        self.ensure_one()
+        if not self.picking_id:
+            raise UserError(_(
+                'No hay picking asociado para confirmar la reentrega.'))
+
+        picking = self.picking_id
+
+        # Generate remission number for the redelivery
+        seq = self.env['ir.sequence'].next_by_code(
+            'sale.delivery.remission') or '/'
+        self.remission_number = seq
+
+        # Assign if needed
+        if picking.state in ('confirmed', 'waiting'):
+            picking.action_assign()
+
+        if picking.state == 'assigned':
+            # Build ml lookup from document lines
+            doc_ml_ids = set()
+            doc_ml_qty = {}
+            for doc_line in self.line_ids:
+                if doc_line.qty_selected > 0:
+                    # Find matching move line by lot
+                    for move in picking.move_ids:
+                        for ml in move.move_line_ids:
+                            if doc_line.lot_id and ml.lot_id == doc_line.lot_id:
+                                doc_ml_ids.add(ml.id)
+                                doc_ml_qty[ml.id] = doc_line.qty_selected
+                            elif (not doc_line.lot_id
+                                    and ml.product_id == doc_line.product_id):
+                                doc_ml_ids.add(ml.id)
+                                doc_ml_qty[ml.id] = doc_line.qty_selected
+
+            if doc_ml_ids:
+                self._validate_picking_partial(
+                    picking, doc_ml_ids, doc_ml_qty)
+            else:
+                # Fallback: validate all move lines
+                all_ml_ids = set()
+                all_ml_qty = {}
+                for move in picking.move_ids:
+                    for ml in move.move_line_ids:
+                        all_ml_ids.add(ml.id)
+                        all_ml_qty[ml.id] = ml.quantity
+                self._validate_picking_partial(
+                    picking, all_ml_ids, all_ml_qty)
         else:
-            _logger.warning(
-                'Return %s validation unexpected state: %s',
-                picking.name, picking.state)
+            # Force quantities and validate
+            for move in picking.move_ids:
+                qty = sum(
+                    dl.qty_selected for dl in self.line_ids
+                    if dl.product_id == move.product_id and dl.qty_selected > 0
+                )
+                if qty > 0:
+                    move.quantity = qty
+
+            result = picking.with_context(
+                skip_backorder=False).button_validate()
+            if isinstance(result, dict):
+                if result.get('res_model') == 'stock.backorder.confirmation':
+                    backorder_wiz = self.env[
+                        'stock.backorder.confirmation'
+                    ].with_context(
+                        button_validate_picking_ids=picking.ids,
+                    ).create({'pick_ids': [(4, picking.id)]})
+                    backorder_wiz.process()
+                elif result.get('res_model') == 'stock.immediate.transfer':
+                    immediate_wiz = self.env[
+                        'stock.immediate.transfer'
+                    ].with_context(
+                        button_validate_picking_ids=picking.ids,
+                    ).create({'pick_ids': [(4, picking.id)]})
+                    immediate_wiz.process()
+
+        # Update document lines with qty_done
+        for doc_line in self.line_ids:
+            doc_line.qty_done = doc_line.qty_selected
+
+        _logger.info(
+            'Redelivery %s confirmed. Picking %s state: %s',
+            self.name, picking.name, picking.state)
 
 
 class SaleDeliveryDocumentLine(models.Model):
