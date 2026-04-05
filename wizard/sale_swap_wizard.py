@@ -39,11 +39,11 @@ class SaleSwapWizard(models.TransientModel):
                             'picking_id': picking.id,
                             'sale_line_id': move.sale_line_id.id,
                             'qty': ml.quantity or move.product_uom_qty,
-                            'origin_bloque': lot.x_bloque or '',
-                            'origin_atado': lot.x_atado or '',
-                            'origin_alto': lot.x_alto or 0.0,
-                            'origin_ancho': lot.x_ancho or 0.0,
-                            'origin_grosor': lot.x_grosor or 0.0,
+                            'origin_bloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
+                            'origin_atado': lot.x_atado or '' if hasattr(lot, 'x_atado') else '',
+                            'origin_alto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
+                            'origin_ancho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
+                            'origin_grosor': str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else '',
                         }))
         res['line_ids'] = lines
         return res
@@ -178,27 +178,24 @@ class SaleSwapWizardLine(models.TransientModel):
     picking_id = fields.Many2one('stock.picking', string='Picking')
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
 
-    # Origin lot info (pre-loaded, read-only)
+    # Origin lot info (pre-loaded, read-only) — all Char to handle mixed types
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
-    origin_alto = fields.Float(string='Alto (m)', readonly=True, digits=(10, 4))
-    origin_ancho = fields.Float(string='Ancho (m)', readonly=True, digits=(10, 4))
-    origin_grosor = fields.Float(string='Grosor (cm)', readonly=True, digits=(10, 2))
+    origin_alto = fields.Char(string='Alto', readonly=True)
+    origin_ancho = fields.Char(string='Ancho', readonly=True)
+    origin_grosor = fields.Char(string='Grosor', readonly=True)
 
     # Target lot info (computed on selection)
     target_bloque = fields.Char(
         string='Bloque Nuevo', compute='_compute_target_info', readonly=True)
     target_atado = fields.Char(
         string='Atado Nuevo', compute='_compute_target_info', readonly=True)
-    target_alto = fields.Float(
-        string='Alto Nuevo', compute='_compute_target_info',
-        readonly=True, digits=(10, 4))
-    target_ancho = fields.Float(
-        string='Ancho Nuevo', compute='_compute_target_info',
-        readonly=True, digits=(10, 4))
-    target_grosor = fields.Float(
-        string='Grosor Nuevo', compute='_compute_target_info',
-        readonly=True, digits=(10, 2))
+    target_alto = fields.Char(
+        string='Alto Nuevo', compute='_compute_target_info', readonly=True)
+    target_ancho = fields.Char(
+        string='Ancho Nuevo', compute='_compute_target_info', readonly=True)
+    target_grosor = fields.Char(
+        string='Grosor Nuevo', compute='_compute_target_info', readonly=True)
     target_qty = fields.Float(
         string='m² Nuevo', compute='_compute_target_info', readonly=True)
 
@@ -209,9 +206,9 @@ class SaleSwapWizardLine(models.TransientModel):
             if lot:
                 line.target_bloque = lot.x_bloque if hasattr(lot, 'x_bloque') else ''
                 line.target_atado = lot.x_atado if hasattr(lot, 'x_atado') else ''
-                line.target_alto = lot.x_alto if hasattr(lot, 'x_alto') else 0.0
-                line.target_ancho = lot.x_ancho if hasattr(lot, 'x_ancho') else 0.0
-                line.target_grosor = lot.x_grosor if hasattr(lot, 'x_grosor') else 0.0
+                line.target_alto = str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else ''
+                line.target_ancho = str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else ''
+                line.target_grosor = str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else ''
                 quant = self.env['stock.quant'].search([
                     ('lot_id', '=', lot.id),
                     ('location_id.usage', '=', 'internal'),
@@ -221,7 +218,7 @@ class SaleSwapWizardLine(models.TransientModel):
             else:
                 line.target_bloque = ''
                 line.target_atado = ''
-                line.target_alto = 0.0
-                line.target_ancho = 0.0
-                line.target_grosor = 0.0
+                line.target_alto = ''
+                line.target_ancho = ''
+                line.target_grosor = ''
                 line.target_qty = 0.0
