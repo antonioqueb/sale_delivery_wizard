@@ -9,26 +9,24 @@
                     <field name="sale_order_id" readonly="1"/>
                 </group>
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
-                <field name="line_ids">
-                    <list editable="bottom">
-                        <!-- Current lot info -->
-                        <field name="product_id" readonly="1" string="Producto"/>
-                        <field name="origin_lot_id" readonly="1" string="Lote Actual"/>
-                        <field name="origin_bloque" readonly="1" string="Bloque"/>
-                        <field name="origin_alto" readonly="1" string="Alto" optional="hide"/>
-                        <field name="origin_ancho" readonly="1" string="Ancho" optional="hide"/>
-                        <field name="origin_grosor" readonly="1" string="Grosor" optional="hide"/>
-                        <field name="qty" readonly="1" string="m²"/>
-                        <!-- Swap target -->
+                <field name="line_ids" readonly="1">
+                    <list>
+                        <field name="product_id" string="Producto"/>
+                        <field name="origin_lot_id" string="Lote Actual"/>
+                        <field name="origin_bloque" string="Bloque"/>
+                        <field name="origin_alto" string="Alto" optional="hide"/>
+                        <field name="origin_ancho" string="Ancho" optional="hide"/>
+                        <field name="origin_grosor" string="Grosor" optional="hide"/>
+                        <field name="qty" string="m²"/>
                         <field name="target_lot_id"
                                string="Lote Nuevo"
+                               readonly="0"
                                domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]"
                                placeholder="Seleccione..."/>
-                        <field name="target_bloque" readonly="1" string="Bloque N."/>
-                        <field name="target_qty" readonly="1" string="m² N."/>
-                        <field name="target_alto" readonly="1" string="Alto N." optional="hide"/>
-                        <field name="target_ancho" readonly="1" string="Ancho N." optional="hide"/>
-                        <!-- Hidden -->
+                        <field name="target_bloque" string="Bloque N."/>
+                        <field name="target_qty" string="m² N."/>
+                        <field name="target_alto" string="Alto N." optional="hide"/>
+                        <field name="target_ancho" string="Ancho N." optional="hide"/>
                         <field name="move_line_id" column_invisible="1"/>
                         <field name="picking_id" column_invisible="1"/>
                         <field name="sale_line_id" column_invisible="1"/>
