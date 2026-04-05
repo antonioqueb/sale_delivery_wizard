@@ -1,5 +1,4 @@
 from odoo import api, fields, models, _
-import json
 
 
 class SaleOrder(models.Model):
@@ -64,14 +63,14 @@ class SaleOrder(models.Model):
                 lambda l: l.product_id.type != 'service')
             demand = sum(lines.mapped('product_uom_qty'))
             assigned = sum(lines.mapped('product_uom_qty'))
-            delivered_gross = sum(lines.mapped('qty_delivered'))
+            # qty_delivered is already net in Odoo (outgoing done - incoming done)
+            delivered_net = sum(lines.mapped('qty_delivered'))
             returned = sum(lines.mapped('x_returned_qty'))
-            delivered_net = delivered_gross - returned
             pending = demand - delivered_net
 
             order.x_total_demand_qty = demand
             order.x_total_assigned_qty = assigned
-            order.x_total_delivered_gross_qty = delivered_gross
+            order.x_total_delivered_gross_qty = delivered_net + returned
             order.x_total_returned_qty = returned
             order.x_total_delivered_net_qty = max(delivered_net, 0)
             order.x_total_pending_delivery_qty = max(pending, 0)
@@ -101,7 +100,6 @@ class SaleOrder(models.Model):
     # ── Action buttons ──
 
     def action_open_delivery_wizard(self):
-        """Open the delivery wizard from the sale order."""
         self.ensure_one()
         if self.state not in ('sale', 'done'):
             from odoo.exceptions import UserError
@@ -128,7 +126,6 @@ class SaleOrder(models.Model):
         }
 
     def action_open_return_wizard(self):
-        """Open the return wizard from the sale order."""
         self.ensure_one()
         return {
             'name': _('Devolución de Material'),
@@ -143,7 +140,6 @@ class SaleOrder(models.Model):
         }
 
     def action_open_swap_wizard(self):
-        """Open swap wizard."""
         self.ensure_one()
         return {
             'name': _('Swap de Lotes'),
@@ -157,7 +153,6 @@ class SaleOrder(models.Model):
         }
 
     def action_view_delivery_documents(self):
-        """View all delivery documents for this order."""
         self.ensure_one()
         return {
             'name': _('Documentos de Entrega'),

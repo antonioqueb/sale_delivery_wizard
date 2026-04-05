@@ -13,10 +13,10 @@ class SaleOrderLine(models.Model):
         string='Entregado Neto',
         store=True)
     x_pending_qty = fields.Float(
-        compute='_compute_delivery_net',
+        compute='_compute_pending_fulfillment',
         string='Pendiente')
     x_fulfillment_net_pct = fields.Float(
-        compute='_compute_delivery_net',
+        compute='_compute_pending_fulfillment',
         string='Fulfillment Neto %')
     x_delivery_status = fields.Selection([
         ('sin_asignar', 'Sin Asignar'),
@@ -29,8 +29,9 @@ class SaleOrderLine(models.Model):
     ], compute='_compute_delivery_status', string='Estado Entrega',
         store=True)
 
-    @api.depends('move_ids.move_line_ids.quantity',
-                 'move_ids.origin_returned_move_id')
+    @api.depends('move_ids.state',
+                 'move_ids.origin_returned_move_id',
+                 'move_ids.picking_id.picking_type_code')
     def _compute_return_qty(self):
         for line in self:
             returned = 0.0
@@ -41,11 +42,18 @@ class SaleOrderLine(models.Model):
                     returned += move.product_uom_qty
             line.x_returned_qty = returned
 
-    @api.depends('qty_delivered', 'x_returned_qty', 'product_uom_qty')
+    @api.depends('qty_delivered', 'product_uom_qty')
     def _compute_delivery_net(self):
+        """qty_delivered in Odoo is already net (outgoing - incoming).
+        No need to subtract x_returned_qty again.
+        """
         for line in self:
-            net = line.qty_delivered - line.x_returned_qty
-            line.x_delivered_net_qty = max(net, 0)
+            line.x_delivered_net_qty = max(line.qty_delivered, 0)
+
+    @api.depends('x_delivered_net_qty', 'product_uom_qty')
+    def _compute_pending_fulfillment(self):
+        """Separate compute for non-stored fields to avoid Odoo warning."""
+        for line in self:
             line.x_pending_qty = max(
                 line.product_uom_qty - line.x_delivered_net_qty, 0)
             line.x_fulfillment_net_pct = (
