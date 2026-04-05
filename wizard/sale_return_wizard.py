@@ -54,16 +54,7 @@ class SaleReturnWizard(models.TransientModel):
         return res
 
     def action_confirm_return(self):
-        """Process the return: create return picking, validate it, and create document.
-
-        Behavior per return_action:
-        - reagendar: Receive return + create new outgoing picking with same lots
-                     (material stays reserved for this SO, not freed to inventory).
-                     A 'redelivery' document is created in 'prepared' state.
-        - reponer:   Receive return only. Material goes back to general inventory.
-                     Reposition logic handled by other modules.
-        - finiquitar: Receive return only. Line closure handled by other modules.
-        """
+        """Process the return: create return picking, validate it, and create document."""
         self.ensure_one()
         selected = self.line_ids.filtered('is_selected')
         if not selected:
@@ -144,9 +135,6 @@ class SaleReturnWizard(models.TransientModel):
         if self.return_action == 'reagendar':
             self._action_reagendar(order, selected)
 
-        # reponer / finiquitar: nothing else to do here,
-        # other modules handle reposition and closure.
-
         action_label = dict(
             self._fields['return_action'].selection
         ).get(self.return_action)
@@ -184,8 +172,8 @@ class SaleReturnWizard(models.TransientModel):
 
     def _action_reagendar(self, order, wizard_lines):
         """Create a new outgoing picking with the same lots/qty so the material
-        stays reserved for this SO. Then create a 'redelivery' document in
-        'prepared' state that appears as a pending redelivery in the SO.
+        stays reserved for this SO. Groups by product (one move per product,
+        multiple move lines for lots).
         """
         warehouse = order.warehouse_id
         pick_type = warehouse.out_type_id
@@ -201,42 +189,69 @@ class SaleReturnWizard(models.TransientModel):
 
         new_picking = self.env['stock.picking'].create({
             'picking_type_id': pick_type.id,
-            'partner_id': order.partner_id.id,
-            'origin': _('Reentrega %s', order.name),
+            'partner_id': order.partner_shipping_id.id or order.partner_id.id,
+            'origin': order.name,
             'location_id': pick_type.default_location_src_id.id,
             'location_dest_id': pick_type.default_location_dest_id.id
                 or self.env.ref('stock.stock_location_customers').id,
             'sale_id': order.id,
         })
 
+        # ── Group wizard lines by (product_id, sale_line_id, uom) ──
+        grouped = {}
         for wl in wizard_lines:
-            move_vals = {
-                'product_id': wl.product_id.id,
-                'product_uom_qty': wl.qty_to_return,
-                'product_uom': wl.move_id.product_uom.id,
+            key = (wl.product_id.id, wl.sale_line_id.id, wl.move_id.product_uom.id)
+            grouped.setdefault(key, []).append(wl)
+
+        move_map = {}  # sale_line_id -> move, for doc lines later
+        for (product_id, sale_line_id, uom_id), wls in grouped.items():
+            total_qty = sum(wl.qty_to_return for wl in wls)
+
+            move = self.env['stock.move'].create({
+                'product_id': product_id,
+                'product_uom_qty': total_qty,
+                'product_uom': uom_id,
                 'picking_id': new_picking.id,
                 'location_id': new_picking.location_id.id,
                 'location_dest_id': new_picking.location_dest_id.id,
-                'sale_line_id': wl.sale_line_id.id,
-            }
-            move = self.env['stock.move'].create(move_vals)
+                'sale_line_id': sale_line_id,
+                'origin': order.name,
+            })
+            move_map[sale_line_id] = move
 
-            if wl.lot_id:
-                move.move_line_ids = [(0, 0, {
-                    'product_id': wl.product_id.id,
-                    'lot_id': wl.lot_id.id,
-                    'quantity': wl.qty_to_return,
-                    'location_id': new_picking.location_id.id,
-                    'location_dest_id': new_picking.location_dest_id.id,
-                    'picking_id': new_picking.id,
-                })]
+            # Create one move line per lot
+            for wl in wls:
+                if wl.lot_id:
+                    self.env['stock.move.line'].create({
+                        'move_id': move.id,
+                        'product_id': product_id,
+                        'lot_id': wl.lot_id.id,
+                        'quantity': wl.qty_to_return,
+                        'location_id': new_picking.location_id.id,
+                        'location_dest_id': new_picking.location_dest_id.id,
+                        'picking_id': new_picking.id,
+                    })
 
+        # Confirm and assign
         new_picking.action_confirm()
         new_picking.action_assign()
 
         _logger.info(
             'Redelivery picking %s created for SO %s (state: %s)',
             new_picking.name, order.name, new_picking.state)
+
+        # Create redelivery document (prepared = pending confirmation)
+        doc_lines = []
+        for wl in wizard_lines:
+            move = move_map.get(wl.sale_line_id.id)
+            doc_lines.append((0, 0, {
+                'product_id': wl.product_id.id,
+                'lot_id': wl.lot_id.id,
+                'qty_selected': wl.qty_to_return,
+                'sale_line_id': wl.sale_line_id.id,
+                'move_id': move.id if move else False,
+                'source_location_id': new_picking.location_id.id,
+            }))
 
         doc = self.env['sale.delivery.document'].create({
             'document_type': 'redelivery',
@@ -252,13 +267,7 @@ class SaleReturnWizard(models.TransientModel):
                         wl.qty_to_return,
                     ) for wl in wizard_lines
                 )),
-            'line_ids': [(0, 0, {
-                'product_id': wl.product_id.id,
-                'lot_id': wl.lot_id.id,
-                'qty_selected': wl.qty_to_return,
-                'sale_line_id': wl.sale_line_id.id,
-                'source_location_id': new_picking.location_id.id,
-            }) for wl in wizard_lines],
+            'line_ids': doc_lines,
         })
         doc.action_prepare()
 
@@ -274,11 +283,9 @@ class SaleReturnWizard(models.TransientModel):
 
     def _validate_return_picking(self, picking, wizard_lines):
         """Assign and validate the return picking with the correct quantities."""
-        # Try to assign first to generate move lines
         if picking.state in ('draft', 'confirmed', 'waiting'):
             picking.action_assign()
 
-        # Build lot->qty and product->qty maps
         lot_qty = {}
         product_qty = {}
         for wl in wizard_lines:
@@ -292,7 +299,6 @@ class SaleReturnWizard(models.TransientModel):
 
         for move in picking.move_ids:
             if move.move_line_ids:
-                # Move lines exist — set quantities on them
                 for ml in move.move_line_ids:
                     lot_id = ml.lot_id.id if ml.lot_id else False
                     if lot_id and lot_id in lot_qty:
@@ -302,7 +308,6 @@ class SaleReturnWizard(models.TransientModel):
                     else:
                         ml.quantity = 0
             else:
-                # No move lines — create them manually
                 qty = 0.0
                 lot_id = False
                 for wl in wizard_lines:
@@ -322,7 +327,6 @@ class SaleReturnWizard(models.TransientModel):
                         'location_dest_id': move.location_dest_id.id,
                     })
 
-        # Validate
         result = picking.with_context(
             skip_backorder=False,
         ).button_validate()
