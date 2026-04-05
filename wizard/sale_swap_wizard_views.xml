@@ -8,22 +8,38 @@
                 <group>
                     <field name="sale_order_id" readonly="1"/>
                 </group>
-                <separator string="Lotes a Intercambiar"/>
+                <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
                 <field name="line_ids">
                     <list editable="bottom">
-                        <field name="product_id"/>
-                        <field name="origin_lot_id"
-                               string="Lote Actual"
-                               domain="[('product_id', '=', product_id)]"/>
+                        <!-- Current lot info -->
+                        <field name="product_id" readonly="1" string="Producto"/>
+                        <field name="origin_lot_id" readonly="1" string="Lote Actual"/>
+                        <field name="origin_bloque" readonly="1" string="Bloque"/>
+                        <field name="origin_alto" readonly="1" string="Alto" optional="hide"/>
+                        <field name="origin_ancho" readonly="1" string="Ancho" optional="hide"/>
+                        <field name="origin_grosor" readonly="1" string="Grosor" optional="hide"/>
+                        <field name="qty" readonly="1" string="m²"/>
+                        <!-- Swap target -->
                         <field name="target_lot_id"
                                string="Lote Nuevo"
-                               domain="[('product_id', '=', product_id)]"/>
-                        <field name="qty"/>
+                               domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]"
+                               placeholder="Seleccione..."/>
+                        <field name="target_bloque" readonly="1" string="Bloque N."/>
+                        <field name="target_qty" readonly="1" string="m² N."/>
+                        <field name="target_alto" readonly="1" string="Alto N." optional="hide"/>
+                        <field name="target_ancho" readonly="1" string="Ancho N." optional="hide"/>
+                        <!-- Hidden -->
+                        <field name="move_line_id" column_invisible="1"/>
+                        <field name="picking_id" column_invisible="1"/>
+                        <field name="sale_line_id" column_invisible="1"/>
+                        <field name="origin_atado" column_invisible="1"/>
+                        <field name="target_atado" column_invisible="1"/>
+                        <field name="target_grosor" column_invisible="1"/>
                     </list>
                 </field>
-                <div class="alert alert-warning mt-2" role="alert">
-                    El swap reemplaza el lote asignado en el picking pendiente.
-                    Verifique disponibilidad y que el lote destino no esté apartado en otra orden.
+                <div class="alert alert-info mt-2" role="alert">
+                    Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
+                    Al seleccionar un lote nuevo verá sus dimensiones y m² disponibles para comparar.
                 </div>
                 <footer>
                     <button name="action_confirm_swap"

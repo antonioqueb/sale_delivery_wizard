@@ -1,5 +1,8 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleSwapWizard(models.TransientModel):
@@ -9,7 +12,7 @@ class SaleSwapWizard(models.TransientModel):
     sale_order_id = fields.Many2one(
         'sale.order', string='Orden de Venta', required=True)
     line_ids = fields.One2many(
-        'sale.swap.wizard.line', 'wizard_id', string='Swaps')
+        'sale.swap.wizard.line', 'wizard_id', string='Lotes Asignados')
 
     @api.model
     def default_get(self, fields_list):
@@ -18,26 +21,49 @@ class SaleSwapWizard(models.TransientModel):
         if not so_id:
             return res
         res['sale_order_id'] = so_id
+        order = self.env['sale.order'].browse(so_id)
+
+        lines = []
+        for picking in order.picking_ids.filtered(
+                lambda p: p.state in ('assigned', 'confirmed')
+                and p.picking_type_code in ('outgoing', 'internal')):
+            for move in picking.move_ids.filtered(
+                    lambda m: m.state in ('assigned', 'confirmed')):
+                for ml in move.move_line_ids:
+                    if ml.lot_id:
+                        lot = ml.lot_id
+                        lines.append((0, 0, {
+                            'product_id': move.product_id.id,
+                            'origin_lot_id': lot.id,
+                            'move_line_id': ml.id,
+                            'picking_id': picking.id,
+                            'sale_line_id': move.sale_line_id.id,
+                            'qty': ml.quantity or move.product_uom_qty,
+                            'origin_bloque': lot.x_bloque or '',
+                            'origin_atado': lot.x_atado or '',
+                            'origin_alto': lot.x_alto or 0.0,
+                            'origin_ancho': lot.x_ancho or 0.0,
+                            'origin_grosor': lot.x_grosor or 0.0,
+                        }))
+        res['line_ids'] = lines
         return res
 
     def action_confirm_swap(self):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
-        for line in self.line_ids:
-            if not line.origin_lot_id or not line.target_lot_id:
-                raise UserError(_(
-                    'Debe seleccionar lote origen y destino para cada swap.'))
+        lines_to_swap = self.line_ids.filtered(lambda l: l.target_lot_id)
+        if not lines_to_swap:
+            raise UserError(_(
+                'Seleccione al menos un lote destino para ejecutar el swap.'))
+
+        for line in lines_to_swap:
             if line.origin_lot_id == line.target_lot_id:
                 raise UserError(_(
-                    'El lote origen y destino no pueden ser el mismo.'))
+                    'El lote origen y destino no pueden ser el mismo (%s).',
+                    line.origin_lot_id.name))
 
-            # Find the move line with the origin lot
-            move_line = self.env['stock.move.line'].search([
-                ('picking_id.sale_id', '=', self.sale_order_id.id),
-                ('lot_id', '=', line.origin_lot_id.id),
-                ('state', 'in', ('assigned', 'confirmed')),
-            ], limit=1)
-            if not move_line:
+            move_line = line.move_line_id
+            if not move_line or move_line.state not in ('assigned', 'confirmed'):
                 raise UserError(_(
                     'No se encontró movimiento pendiente para el lote %s.',
                     line.origin_lot_id.name))
@@ -60,11 +86,24 @@ class SaleSwapWizard(models.TransientModel):
                     and h.sale_order_id != self.sale_order_id)
                 if active_holds:
                     raise UserError(_(
-                        'El lote %s está apartado en otra orden.',
-                        line.target_lot_id.name))
+                        'El lote %s está apartado en otra orden (%s).',
+                        line.target_lot_id.name,
+                        active_holds[0].sale_order_id.name))
 
-            # Execute swap
-            move_line.lot_id = line.target_lot_id.id
+            target_qty = target_quant.quantity
+            old_lot_name = line.origin_lot_id.name
+            new_lot = line.target_lot_id
+
+            # Execute swap on the move line
+            move_line.lot_id = new_lot.id
+            move_line.quantity = target_qty
+
+            # Update the move demand if qty changed
+            if move_line.move_id:
+                total_ml_qty = sum(
+                    move_line.move_id.move_line_ids.mapped('quantity'))
+                if total_ml_qty != move_line.move_id.product_uom_qty:
+                    move_line.move_id.product_uom_qty = total_ml_qty
 
             # Create swap record in delivery document
             self.env['sale.delivery.document'].create({
@@ -72,9 +111,13 @@ class SaleSwapWizard(models.TransientModel):
                 'state': 'confirmed',
                 'sale_order_id': self.sale_order_id.id,
                 'special_instructions': _(
-                    'SWAP: %s → %s',
-                    line.origin_lot_id.name,
-                    line.target_lot_id.name),
+                    'SWAP: %s (Bloque: %s, %.2f m²) → %s (Bloque: %s, %.2f m²)',
+                    old_lot_name,
+                    line.origin_bloque or 'S/B',
+                    line.qty,
+                    new_lot.name,
+                    new_lot.x_bloque or 'S/B' if hasattr(new_lot, 'x_bloque') else 'S/B',
+                    target_qty),
                 'line_ids': [
                     (0, 0, {
                         'product_id': line.product_id.id,
@@ -84,12 +127,25 @@ class SaleSwapWizard(models.TransientModel):
                     }),
                     (0, 0, {
                         'product_id': line.product_id.id,
-                        'lot_id': line.target_lot_id.id,
-                        'qty_selected': line.qty,
+                        'lot_id': new_lot.id,
+                        'qty_selected': target_qty,
                         'is_swap_target': True,
                     }),
                 ],
             })
+
+            # Update SO line lot_ids if sale_stone_selection is installed
+            if (line.sale_line_id and hasattr(line.sale_line_id, 'lot_ids')
+                    and line.origin_lot_id in line.sale_line_id.lot_ids):
+                line.sale_line_id.lot_ids = [
+                    (3, line.origin_lot_id.id),
+                    (4, new_lot.id),
+                ]
+
+            _logger.info(
+                'Swap executed: %s → %s on picking %s',
+                old_lot_name, new_lot.name,
+                line.picking_id.name)
 
         return {
             'type': 'ir.actions.client',
@@ -97,7 +153,7 @@ class SaleSwapWizard(models.TransientModel):
             'params': {
                 'title': _('Swap Completado'),
                 'message': _(
-                    '%d swap(s) realizados exitosamente.') % len(self.line_ids),
+                    '%d swap(s) realizados exitosamente.') % len(lines_to_swap),
                 'type': 'success',
                 'sticky': False,
             },
@@ -111,9 +167,61 @@ class SaleSwapWizardLine(models.TransientModel):
     wizard_id = fields.Many2one(
         'sale.swap.wizard', ondelete='cascade', required=True)
     product_id = fields.Many2one(
-        'product.product', string='Producto', required=True)
+        'product.product', string='Producto', required=True, readonly=True)
     origin_lot_id = fields.Many2one(
-        'stock.lot', string='Lote Origen', required=True)
+        'stock.lot', string='Lote Actual', required=True, readonly=True)
     target_lot_id = fields.Many2one(
-        'stock.lot', string='Lote Destino', required=True)
-    qty = fields.Float(string='Cantidad', default=1.0)
+        'stock.lot', string='Lote Nuevo',
+        domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]")
+    qty = fields.Float(string='m² Actual', readonly=True)
+    move_line_id = fields.Many2one('stock.move.line', string='Move Line')
+    picking_id = fields.Many2one('stock.picking', string='Picking')
+    sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
+
+    # Origin lot info (pre-loaded, read-only)
+    origin_bloque = fields.Char(string='Bloque', readonly=True)
+    origin_atado = fields.Char(string='Atado', readonly=True)
+    origin_alto = fields.Float(string='Alto (m)', readonly=True, digits=(10, 4))
+    origin_ancho = fields.Float(string='Ancho (m)', readonly=True, digits=(10, 4))
+    origin_grosor = fields.Float(string='Grosor (cm)', readonly=True, digits=(10, 2))
+
+    # Target lot info (computed on selection)
+    target_bloque = fields.Char(
+        string='Bloque Nuevo', compute='_compute_target_info', readonly=True)
+    target_atado = fields.Char(
+        string='Atado Nuevo', compute='_compute_target_info', readonly=True)
+    target_alto = fields.Float(
+        string='Alto Nuevo', compute='_compute_target_info',
+        readonly=True, digits=(10, 4))
+    target_ancho = fields.Float(
+        string='Ancho Nuevo', compute='_compute_target_info',
+        readonly=True, digits=(10, 4))
+    target_grosor = fields.Float(
+        string='Grosor Nuevo', compute='_compute_target_info',
+        readonly=True, digits=(10, 2))
+    target_qty = fields.Float(
+        string='m² Nuevo', compute='_compute_target_info', readonly=True)
+
+    @api.depends('target_lot_id')
+    def _compute_target_info(self):
+        for line in self:
+            lot = line.target_lot_id
+            if lot:
+                line.target_bloque = lot.x_bloque if hasattr(lot, 'x_bloque') else ''
+                line.target_atado = lot.x_atado if hasattr(lot, 'x_atado') else ''
+                line.target_alto = lot.x_alto if hasattr(lot, 'x_alto') else 0.0
+                line.target_ancho = lot.x_ancho if hasattr(lot, 'x_ancho') else 0.0
+                line.target_grosor = lot.x_grosor if hasattr(lot, 'x_grosor') else 0.0
+                quant = self.env['stock.quant'].search([
+                    ('lot_id', '=', lot.id),
+                    ('location_id.usage', '=', 'internal'),
+                    ('quantity', '>', 0),
+                ], limit=1)
+                line.target_qty = quant.quantity if quant else 0.0
+            else:
+                line.target_bloque = ''
+                line.target_atado = ''
+                line.target_alto = 0.0
+                line.target_ancho = 0.0
+                line.target_grosor = 0.0
+                line.target_qty = 0.0
