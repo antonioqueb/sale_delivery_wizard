@@ -167,7 +167,7 @@ class SaleSwapWizardLine(models.TransientModel):
     wizard_id = fields.Many2one(
         'sale.swap.wizard', ondelete='cascade', required=True)
     product_id = fields.Many2one(
-        'product.product', string='Producto', required=True, readonly=True)
+        'product.product', string='Producto', readonly=True)
     origin_lot_id = fields.Many2one(
         'stock.lot', string='Lote Actual', required=True, readonly=True)
     target_lot_id = fields.Many2one(
