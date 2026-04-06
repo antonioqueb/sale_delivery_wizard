@@ -104,26 +104,41 @@ export class SwapLotSelector extends Component {
     }
 
     /**
-     * Collect all origin_lot_ids from ALL lines in the wizard (siblings)
-     * so we can exclude them from the search results
+     * Collect all lot IDs that should be excluded from the search results:
+     * - origin_lot_id from ALL lines (lots currently assigned in pickings)
+     * - target_lot_id from OTHER lines (lots already selected as replacement)
      */
-    _getAllOriginLotIds() {
+    _getAllExcludedLotIds() {
         const lotIds = new Set();
+        const currentRecordId = this.props.record.id;
+
         try {
-            // Navigate up to the parent wizard record to get all lines
             const parentRecord = this.props.record.model.root;
             if (parentRecord && parentRecord.data && parentRecord.data.line_ids) {
                 const lines = parentRecord.data.line_ids;
                 const records = lines.records || [];
                 for (const lineRec of records) {
+                    // Always exclude origin_lot_id from all lines
                     const originLot = lineRec.data.origin_lot_id;
-                    let lotId = 0;
+                    let originId = 0;
                     if (originLot) {
-                        if (Array.isArray(originLot)) lotId = originLot[0];
-                        else if (typeof originLot === "number") lotId = originLot;
-                        else if (originLot.id) lotId = originLot.id;
+                        if (Array.isArray(originLot)) originId = originLot[0];
+                        else if (typeof originLot === "number") originId = originLot;
+                        else if (originLot.id) originId = originLot.id;
                     }
-                    if (lotId) lotIds.add(lotId);
+                    if (originId) lotIds.add(originId);
+
+                    // Exclude target_lot_id from OTHER lines (not the current one)
+                    if (lineRec.id !== currentRecordId) {
+                        const targetLot = lineRec.data.target_lot_id;
+                        let targetId = 0;
+                        if (targetLot) {
+                            if (Array.isArray(targetLot)) targetId = targetLot[0];
+                            else if (typeof targetLot === "number") targetId = targetLot;
+                            else if (targetLot.id) targetId = targetLot.id;
+                        }
+                        if (targetId) lotIds.add(targetId);
+                    }
                 }
             }
         } catch (e) {
@@ -182,8 +197,8 @@ export class SwapLotSelector extends Component {
         const root = this._popupRoot;
         const PAGE_SIZE = 35;
         const originLotId = this._getOriginLotId();
-        // Get ALL lot_ids currently assigned in the SO (all lines in the wizard)
-        const excludedLotIds = this._getAllOriginLotIds();
+        // Get ALL lot_ids that should be excluded (origins + other lines' targets)
+        const excludedLotIds = this._getAllExcludedLotIds();
 
         const state = {
             quants: [],
@@ -330,7 +345,7 @@ export class SwapLotSelector extends Component {
             for (const q of state.quants) {
                 const lotId = q.lot_id ? q.lot_id[0] : 0;
                 const lotName = q.lot_id ? q.lot_id[1] : "-";
-                // Skip lots that are already assigned in the SO picking
+                // Skip lots that are already assigned or selected in other lines
                 if (excludedLotIds.includes(lotId)) continue;
 
                 const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
