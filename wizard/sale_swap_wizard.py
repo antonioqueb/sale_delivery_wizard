@@ -52,9 +52,20 @@ class SaleSwapWizard(models.TransientModel):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
 
+        _logger.info('[SWAP DEBUG] ══════════════════════════════════════')
+        _logger.info('[SWAP DEBUG] action_confirm_swap called on wizard id=%s', self.id)
+        _logger.info('[SWAP DEBUG] sale_order_id=%s', self.sale_order_id.id)
+
+        # Log what self.line_ids has (ORM cache)
+        _logger.info('[SWAP DEBUG] self.line_ids count=%d', len(self.line_ids))
+        for line in self.line_ids:
+            _logger.info(
+                '[SWAP DEBUG] ORM line id=%s origin_lot=%s target_lot=%s target_lot_id_raw=%s',
+                line.id, line.origin_lot_id.name if line.origin_lot_id else 'N/A',
+                line.target_lot_id.name if line.target_lot_id else 'N/A',
+                line.target_lot_id.id if line.target_lot_id else False)
+
         # Read target_lot_id directly from DB to avoid web_save overwrites.
-        # The OWL widget persists via orm.write, but web_save may reset
-        # the ORM cache — search_read bypasses that.
         line_data = self.env['sale.swap.wizard.line'].search_read(
             [('wizard_id', '=', self.id)],
             ['id', 'target_lot_id', 'origin_lot_id', 'product_id',
@@ -62,10 +73,26 @@ class SaleSwapWizard(models.TransientModel):
              'origin_bloque'],
         )
 
+        _logger.info('[SWAP DEBUG] search_read returned %d lines', len(line_data))
+        for d in line_data:
+            _logger.info(
+                '[SWAP DEBUG] DB line id=%s origin_lot=%s target_lot=%s',
+                d['id'], d.get('origin_lot_id'), d.get('target_lot_id'))
+
+        # Also try raw SQL to see what's actually in the DB
+        self.env.cr.execute(
+            "SELECT id, origin_lot_id, target_lot_id FROM sale_swap_wizard_line WHERE wizard_id = %s",
+            [self.id])
+        raw_rows = self.env.cr.fetchall()
+        _logger.info('[SWAP DEBUG] Raw SQL rows: %s', raw_rows)
+
         lines_with_target = [
             d for d in line_data if d.get('target_lot_id')
         ]
+        _logger.info('[SWAP DEBUG] lines_with_target count=%d', len(lines_with_target))
+
         if not lines_with_target:
+            _logger.warning('[SWAP DEBUG] NO lines with target_lot_id found — raising UserError')
             raise UserError(_(
                 'Seleccione al menos un lote destino para ejecutar el swap.'))
 
@@ -175,6 +202,8 @@ class SaleSwapWizard(models.TransientModel):
                 'Swap executed: %s → %s on picking %s',
                 old_lot_name, target_lot_name,
                 data['picking_id'][1] if data.get('picking_id') else 'N/A')
+
+        _logger.info('[SWAP DEBUG] ══════════════════════════════════════')
 
         return {
             'type': 'ir.actions.client',

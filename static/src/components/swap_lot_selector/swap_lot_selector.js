@@ -98,8 +98,22 @@ export class SwapLotSelector extends Component {
      */
     _getRecordId() {
         const rec = this.props.record;
-        if (rec.resId && typeof rec.resId === "number" && rec.resId > 0) return rec.resId;
-        if (rec.data && rec.data.id && typeof rec.data.id === "number" && rec.data.id > 0) return rec.data.id;
+        console.log("[SWAP DEBUG _getRecordId]");
+        console.log("  rec.resId:", rec.resId, "type:", typeof rec.resId);
+        console.log("  rec.data.id:", rec.data?.id, "type:", typeof rec.data?.id);
+        console.log("  rec.id:", rec.id, "type:", typeof rec.id);
+
+        if (rec.resId && typeof rec.resId === "number" && rec.resId > 0) {
+            console.log("  => returning rec.resId:", rec.resId);
+            return rec.resId;
+        }
+        if (rec.data && rec.data.id && typeof rec.data.id === "number" && rec.data.id > 0) {
+            console.log("  => returning rec.data.id:", rec.data.id);
+            return rec.data.id;
+        }
+        console.warn("  => returning NULL — no valid DB ID found!");
+        console.log("  Full rec keys:", Object.keys(rec));
+        if (rec._values) console.log("  rec._values.id:", rec._values?.id);
         return null;
     }
 
@@ -118,7 +132,6 @@ export class SwapLotSelector extends Component {
                 const lines = parentRecord.data.line_ids;
                 const records = lines.records || [];
                 for (const lineRec of records) {
-                    // Always exclude origin_lot_id from all lines
                     const originLot = lineRec.data.origin_lot_id;
                     let originId = 0;
                     if (originLot) {
@@ -128,7 +141,6 @@ export class SwapLotSelector extends Component {
                     }
                     if (originId) lotIds.add(originId);
 
-                    // Exclude target_lot_id from OTHER lines (not the current one)
                     if (lineRec.id !== currentRecordId) {
                         const targetLot = lineRec.data.target_lot_id;
                         let targetId = 0;
@@ -142,7 +154,6 @@ export class SwapLotSelector extends Component {
                 }
             }
         } catch (e) {
-            // Fallback: just use the current line's origin
             const originId = this._getOriginLotId();
             if (originId) lotIds.add(originId);
         }
@@ -162,12 +173,12 @@ export class SwapLotSelector extends Component {
         this.state.targetLotName = "";
         try {
             await this.props.record.update({ [this.props.name]: false });
-            // Also persist via orm.write if record exists in DB
             const recId = this._getRecordId();
             if (recId) {
                 await this.orm.write("sale.swap.wizard.line", [recId], {
                     target_lot_id: false,
                 });
+                console.log("[SWAP] Cleared target_lot_id on line", recId);
             }
         } catch (e) {
             console.warn("[SWAP] Error clearing lot:", e);
@@ -197,7 +208,6 @@ export class SwapLotSelector extends Component {
         const root = this._popupRoot;
         const PAGE_SIZE = 35;
         const originLotId = this._getOriginLotId();
-        // Get ALL lot_ids that should be excluded (origins + other lines' targets)
         const excludedLotIds = this._getAllExcludedLotIds();
 
         const state = {
@@ -345,7 +355,6 @@ export class SwapLotSelector extends Component {
             for (const q of state.quants) {
                 const lotId = q.lot_id ? q.lot_id[0] : 0;
                 const lotName = q.lot_id ? q.lot_id[1] : "-";
-                // Skip lots that are already assigned or selected in other lines
                 if (excludedLotIds.includes(lotId)) continue;
 
                 const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
@@ -536,27 +545,69 @@ export class SwapLotSelector extends Component {
             this.state.targetLotName = state.selectedLotName;
             this.destroyPopup();
 
+            console.log("[SWAP CONFIRM] ══════════════════════════════════════");
+            console.log("[SWAP CONFIRM] selectedLotId:", state.selectedLotId);
+            console.log("[SWAP CONFIRM] selectedLotName:", state.selectedLotName);
+            console.log("[SWAP CONFIRM] field name:", this.props.name);
+
             try {
-                // 1. Update the OWL record (frontend)
+                // Step 1: Update the OWL record (frontend)
+                console.log("[SWAP CONFIRM] Step 1: record.update({%s: %s})...", this.props.name, state.selectedLotId);
                 await this.props.record.update({
                     [this.props.name]: state.selectedLotId,
                 });
+                console.log("[SWAP CONFIRM] Step 1 OK");
 
-                // 2. ALSO persist directly via orm.write to the DB
-                //    This is the key fix: record.update alone doesn't persist
-                //    Many2one changes on transient wizard lines in Odoo 19
+                const afterVal = this.props.record.data[this.props.name];
+                console.log("[SWAP CONFIRM] record.data.target_lot_id after update:", afterVal, "type:", typeof afterVal);
+                if (afterVal && typeof afterVal === "object") {
+                    console.log("[SWAP CONFIRM]   .id:", afterVal.id, ".resId:", afterVal.resId, ".display_name:", afterVal.display_name);
+                }
+
+                // Step 2: Persist via orm.write
                 const recId = this._getRecordId();
+                console.log("[SWAP CONFIRM] Step 2: recId =", recId);
+
                 if (recId) {
+                    console.log("[SWAP CONFIRM] Step 2: orm.write('sale.swap.wizard.line', [%s], {target_lot_id: %s})", recId, state.selectedLotId);
                     await this.orm.write("sale.swap.wizard.line", [recId], {
                         target_lot_id: state.selectedLotId,
                     });
-                    console.log("[SWAP] Persisted target_lot_id=%s on line %s", state.selectedLotId, recId);
+                    console.log("[SWAP CONFIRM] Step 2 OK — orm.write succeeded");
+
+                    // Step 3: Verify read-back
+                    try {
+                        const verify = await this.orm.read("sale.swap.wizard.line", [recId], ["target_lot_id"]);
+                        console.log("[SWAP CONFIRM] Step 3 verify:", JSON.stringify(verify));
+                    } catch (ve) {
+                        console.warn("[SWAP CONFIRM] Step 3 verify failed:", ve.message);
+                    }
                 } else {
-                    console.warn("[SWAP] No record ID found, target_lot_id only updated in frontend");
+                    console.error("[SWAP CONFIRM] ⚠️ recId is NULL — target_lot_id NOT persisted!");
+                    console.log("[SWAP CONFIRM] record dump:");
+                    console.log("  record.id:", this.props.record.id);
+                    console.log("  record.resId:", this.props.record.resId);
+                    console.log("  record.data.id:", this.props.record.data?.id);
+                    try {
+                        const parentRec = this.props.record.model.root;
+                        console.log("  parent.resId:", parentRec?.resId);
+                        console.log("  parent.data.id:", parentRec?.data?.id);
+                        if (parentRec?.data?.line_ids?.records) {
+                            for (const lr of parentRec.data.line_ids.records) {
+                                console.log("    line: id=%s resId=%s data.id=%s origin=%s",
+                                    lr.id, lr.resId, lr.data?.id,
+                                    lr.data?.origin_lot_id);
+                            }
+                        }
+                    } catch (pe) {
+                        console.warn("  parent inspection failed:", pe.message);
+                    }
                 }
             } catch (e) {
-                console.error("[SWAP] Error persisting target_lot_id:", e);
+                console.error("[SWAP CONFIRM] Error:", e);
+                console.error("[SWAP CONFIRM] Stack:", e.stack);
             }
+            console.log("[SWAP CONFIRM] ══════════════════════════════════════");
         };
 
         const doClose = () => this.destroyPopup();
