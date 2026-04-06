@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="sale_delivery_wizard.SwapLotSelector" owl="1">
+        <div class="swap-lot-selector-field">
+            <t t-if="state.targetLotId">
+                <div class="swap-lot-chosen" t-on-click="handleClick">
+                    <i class="fa fa-cube me-1"></i>
+                    <span class="swap-lot-chosen-name"><t t-esc="state.targetLotName"/></span>
+                    <button class="swap-lot-clear" t-on-click.stop="handleClear" 
+                            t-if="!props.readonly" title="Quitar selección">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            </t>
+            <t t-else="">
+                <button class="swap-lot-pick-btn" t-on-click="handleClick"
+                        t-if="!props.readonly">
+                    <i class="fa fa-search me-1"></i>
+                    Buscar lote...
+                </button>
+                <span t-else="" class="text-muted">—</span>
+            </t>
+        </div>
+    </t>
+</templates>

@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.1.0',
+    'version': '19.0.1.2.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -19,6 +19,7 @@
         'sale_management',
         'stock',
         'sale_stock',
+        'sale_stone_selection',
     ],
     'data': [
         'security/sale_delivery_groups.xml',
@@ -36,6 +37,9 @@
     'assets': {
         'web.assets_backend': [
             'sale_delivery_wizard/static/src/scss/delivery_wizard.scss',
+            'sale_delivery_wizard/static/src/scss/swap_lot_selector.scss',
+            'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.xml',
+            'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.js',
         ],
     },
     'installable': True,

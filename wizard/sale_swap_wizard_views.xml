@@ -20,9 +20,9 @@
                         <field name="qty" string="m²"/>
                         <field name="target_lot_id"
                                string="Lote Nuevo"
+                               widget="swap_lot_selector"
                                readonly="0"
-                               domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]"
-                               placeholder="Seleccione..."/>
+                               options="{'no_create': True, 'no_open': True}"/>
                         <field name="target_bloque" string="Bloque N."/>
                         <field name="target_qty" string="m² N."/>
                         <field name="target_alto" string="Alto N." optional="hide"/>
@@ -37,7 +37,7 @@
                 </field>
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
-                    Al seleccionar un lote nuevo verá sus dimensiones y m² disponibles para comparar.
+                    Haga clic en <strong>"Buscar lote..."</strong> para ver el inventario disponible con todos los detalles.
                 </div>
                 <footer>
                     <button name="action_confirm_swap"
