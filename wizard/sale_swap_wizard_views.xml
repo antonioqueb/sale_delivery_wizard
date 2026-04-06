@@ -9,7 +9,7 @@
                     <field name="sale_order_id" readonly="1"/>
                 </group>
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
-                <field name="line_ids">
+                <field name="line_ids" nolabel="1">
                     <list editable="bottom" create="0" delete="0">
                         <field name="product_id" string="Producto" readonly="1"/>
                         <field name="origin_lot_id" string="Lote Actual" readonly="1"/>

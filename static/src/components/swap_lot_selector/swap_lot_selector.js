@@ -1,7 +1,7 @@
 /** @odoo-module */
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, useState, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onWillStart, onWillUpdateProps, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 export class SwapLotSelector extends Component {
@@ -19,8 +19,13 @@ export class SwapLotSelector extends Component {
             targetLotId: null,
         });
 
-        // Read current value
-        this._syncFromRecord();
+        onWillStart(() => {
+            this._syncFromRecord();
+        });
+
+        onWillUpdateProps((nextProps) => {
+            this._syncFromRecordWith(nextProps);
+        });
 
         onWillUnmount(() => {
             this.destroyPopup();
@@ -28,17 +33,28 @@ export class SwapLotSelector extends Component {
     }
 
     _syncFromRecord() {
-        const val = this.props.record.data[this.props.name];
+        this._syncFromRecordWith(this.props);
+    }
+
+    _syncFromRecordWith(props) {
+        const val = props.record.data[props.name];
         if (val) {
             if (Array.isArray(val)) {
-                this.state.targetLotId = val[0];
+                this.state.targetLotId = val[0] || null;
                 this.state.targetLotName = val[1] || "";
             } else if (typeof val === "object" && val.id) {
                 this.state.targetLotId = val.id;
                 this.state.targetLotName = val.display_name || val.name || "";
             } else if (typeof val === "number") {
                 this.state.targetLotId = val;
+                this.state.targetLotName = "";
+            } else {
+                this.state.targetLotId = null;
+                this.state.targetLotName = "";
             }
+        } else {
+            this.state.targetLotId = null;
+            this.state.targetLotName = "";
         }
     }
 
@@ -65,6 +81,7 @@ export class SwapLotSelector extends Component {
         if (!lot) return "";
         if (Array.isArray(lot)) return lot[1] || "";
         if (lot && lot.display_name) return lot.display_name;
+        if (lot && lot.name) return lot.name;
         return "";
     }
 
@@ -76,18 +93,30 @@ export class SwapLotSelector extends Component {
         return "";
     }
 
+    // ─── Check if truly readonly ──────────────────────────────────────────
+    // In Odoo 19, props.readonly may be forced true by parent context.
+    // We check the field definition on the record to see if it's truly readonly.
+    get isEditable() {
+        // Always editable — the view controls this, not JS
+        return true;
+    }
+
     handleClick(ev) {
         ev.stopPropagation();
-        if (this.props.readonly) return;
+        ev.preventDefault();
         this.openPopup();
     }
 
-    handleClear(ev) {
+    async handleClear(ev) {
         ev.stopPropagation();
-        if (this.props.readonly) return;
+        ev.preventDefault();
         this.state.targetLotId = null;
         this.state.targetLotName = "";
-        this.props.record.update({ [this.props.name]: false });
+        try {
+            await this.props.record.update({ [this.props.name]: false });
+        } catch (e) {
+            console.warn("[SWAP] Error clearing lot:", e);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -97,7 +126,10 @@ export class SwapLotSelector extends Component {
     openPopup() {
         this.destroyPopup();
         const productId = this._getProductId();
-        if (!productId) return;
+        if (!productId) {
+            console.warn("[SWAP] No product_id found, cannot open popup");
+            return;
+        }
 
         this._popupRoot = document.createElement("div");
         this._popupRoot.className = "swap-popup-root";
@@ -135,7 +167,7 @@ export class SwapLotSelector extends Component {
                             <span class="swap-popup-subtitle">${this._getProductName() ? "— " + this._getProductName() : ""}</span>
                         </div>
                         <div class="swap-popup-header-actions">
-                            <div class="swap-origin-badge" id="swap-origin-info">
+                            <div class="swap-origin-badge">
                                 <i class="fa fa-cube me-1"></i>
                                 Actual: <strong>${this._getOriginLotName()}</strong>
                             </div>
@@ -256,7 +288,7 @@ export class SwapLotSelector extends Component {
             for (const q of state.quants) {
                 const lotId = q.lot_id ? q.lot_id[0] : 0;
                 const lotName = q.lot_id ? q.lot_id[1] : "-";
-                if (lotId === originLotId) continue; // Skip origin lot
+                if (lotId === originLotId) continue;
 
                 const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
                 const sel = state.selectedLotId === lotId;
@@ -274,8 +306,10 @@ export class SwapLotSelector extends Component {
                     statusBadge = `<span class="swap-tag swap-tag-free">Disponible</span>`;
                 }
 
+                const escapedName = lotName.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
                 rows += `
-                    <tr class="${sel ? "swap-row-sel" : ""}" data-lot-id="${lotId}" data-lot-name="${lotName.replace(/"/g, '&quot;')}">
+                    <tr class="${sel ? "swap-row-sel" : ""}" data-lot-id="${lotId}" data-lot-name="${escapedName}">
                         <td class="col-chk">
                             <div class="swap-radio ${sel ? "checked" : ""}">
                                 ${sel ? '<i class="fa fa-check"></i>' : ""}
@@ -294,7 +328,7 @@ export class SwapLotSelector extends Component {
                         <td class="swap-cell-loc">${loc}</td>
                         <td class="col-num font-monospace text-muted">${q.x_pedimento || "-"}</td>
                         <td>${q.x_detalles_placa
-                            ? `<i class="fa fa-info-circle text-warning" title="${q.x_detalles_placa}"></i>`
+                            ? `<i class="fa fa-info-circle text-warning" title="${q.x_detalles_placa.replace(/"/g, '&quot;')}"></i>`
                             : "-"}</td>
                         <td>${statusBadge}</td>
                     </tr>`;
@@ -333,7 +367,6 @@ export class SwapLotSelector extends Component {
 
             updateStats();
 
-            // Click rows
             body.querySelectorAll("tr[data-lot-id]").forEach((tr) => {
                 tr.style.cursor = "pointer";
                 tr.addEventListener("click", () => {
@@ -349,7 +382,6 @@ export class SwapLotSelector extends Component {
                 });
             });
 
-            // Infinite scroll
             if (this._popupObserver) {
                 this._popupObserver.disconnect();
                 this._popupObserver = null;
@@ -368,7 +400,6 @@ export class SwapLotSelector extends Component {
             }
         };
 
-        // ─── loadPage ────────────────────────────────────────────────────────
         const loadPage = async (page, reset) => {
             if (reset) {
                 state.isLoading = true;
@@ -441,20 +472,22 @@ export class SwapLotSelector extends Component {
             renderTable();
         };
 
-        // ─── Confirm / Close ─────────────────────────────────────────────────
         const doConfirm = async () => {
             if (!state.selectedLotId) return;
             this.state.targetLotId = state.selectedLotId;
             this.state.targetLotName = state.selectedLotName;
-            await this.props.record.update({
-                [this.props.name]: state.selectedLotId,
-            });
             this.destroyPopup();
+            try {
+                await this.props.record.update({
+                    [this.props.name]: state.selectedLotId,
+                });
+            } catch (e) {
+                console.error("[SWAP] Error updating record:", e);
+            }
         };
 
         const doClose = () => this.destroyPopup();
 
-        // ─── Event listeners ─────────────────────────────────────────────────
         root.querySelector("#swap-close").addEventListener("click", doClose);
         root.querySelector("#swap-cancel").addEventListener("click", doClose);
         root.querySelector("#swap-confirm-top").addEventListener("click", doConfirm);
@@ -465,7 +498,6 @@ export class SwapLotSelector extends Component {
         document.addEventListener("keydown", onKeyDown);
         this._popupKeyHandler = onKeyDown;
 
-        // Filters
         const bindFilter = (id, key) => {
             const input = root.querySelector(`#${id}`);
             if (!input) return;
@@ -484,7 +516,6 @@ export class SwapLotSelector extends Component {
         bindFilter("swf-ancho", "ancho_min");
         bindFilter("swf-tipo", "tipo");
 
-        // Init selection state
         if (state.selectedLotId) {
             updateSelection(state.selectedLotId, state.selectedLotName);
         }
