@@ -169,7 +169,7 @@ class SaleSwapWizardLine(models.TransientModel):
     product_id = fields.Many2one(
         'product.product', string='Producto', readonly=True)
     origin_lot_id = fields.Many2one(
-        'stock.lot', string='Lote Actual', required=True, readonly=True)
+        'stock.lot', string='Lote Actual', readonly=True)
     target_lot_id = fields.Many2one(
         'stock.lot', string='Lote Nuevo',
         domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]")
