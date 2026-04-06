@@ -51,7 +51,19 @@ class SaleSwapWizard(models.TransientModel):
     def action_confirm_swap(self):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
+        # Re-read from DB to get persisted target_lot_id values
+        self.line_ids.invalidate_recordset()
         lines_to_swap = self.line_ids.filtered(lambda l: l.target_lot_id)
+
+        _logger.info(
+            'Swap confirm: %d total lines, %d with target_lot_id',
+            len(self.line_ids), len(lines_to_swap))
+        for line in self.line_ids:
+            _logger.info(
+                '  Line %s: origin=%s target=%s',
+                line.id, line.origin_lot_id.name,
+                line.target_lot_id.name if line.target_lot_id else 'NONE')
+
         if not lines_to_swap:
             raise UserError(_(
                 'Seleccione al menos un lote destino para ejecutar el swap.'))
@@ -68,7 +80,6 @@ class SaleSwapWizard(models.TransientModel):
                     'No se encontró movimiento pendiente para el lote %s.',
                     line.origin_lot_id.name))
 
-            # Check target lot availability
             target_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', line.target_lot_id.id),
                 ('location_id.usage', '=', 'internal'),
@@ -79,7 +90,6 @@ class SaleSwapWizard(models.TransientModel):
                     'El lote destino %s no tiene stock disponible.',
                     line.target_lot_id.name))
 
-            # Check hold status if stock_lot_dimensions is installed
             if hasattr(line.target_lot_id, 'hold_order_ids'):
                 active_holds = line.target_lot_id.hold_order_ids.filtered(
                     lambda h: h.state == 'active'
@@ -94,18 +104,15 @@ class SaleSwapWizard(models.TransientModel):
             old_lot_name = line.origin_lot_id.name
             new_lot = line.target_lot_id
 
-            # Execute swap on the move line
             move_line.lot_id = new_lot.id
             move_line.quantity = target_qty
 
-            # Update the move demand if qty changed
             if move_line.move_id:
                 total_ml_qty = sum(
                     move_line.move_id.move_line_ids.mapped('quantity'))
                 if total_ml_qty != move_line.move_id.product_uom_qty:
                     move_line.move_id.product_uom_qty = total_ml_qty
 
-            # Create swap record in delivery document
             self.env['sale.delivery.document'].create({
                 'document_type': 'pick_ticket',
                 'state': 'confirmed',
@@ -134,7 +141,6 @@ class SaleSwapWizard(models.TransientModel):
                 ],
             })
 
-            # Update SO line lot_ids if sale_stone_selection is installed
             if (line.sale_line_id and hasattr(line.sale_line_id, 'lot_ids')
                     and line.origin_lot_id in line.sale_line_id.lot_ids):
                 line.sale_line_id.lot_ids = [
@@ -178,14 +184,12 @@ class SaleSwapWizardLine(models.TransientModel):
     picking_id = fields.Many2one('stock.picking', string='Picking')
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
 
-    # Origin lot info
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
     origin_alto = fields.Char(string='Alto', readonly=True)
     origin_ancho = fields.Char(string='Ancho', readonly=True)
     origin_grosor = fields.Char(string='Grosor', readonly=True)
 
-    # Target lot info (computed on selection)
     target_bloque = fields.Char(
         string='Bloque Nuevo', compute='_compute_target_info', readonly=True)
     target_atado = fields.Char(
@@ -222,3 +226,36 @@ class SaleSwapWizardLine(models.TransientModel):
                 line.target_ancho = ''
                 line.target_grosor = ''
                 line.target_qty = 0.0
+
+    def action_open_lot_picker(self):
+        """Return a client action that the JS will handle.
+        The wizard MUST be saved before this is called so lines have DB IDs.
+        Buttons type=object in Odoo 19 trigger web_save first, ensuring this.
+        """
+        self.ensure_one()
+        _logger.info(
+            'action_open_lot_picker: line_id=%s product=%s origin_lot=%s',
+            self.id, self.product_id.id, self.origin_lot_id.name)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'swap_open_lot_picker',
+            'params': {
+                'wizard_id': self.wizard_id.id,
+                'line_id': self.id,
+                'product_id': self.product_id.id,
+                'product_name': self.product_id.display_name,
+                'origin_lot_id': self.origin_lot_id.id,
+                'origin_lot_name': self.origin_lot_id.name or '',
+                'current_target_lot_id': self.target_lot_id.id if self.target_lot_id else False,
+                'current_target_lot_name': self.target_lot_id.name if self.target_lot_id else '',
+                'exclude_lot_ids': self.wizard_id.line_ids.mapped('origin_lot_id').ids,
+            },
+        }
+
+    def action_write_target_lot(self, lot_id):
+        """Write target lot directly via ORM. Called from JS."""
+        self.ensure_one()
+        self.write({'target_lot_id': lot_id or False})
+        _logger.info(
+            'action_write_target_lot: line=%s lot_id=%s', self.id, lot_id)
+        return True

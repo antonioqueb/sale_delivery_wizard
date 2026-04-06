@@ -1,604 +1,441 @@
 /** @odoo-module */
 import { registry } from "@web/core/registry";
-import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, useState, onWillStart, onWillUpdateProps, onWillUnmount } from "@odoo/owl";
-import { useService } from "@web/core/utils/hooks";
 
-export class SwapLotSelector extends Component {
-    static template = "sale_delivery_wizard.SwapLotSelector";
-    static props = { ...standardFieldProps };
+/**
+ * Client action: swap_open_lot_picker
+ *
+ * Opens a fullscreen popup to select a replacement lot.
+ * On confirm, writes directly via RPC to the wizard line (ORM write),
+ * then reopens the swap wizard so the user sees the updated state.
+ *
+ * This approach bypasses the OWL dirty-tracking problem entirely:
+ * - Python button on line → returns this client action
+ * - JS handles the popup
+ * - JS calls action_write_target_lot via RPC → ORM write
+ * - JS reopens wizard via doAction
+ */
+function swapOpenLotPicker(env, action) {
+    const params = action.params || {};
+    const orm = env.services.orm;
+    const actionService = env.services.action;
 
-    setup() {
-        this.orm = useService("orm");
-        this._popupRoot = null;
-        this._popupKeyHandler = null;
-        this._popupObserver = null;
+    const {
+        wizard_id,
+        line_id,
+        product_id,
+        product_name,
+        origin_lot_id,
+        origin_lot_name,
+        current_target_lot_id,
+        current_target_lot_name,
+        exclude_lot_ids,
+    } = params;
 
-        this.state = useState({
-            targetLotName: "",
-            targetLotId: null,
-        });
-
-        onWillStart(() => {
-            this._syncFromRecord();
-        });
-
-        onWillUpdateProps((nextProps) => {
-            this._syncFromRecordWith(nextProps);
-        });
-
-        onWillUnmount(() => {
-            this.destroyPopup();
-        });
+    if (!product_id || !line_id) {
+        console.warn("[SWAP] Missing params");
+        return;
     }
 
-    _syncFromRecord() {
-        this._syncFromRecordWith(this.props);
+    const popupRoot = document.createElement("div");
+    popupRoot.className = "swap-popup-root";
+    document.body.appendChild(popupRoot);
+
+    const PAGE_SIZE = 35;
+    const excludeSet = new Set(exclude_lot_ids || []);
+
+    const state = {
+        quants: [],
+        totalCount: 0,
+        hasMore: false,
+        isLoading: false,
+        isLoadingMore: false,
+        page: 0,
+        selectedLotId: current_target_lot_id || null,
+        selectedLotName: current_target_lot_name || "",
+        filters: { lot_name: "", bloque: "", atado: "", alto_min: "", ancho_min: "", tipo: "" },
+    };
+
+    let searchTimeout = null;
+    let popupObserver = null;
+    let popupKeyHandler = null;
+
+    function destroyPopup() {
+        if (popupObserver) { popupObserver.disconnect(); popupObserver = null; }
+        if (popupKeyHandler) { document.removeEventListener("keydown", popupKeyHandler); popupKeyHandler = null; }
+        if (popupRoot.parentNode) { popupRoot.remove(); }
     }
 
-    _syncFromRecordWith(props) {
-        const val = props.record.data[props.name];
-        if (val) {
-            if (Array.isArray(val)) {
-                this.state.targetLotId = val[0] || null;
-                this.state.targetLotName = val[1] || "";
-            } else if (typeof val === "object" && val.id) {
-                this.state.targetLotId = val.id;
-                this.state.targetLotName = val.display_name || val.name || "";
-            } else if (typeof val === "number") {
-                this.state.targetLotId = val;
-                this.state.targetLotName = "";
-            } else {
-                this.state.targetLotId = null;
-                this.state.targetLotName = "";
-            }
-        } else {
-            this.state.targetLotId = null;
-            this.state.targetLotName = "";
-        }
-    }
-
-    _getProductId() {
-        const pd = this.props.record.data.product_id;
-        if (!pd) return 0;
-        if (Array.isArray(pd)) return pd[0];
-        if (typeof pd === "number") return pd;
-        if (pd && pd.id) return pd.id;
-        return 0;
-    }
-
-    _getOriginLotId() {
-        const lot = this.props.record.data.origin_lot_id;
-        if (!lot) return 0;
-        if (Array.isArray(lot)) return lot[0];
-        if (typeof lot === "number") return lot;
-        if (lot && lot.id) return lot.id;
-        return 0;
-    }
-
-    _getOriginLotName() {
-        const lot = this.props.record.data.origin_lot_id;
-        if (!lot) return "";
-        if (Array.isArray(lot)) return lot[1] || "";
-        if (lot && lot.display_name) return lot.display_name;
-        if (lot && lot.name) return lot.name;
-        return "";
-    }
-
-    _getProductName() {
-        const pd = this.props.record.data.product_id;
-        if (!pd) return "";
-        if (Array.isArray(pd)) return pd[1] || "";
-        if (pd && pd.display_name) return pd.display_name;
-        return "";
-    }
-
-    /**
-     * Get the real DB ID of this wizard line record
-     */
-    _getRecordId() {
-        const rec = this.props.record;
-        if (rec.resId && typeof rec.resId === "number" && rec.resId > 0) return rec.resId;
-        if (rec.data && rec.data.id && typeof rec.data.id === "number" && rec.data.id > 0) return rec.data.id;
-        return null;
-    }
-
-    /**
-     * Collect all origin_lot_ids from ALL lines in the wizard (siblings)
-     * so we can exclude them from the search results
-     */
-    _getAllOriginLotIds() {
-        const lotIds = new Set();
-        try {
-            // Navigate up to the parent wizard record to get all lines
-            const parentRecord = this.props.record.model.root;
-            if (parentRecord && parentRecord.data && parentRecord.data.line_ids) {
-                const lines = parentRecord.data.line_ids;
-                const records = lines.records || [];
-                for (const lineRec of records) {
-                    const originLot = lineRec.data.origin_lot_id;
-                    let lotId = 0;
-                    if (originLot) {
-                        if (Array.isArray(originLot)) lotId = originLot[0];
-                        else if (typeof originLot === "number") lotId = originLot;
-                        else if (originLot.id) lotId = originLot.id;
-                    }
-                    if (lotId) lotIds.add(lotId);
-                }
-            }
-        } catch (e) {
-            // Fallback: just use the current line's origin
-            const originId = this._getOriginLotId();
-            if (originId) lotIds.add(originId);
-        }
-        return Array.from(lotIds);
-    }
-
-    handleClick(ev) {
-        ev.stopPropagation();
-        ev.preventDefault();
-        this.openPopup();
-    }
-
-    async handleClear(ev) {
-        ev.stopPropagation();
-        ev.preventDefault();
-        this.state.targetLotId = null;
-        this.state.targetLotName = "";
-        try {
-            await this.props.record.update({ [this.props.name]: false });
-            // Also persist via orm.write if record exists in DB
-            const recId = this._getRecordId();
-            if (recId) {
-                await this.orm.write("sale.swap.wizard.line", [recId], {
-                    target_lot_id: false,
-                });
-            }
-        } catch (e) {
-            console.warn("[SWAP] Error clearing lot:", e);
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // POPUP
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    openPopup() {
-        this.destroyPopup();
-        const productId = this._getProductId();
-        if (!productId) {
-            console.warn("[SWAP] No product_id found");
-            return;
-        }
-
-        this._popupRoot = document.createElement("div");
-        this._popupRoot.className = "swap-popup-root";
-        document.body.appendChild(this._popupRoot);
-
-        this._renderPopup(productId);
-    }
-
-    _renderPopup(productId) {
-        const root = this._popupRoot;
-        const PAGE_SIZE = 35;
-        const originLotId = this._getOriginLotId();
-        // Get ALL lot_ids currently assigned in the SO (all lines in the wizard)
-        const excludedLotIds = this._getAllOriginLotIds();
-
-        const state = {
-            quants: [],
-            totalCount: 0,
-            hasMore: false,
-            isLoading: false,
-            isLoadingMore: false,
-            page: 0,
-            selectedLotId: this.state.targetLotId,
-            selectedLotName: this.state.targetLotName,
-            filters: { lot_name: "", bloque: "", atado: "", alto_min: "", ancho_min: "", tipo: "" },
-        };
-
-        let searchTimeout = null;
-
-        root.innerHTML = `
-            <div class="swap-popup-overlay" id="swap-overlay">
-                <div class="swap-popup-container">
-                    <div class="swap-popup-header">
-                        <div class="swap-popup-title">
-                            <i class="fa fa-exchange me-2"></i>
-                            Seleccionar Lote de Reemplazo
-                            <span class="swap-popup-subtitle">${this._getProductName() ? "— " + this._getProductName() : ""}</span>
-                        </div>
-                        <div class="swap-popup-header-actions">
-                            <div class="swap-origin-badge">
-                                <i class="fa fa-cube me-1"></i>
-                                Actual: <strong>${this._getOriginLotName()}</strong>
-                            </div>
-                            <div class="swap-selected-badge" id="swap-sel-badge" style="display:none;">
-                                <i class="fa fa-arrow-right me-1"></i>
-                                Nuevo: <strong id="swap-sel-name">—</strong>
-                            </div>
-                            <button class="swap-btn swap-btn-confirm" id="swap-confirm-top" disabled>
-                                <i class="fa fa-check me-1"></i> Confirmar
-                            </button>
-                            <button class="swap-btn swap-btn-ghost" id="swap-close">
-                                <i class="fa fa-times"></i>
-                            </button>
-                        </div>
+    // ─── Build popup HTML ────────────────────────────────────────────────
+    popupRoot.innerHTML = `
+        <div class="swap-popup-overlay" id="swap-overlay">
+            <div class="swap-popup-container">
+                <div class="swap-popup-header">
+                    <div class="swap-popup-title">
+                        <i class="fa fa-exchange me-2"></i>
+                        Seleccionar Lote de Reemplazo
+                        <span class="swap-popup-subtitle">${product_name ? "— " + product_name : ""}</span>
                     </div>
-
-                    <div class="swap-popup-filters">
-                        <div class="swap-filter-group">
-                            <label>Lote</label>
-                            <input type="text" class="swap-filter-input" id="swf-lot" placeholder="Buscar lote..."/>
+                    <div class="swap-popup-header-actions">
+                        <div class="swap-origin-badge">
+                            <i class="fa fa-cube me-1"></i>
+                            Actual: <strong>${origin_lot_name || "—"}</strong>
                         </div>
-                        <div class="swap-filter-group">
-                            <label>Bloque</label>
-                            <input type="text" class="swap-filter-input" id="swf-bloque" placeholder="Bloque..."/>
+                        <div class="swap-selected-badge" id="swap-sel-badge" style="display:none;">
+                            <i class="fa fa-arrow-right me-1"></i>
+                            Nuevo: <strong id="swap-sel-name">—</strong>
                         </div>
-                        <div class="swap-filter-group">
-                            <label>Atado</label>
-                            <input type="text" class="swap-filter-input" id="swf-atado" placeholder="Atado..."/>
-                        </div>
-                        <div class="swap-filter-group">
-                            <label>Alto mín.</label>
-                            <input type="number" class="swap-filter-input swap-filter-sm" id="swf-alto" placeholder="0"/>
-                        </div>
-                        <div class="swap-filter-group">
-                            <label>Ancho mín.</label>
-                            <input type="number" class="swap-filter-input swap-filter-sm" id="swf-ancho" placeholder="0"/>
-                        </div>
-                        <div class="swap-filter-group">
-                            <label>Tipo</label>
-                            <select class="swap-filter-input" id="swf-tipo">
-                                <option value="">Todos</option>
-                                <option value="placa">Placa</option>
-                                <option value="formato">Formato</option>
-                                <option value="pieza">Pieza</option>
-                            </select>
-                        </div>
-                        <div class="swap-filter-spacer"></div>
-                        <div class="swap-filter-stats">
-                            <span id="swap-stat" class="swap-stat-loading">
-                                <i class="fa fa-circle-o-notch fa-spin me-1"></i> Buscando...
-                            </span>
-                        </div>
+                        <button class="swap-btn swap-btn-confirm" id="swap-confirm-top" disabled>
+                            <i class="fa fa-check me-1"></i> Confirmar
+                        </button>
+                        <button class="swap-btn swap-btn-ghost" id="swap-close">
+                            <i class="fa fa-times"></i>
+                        </button>
                     </div>
+                </div>
 
-                    <div class="swap-popup-body" id="swap-body">
-                        <div class="swap-empty-state">
-                            <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"></i>
-                            <div class="swap-empty-text mt-2">Cargando inventario...</div>
-                        </div>
+                <div class="swap-popup-filters">
+                    <div class="swap-filter-group">
+                        <label>Lote</label>
+                        <input type="text" class="swap-filter-input" id="swf-lot" placeholder="Buscar lote..."/>
                     </div>
+                    <div class="swap-filter-group">
+                        <label>Bloque</label>
+                        <input type="text" class="swap-filter-input" id="swf-bloque" placeholder="Bloque..."/>
+                    </div>
+                    <div class="swap-filter-group">
+                        <label>Atado</label>
+                        <input type="text" class="swap-filter-input" id="swf-atado" placeholder="Atado..."/>
+                    </div>
+                    <div class="swap-filter-group">
+                        <label>Alto mín.</label>
+                        <input type="number" class="swap-filter-input swap-filter-sm" id="swf-alto" placeholder="0"/>
+                    </div>
+                    <div class="swap-filter-group">
+                        <label>Ancho mín.</label>
+                        <input type="number" class="swap-filter-input swap-filter-sm" id="swf-ancho" placeholder="0"/>
+                    </div>
+                    <div class="swap-filter-group">
+                        <label>Tipo</label>
+                        <select class="swap-filter-input" id="swf-tipo">
+                            <option value="">Todos</option>
+                            <option value="placa">Placa</option>
+                            <option value="formato">Formato</option>
+                            <option value="pieza">Pieza</option>
+                        </select>
+                    </div>
+                    <div class="swap-filter-spacer"></div>
+                    <div class="swap-filter-stats">
+                        <span id="swap-stat" class="swap-stat-loading">
+                            <i class="fa fa-circle-o-notch fa-spin me-1"></i> Buscando...
+                        </span>
+                    </div>
+                </div>
 
-                    <div class="swap-popup-footer">
-                        <span class="swap-footer-info" id="swap-footer-info">—</span>
-                        <div class="swap-footer-actions">
-                            <button class="swap-btn swap-btn-outline" id="swap-cancel">Cancelar</button>
-                            <button class="swap-btn swap-btn-primary" id="swap-confirm-bottom" disabled>
-                                <i class="fa fa-exchange me-1"></i> Usar este lote
-                            </button>
-                        </div>
+                <div class="swap-popup-body" id="swap-body">
+                    <div class="swap-empty-state">
+                        <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"></i>
+                        <div class="swap-empty-text mt-2">Cargando inventario...</div>
+                    </div>
+                </div>
+
+                <div class="swap-popup-footer">
+                    <span class="swap-footer-info" id="swap-footer-info">—</span>
+                    <div class="swap-footer-actions">
+                        <button class="swap-btn swap-btn-outline" id="swap-cancel">Cancelar</button>
+                        <button class="swap-btn swap-btn-primary" id="swap-confirm-bottom" disabled>
+                            <i class="fa fa-exchange me-1"></i> Usar este lote
+                        </button>
                     </div>
                 </div>
             </div>
-        `;
+        </div>
+    `;
 
-        const overlay = root.querySelector("#swap-overlay");
-        const body = root.querySelector("#swap-body");
-        const stat = root.querySelector("#swap-stat");
-        const footerInfo = root.querySelector("#swap-footer-info");
-        const selBadge = root.querySelector("#swap-sel-badge");
-        const selName = root.querySelector("#swap-sel-name");
-        const confirmTop = root.querySelector("#swap-confirm-top");
-        const confirmBottom = root.querySelector("#swap-confirm-bottom");
+    const overlay = popupRoot.querySelector("#swap-overlay");
+    const body = popupRoot.querySelector("#swap-body");
+    const stat = popupRoot.querySelector("#swap-stat");
+    const footerInfo = popupRoot.querySelector("#swap-footer-info");
+    const selBadge = popupRoot.querySelector("#swap-sel-badge");
+    const selName = popupRoot.querySelector("#swap-sel-name");
+    const confirmTop = popupRoot.querySelector("#swap-confirm-top");
+    const confirmBottom = popupRoot.querySelector("#swap-confirm-bottom");
 
-        const updateSelection = (lotId, lotName) => {
-            state.selectedLotId = lotId;
-            state.selectedLotName = lotName;
-            if (lotId) {
-                selBadge.style.display = "";
-                selName.textContent = lotName;
-                confirmTop.disabled = false;
-                confirmBottom.disabled = false;
-            } else {
-                selBadge.style.display = "none";
-                selName.textContent = "—";
-                confirmTop.disabled = true;
-                confirmBottom.disabled = true;
-            }
-        };
+    function updateSelection(lotId, lotName) {
+        state.selectedLotId = lotId;
+        state.selectedLotName = lotName;
+        if (lotId) {
+            selBadge.style.display = "";
+            selName.textContent = lotName;
+            confirmTop.disabled = false;
+            confirmBottom.disabled = false;
+        } else {
+            selBadge.style.display = "none";
+            selName.textContent = "—";
+            confirmTop.disabled = true;
+            confirmBottom.disabled = true;
+        }
+    }
 
-        const updateStats = () => {
-            stat.className = "swap-stat-count";
-            stat.innerHTML = `${state.totalCount} lotes disponibles`;
-            footerInfo.innerHTML = `Mostrando <strong>${state.quants.length}</strong> de <strong>${state.totalCount}</strong>`;
-        };
+    function updateStats() {
+        stat.className = "swap-stat-count";
+        stat.innerHTML = `${state.totalCount} lotes disponibles`;
+        footerInfo.innerHTML = `Mostrando <strong>${state.quants.length}</strong> de <strong>${state.totalCount}</strong>`;
+    }
 
-        const renderTable = () => {
-            if (state.quants.length === 0 && !state.isLoading) {
-                body.innerHTML = `
-                    <div class="swap-empty-state">
-                        <i class="fa fa-inbox fa-3x text-muted"></i>
-                        <div class="swap-empty-text mt-2">No hay lotes disponibles con estos filtros</div>
-                    </div>`;
-                updateStats();
-                return;
-            }
+    function esc(s) {
+        return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;");
+    }
 
-            let rows = "";
-            for (const q of state.quants) {
-                const lotId = q.lot_id ? q.lot_id[0] : 0;
-                const lotName = q.lot_id ? q.lot_id[1] : "-";
-                // Skip lots that are already assigned in the SO picking
-                if (excludedLotIds.includes(lotId)) continue;
-
-                const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
-                const sel = state.selectedLotId === lotId;
-                const reserved = q.reserved_quantity > 0;
-                const tipo = (q.x_tipo || "placa").toLowerCase();
-                const tipoLabel = tipo.charAt(0).toUpperCase() + tipo.slice(1);
-                const area = q.quantity ? q.quantity.toFixed(2) : "0.00";
-
-                let statusBadge;
-                if (sel) {
-                    statusBadge = `<span class="swap-tag swap-tag-selected"><i class="fa fa-check me-1"></i>Seleccionado</span>`;
-                } else if (reserved) {
-                    statusBadge = `<span class="swap-tag swap-tag-warn">Reservado</span>`;
-                } else {
-                    statusBadge = `<span class="swap-tag swap-tag-free">Disponible</span>`;
-                }
-
-                const escapedName = lotName.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-                rows += `
-                    <tr class="${sel ? "swap-row-sel" : ""}" data-lot-id="${lotId}" data-lot-name="${escapedName}">
-                        <td class="col-chk">
-                            <div class="swap-radio ${sel ? "checked" : ""}">
-                                ${sel ? '<i class="fa fa-check"></i>' : ""}
-                            </div>
-                        </td>
-                        <td class="swap-cell-lot">${lotName}</td>
-                        <td>${q.x_bloque || "-"}</td>
-                        <td>${q.x_atado || "-"}</td>
-                        <td class="col-num">${q.x_alto ? parseFloat(q.x_alto).toFixed(0) : "-"}</td>
-                        <td class="col-num">${q.x_ancho ? parseFloat(q.x_ancho).toFixed(0) : "-"}</td>
-                        <td class="col-num">${q.x_grosor || "-"}</td>
-                        <td class="col-num fw-semibold">${area}</td>
-                        <td><span class="swap-tag swap-tag-tipo-${tipo}">${tipoLabel}</span></td>
-                        <td>${q.x_color || "-"}</td>
-                        <td>${q.x_origen || "-"}</td>
-                        <td class="swap-cell-loc">${loc}</td>
-                        <td class="col-num font-monospace text-muted">${q.x_pedimento || "-"}</td>
-                        <td>${q.x_detalles_placa
-                            ? `<i class="fa fa-info-circle text-warning" title="${q.x_detalles_placa.replace(/"/g, '&quot;')}"></i>`
-                            : "-"}</td>
-                        <td>${statusBadge}</td>
-                    </tr>`;
-            }
-
-            const sentinel = `
-                <div id="swap-sentinel" class="swap-scroll-sentinel">
-                    ${state.isLoadingMore ? '<div class="swap-loading-more"><i class="fa fa-circle-o-notch fa-spin me-2"></i> Cargando más...</div>' : ""}
-                    ${state.hasMore && !state.isLoadingMore ? '<div class="swap-scroll-hint"><i class="fa fa-chevron-down me-1"></i> Desplázate para más</div>' : ""}
-                </div>`;
-
+    function renderTable() {
+        if (state.quants.length === 0 && !state.isLoading) {
             body.innerHTML = `
-                <table class="swap-popup-table">
-                    <thead>
-                        <tr>
-                            <th class="col-chk" style="width:40px;"></th>
-                            <th>Lote</th>
-                            <th>Bloque</th>
-                            <th>Atado</th>
-                            <th class="col-num">Alto</th>
-                            <th class="col-num">Ancho</th>
-                            <th class="col-num">Gros.</th>
-                            <th class="col-num">m²</th>
-                            <th>Tipo</th>
-                            <th>Color</th>
-                            <th>Origen</th>
-                            <th>Ubic.</th>
-                            <th class="col-num">Pedimento</th>
-                            <th>Notas</th>
-                            <th>Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                ${sentinel}`;
-
+                <div class="swap-empty-state">
+                    <i class="fa fa-inbox fa-3x text-muted"></i>
+                    <div class="swap-empty-text mt-2">No hay lotes disponibles con estos filtros</div>
+                </div>`;
             updateStats();
+            return;
+        }
 
-            body.querySelectorAll("tr[data-lot-id]").forEach((tr) => {
-                tr.style.cursor = "pointer";
-                tr.addEventListener("click", () => {
-                    const lotId = parseInt(tr.dataset.lotId);
-                    const lotName = tr.dataset.lotName;
-                    if (!lotId) return;
-                    if (state.selectedLotId === lotId) {
-                        updateSelection(null, "");
-                    } else {
-                        updateSelection(lotId, lotName);
-                    }
-                    renderTable();
-                });
-            });
+        let rows = "";
+        for (const q of state.quants) {
+            const lotId = q.lot_id ? q.lot_id[0] : 0;
+            const lotName = q.lot_id ? q.lot_id[1] : "-";
+            // Exclude lots already in the picking (all origin lots)
+            if (excludeSet.has(lotId)) continue;
 
-            if (this._popupObserver) {
-                this._popupObserver.disconnect();
-                this._popupObserver = null;
-            }
-            const sentinelEl = body.querySelector("#swap-sentinel");
-            if (sentinelEl && state.hasMore) {
-                this._popupObserver = new IntersectionObserver(
-                    (entries) => {
-                        if (entries[0].isIntersecting && state.hasMore && !state.isLoadingMore) {
-                            loadPage(state.page + 1, false);
-                        }
-                    },
-                    { root: body, rootMargin: "100px", threshold: 0.1 }
-                );
-                this._popupObserver.observe(sentinelEl);
-            }
-        };
+            const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
+            const sel = state.selectedLotId === lotId;
+            const reserved = q.reserved_quantity > 0;
+            const tipo = (q.x_tipo || "placa").toLowerCase();
+            const tipoLabel = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+            const area = q.quantity ? q.quantity.toFixed(2) : "0.00";
 
-        const loadPage = async (page, reset) => {
-            if (reset) {
-                state.isLoading = true;
-                state.quants = [];
-                body.innerHTML = `
-                    <div class="swap-empty-state">
-                        <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"></i>
-                        <div class="swap-empty-text mt-2">Buscando...</div>
-                    </div>`;
-                stat.className = "swap-stat-loading";
-                stat.innerHTML = `<i class="fa fa-circle-o-notch fa-spin me-1"></i> Buscando...`;
+            let statusBadge;
+            if (sel) {
+                statusBadge = `<span class="swap-tag swap-tag-selected"><i class="fa fa-check me-1"></i>Seleccionado</span>`;
+            } else if (reserved) {
+                statusBadge = `<span class="swap-tag swap-tag-warn">Reservado</span>`;
             } else {
-                state.isLoadingMore = true;
+                statusBadge = `<span class="swap-tag swap-tag-free">Disponible</span>`;
             }
 
-            try {
-                let result;
-                try {
-                    result = await this.orm.call(
-                        "stock.quant",
-                        "search_stone_inventory_for_so_paginated",
-                        [],
-                        {
-                            product_id: productId,
-                            filters: state.filters,
-                            current_lot_ids: [],
-                            page,
-                            page_size: PAGE_SIZE,
-                        }
-                    );
-                } catch (_e) {
-                    const all = (await this.orm.call(
-                        "stock.quant",
-                        "search_stone_inventory_for_so",
-                        [],
-                        {
-                            product_id: productId,
-                            filters: state.filters,
-                            current_lot_ids: [],
-                        }
-                    )) || [];
-                    result = {
-                        items: all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
-                        total: all.length,
-                    };
-                }
-
-                const items = result.items || [];
-                if (reset || page === 0) {
-                    state.quants = items;
-                } else {
-                    state.quants = [...state.quants, ...items];
-                }
-                state.totalCount = result.total || 0;
-                state.page = page;
-                state.hasMore = state.quants.length < state.totalCount;
-            } catch (err) {
-                console.error("[SWAP POPUP] Error:", err);
-                body.innerHTML = `
-                    <div class="swap-empty-state">
-                        <i class="fa fa-exclamation-triangle fa-2x text-danger"></i>
-                        <div class="swap-empty-text mt-2 text-danger">Error: ${err.message}</div>
-                    </div>`;
-                return;
-            } finally {
-                state.isLoading = false;
-                state.isLoadingMore = false;
-            }
-
-            renderTable();
-        };
-
-        const doConfirm = async () => {
-            if (!state.selectedLotId) return;
-            this.state.targetLotId = state.selectedLotId;
-            this.state.targetLotName = state.selectedLotName;
-            this.destroyPopup();
-
-            try {
-                // 1. Update the OWL record (frontend)
-                await this.props.record.update({
-                    [this.props.name]: state.selectedLotId,
-                });
-
-                // 2. ALSO persist directly via orm.write to the DB
-                //    This is the key fix: record.update alone doesn't persist
-                //    Many2one changes on transient wizard lines in Odoo 19
-                const recId = this._getRecordId();
-                if (recId) {
-                    await this.orm.write("sale.swap.wizard.line", [recId], {
-                        target_lot_id: state.selectedLotId,
-                    });
-                    console.log("[SWAP] Persisted target_lot_id=%s on line %s", state.selectedLotId, recId);
-                } else {
-                    console.warn("[SWAP] No record ID found, target_lot_id only updated in frontend");
-                }
-            } catch (e) {
-                console.error("[SWAP] Error persisting target_lot_id:", e);
-            }
-        };
-
-        const doClose = () => this.destroyPopup();
-
-        root.querySelector("#swap-close").addEventListener("click", doClose);
-        root.querySelector("#swap-cancel").addEventListener("click", doClose);
-        root.querySelector("#swap-confirm-top").addEventListener("click", doConfirm);
-        root.querySelector("#swap-confirm-bottom").addEventListener("click", doConfirm);
-        overlay.addEventListener("click", (e) => { if (e.target === overlay) doClose(); });
-
-        const onKeyDown = (e) => { if (e.key === "Escape") doClose(); };
-        document.addEventListener("keydown", onKeyDown);
-        this._popupKeyHandler = onKeyDown;
-
-        const bindFilter = (id, key) => {
-            const input = root.querySelector(`#${id}`);
-            if (!input) return;
-            const handler = () => {
-                state.filters[key] = input.value;
-                if (searchTimeout) clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => loadPage(0, true), 350);
-            };
-            input.addEventListener("input", handler);
-            input.addEventListener("change", handler);
-        };
-        bindFilter("swf-lot", "lot_name");
-        bindFilter("swf-bloque", "bloque");
-        bindFilter("swf-atado", "atado");
-        bindFilter("swf-alto", "alto_min");
-        bindFilter("swf-ancho", "ancho_min");
-        bindFilter("swf-tipo", "tipo");
-
-        if (state.selectedLotId) {
-            updateSelection(state.selectedLotId, state.selectedLotName);
+            rows += `
+                <tr class="${sel ? "swap-row-sel" : ""}" data-lot-id="${lotId}" data-lot-name="${esc(lotName)}">
+                    <td class="col-chk">
+                        <div class="swap-radio ${sel ? "checked" : ""}">
+                            ${sel ? '<i class="fa fa-check"></i>' : ""}
+                        </div>
+                    </td>
+                    <td class="swap-cell-lot">${esc(lotName)}</td>
+                    <td>${esc(q.x_bloque) || "-"}</td>
+                    <td>${esc(q.x_atado) || "-"}</td>
+                    <td class="col-num">${q.x_alto ? parseFloat(q.x_alto).toFixed(0) : "-"}</td>
+                    <td class="col-num">${q.x_ancho ? parseFloat(q.x_ancho).toFixed(0) : "-"}</td>
+                    <td class="col-num">${q.x_grosor || "-"}</td>
+                    <td class="col-num fw-semibold">${area}</td>
+                    <td><span class="swap-tag swap-tag-tipo-${tipo}">${tipoLabel}</span></td>
+                    <td>${esc(q.x_color) || "-"}</td>
+                    <td>${esc(q.x_origen) || "-"}</td>
+                    <td class="swap-cell-loc">${esc(loc)}</td>
+                    <td class="col-num font-monospace text-muted">${esc(q.x_pedimento) || "-"}</td>
+                    <td>${q.x_detalles_placa
+                        ? `<i class="fa fa-info-circle text-warning" title="${esc(q.x_detalles_placa)}"></i>`
+                        : "-"}</td>
+                    <td>${statusBadge}</td>
+                </tr>`;
         }
 
-        loadPage(0, true);
+        const sentinel = `
+            <div id="swap-sentinel" class="swap-scroll-sentinel">
+                ${state.isLoadingMore ? '<div class="swap-loading-more"><i class="fa fa-circle-o-notch fa-spin me-2"></i> Cargando más...</div>' : ""}
+                ${state.hasMore && !state.isLoadingMore ? '<div class="swap-scroll-hint"><i class="fa fa-chevron-down me-1"></i> Desplázate para más</div>' : ""}
+            </div>`;
+
+        body.innerHTML = `
+            <table class="swap-popup-table">
+                <thead>
+                    <tr>
+                        <th class="col-chk" style="width:40px;"></th>
+                        <th>Lote</th>
+                        <th>Bloque</th>
+                        <th>Atado</th>
+                        <th class="col-num">Alto</th>
+                        <th class="col-num">Ancho</th>
+                        <th class="col-num">Gros.</th>
+                        <th class="col-num">m²</th>
+                        <th>Tipo</th>
+                        <th>Color</th>
+                        <th>Origen</th>
+                        <th>Ubic.</th>
+                        <th class="col-num">Pedimento</th>
+                        <th>Notas</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+            ${sentinel}`;
+
+        updateStats();
+
+        body.querySelectorAll("tr[data-lot-id]").forEach((tr) => {
+            tr.style.cursor = "pointer";
+            tr.addEventListener("click", () => {
+                const lid = parseInt(tr.dataset.lotId);
+                const lname = tr.dataset.lotName;
+                if (!lid) return;
+                if (state.selectedLotId === lid) {
+                    updateSelection(null, "");
+                } else {
+                    updateSelection(lid, lname);
+                }
+                renderTable();
+            });
+        });
+
+        // Infinite scroll
+        if (popupObserver) { popupObserver.disconnect(); popupObserver = null; }
+        const sentinelEl = body.querySelector("#swap-sentinel");
+        if (sentinelEl && state.hasMore) {
+            popupObserver = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0].isIntersecting && state.hasMore && !state.isLoadingMore) {
+                        loadPage(state.page + 1, false);
+                    }
+                },
+                { root: body, rootMargin: "100px", threshold: 0.1 }
+            );
+            popupObserver.observe(sentinelEl);
+        }
     }
 
-    destroyPopup() {
-        if (this._popupObserver) {
-            this._popupObserver.disconnect();
-            this._popupObserver = null;
+    async function loadPage(page, reset) {
+        if (reset) {
+            state.isLoading = true;
+            state.quants = [];
+            body.innerHTML = `
+                <div class="swap-empty-state">
+                    <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"></i>
+                    <div class="swap-empty-text mt-2">Buscando...</div>
+                </div>`;
+            stat.className = "swap-stat-loading";
+            stat.innerHTML = `<i class="fa fa-circle-o-notch fa-spin me-1"></i> Buscando...`;
+        } else {
+            state.isLoadingMore = true;
         }
-        if (this._popupKeyHandler) {
-            document.removeEventListener("keydown", this._popupKeyHandler);
-            this._popupKeyHandler = null;
+
+        try {
+            let result;
+            try {
+                result = await orm.call(
+                    "stock.quant",
+                    "search_stone_inventory_for_so_paginated",
+                    [],
+                    { product_id, filters: state.filters, current_lot_ids: [], page, page_size: PAGE_SIZE }
+                );
+            } catch (_e) {
+                const all = (await orm.call(
+                    "stock.quant", "search_stone_inventory_for_so",
+                    [], { product_id, filters: state.filters, current_lot_ids: [] }
+                )) || [];
+                result = { items: all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), total: all.length };
+            }
+
+            const items = result.items || [];
+            if (reset || page === 0) { state.quants = items; }
+            else { state.quants = [...state.quants, ...items]; }
+            state.totalCount = result.total || 0;
+            state.page = page;
+            state.hasMore = state.quants.length < state.totalCount;
+        } catch (err) {
+            console.error("[SWAP POPUP] Error:", err);
+            body.innerHTML = `
+                <div class="swap-empty-state">
+                    <i class="fa fa-exclamation-triangle fa-2x text-danger"></i>
+                    <div class="swap-empty-text mt-2 text-danger">Error: ${err.message}</div>
+                </div>`;
+            return;
+        } finally {
+            state.isLoading = false;
+            state.isLoadingMore = false;
         }
-        if (this._popupRoot) {
-            this._popupRoot.remove();
-            this._popupRoot = null;
+        renderTable();
+    }
+
+    async function doConfirm() {
+        if (!state.selectedLotId) return;
+        destroyPopup();
+
+        try {
+            // Write target_lot_id directly to the wizard line via ORM
+            await orm.call(
+                "sale.swap.wizard.line",
+                "action_write_target_lot",
+                [line_id, state.selectedLotId]
+            );
+            console.log("[SWAP] Persisted lot %s on line %s via RPC", state.selectedLotId, line_id);
+
+            // Reopen the wizard to reflect the change
+            await actionService.doAction({
+                type: 'ir.actions.act_window',
+                res_model: 'sale.swap.wizard',
+                res_id: wizard_id,
+                view_mode: 'form',
+                views: [[false, 'form']],
+                target: 'new',
+            });
+        } catch (e) {
+            console.error("[SWAP] Error:", e);
         }
     }
+
+    function doClose() {
+        destroyPopup();
+        // Reopen wizard so user returns to where they were
+        actionService.doAction({
+            type: 'ir.actions.act_window',
+            res_model: 'sale.swap.wizard',
+            res_id: wizard_id,
+            view_mode: 'form',
+            views: [[false, 'form']],
+            target: 'new',
+        });
+    }
+
+    // ─── Events ──────────────────────────────────────────────────────────
+    popupRoot.querySelector("#swap-close").addEventListener("click", doClose);
+    popupRoot.querySelector("#swap-cancel").addEventListener("click", doClose);
+    popupRoot.querySelector("#swap-confirm-top").addEventListener("click", doConfirm);
+    popupRoot.querySelector("#swap-confirm-bottom").addEventListener("click", doConfirm);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) doClose(); });
+
+    popupKeyHandler = (e) => { if (e.key === "Escape") doClose(); };
+    document.addEventListener("keydown", popupKeyHandler);
+
+    const bindFilter = (id, key) => {
+        const input = popupRoot.querySelector(`#${id}`);
+        if (!input) return;
+        const handler = () => {
+            state.filters[key] = input.value;
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => loadPage(0, true), 350);
+        };
+        input.addEventListener("input", handler);
+        input.addEventListener("change", handler);
+    };
+    bindFilter("swf-lot", "lot_name");
+    bindFilter("swf-bloque", "bloque");
+    bindFilter("swf-atado", "atado");
+    bindFilter("swf-alto", "alto_min");
+    bindFilter("swf-ancho", "ancho_min");
+    bindFilter("swf-tipo", "tipo");
+
+    if (state.selectedLotId) {
+        updateSelection(state.selectedLotId, state.selectedLotName);
+    }
+
+    loadPage(0, true);
 }
 
-registry.category("fields").add("swap_lot_selector", {
-    component: SwapLotSelector,
-    displayName: "Swap Lot Selector",
-    supportedTypes: ["many2one"],
-});
+registry.category("actions").add("swap_open_lot_picker", swapOpenLotPicker);

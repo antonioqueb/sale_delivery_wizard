@@ -9,22 +9,32 @@
                     <field name="sale_order_id" readonly="1"/>
                 </group>
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
-                <field name="line_ids" nolabel="1">
-                    <list editable="bottom" create="0" delete="0">
-                        <field name="product_id" string="Producto" readonly="1"/>
-                        <field name="origin_lot_id" string="Lote Actual" readonly="1"/>
-                        <field name="origin_bloque" string="Bloque" readonly="1"/>
-                        <field name="origin_alto" string="Alto" optional="hide" readonly="1"/>
-                        <field name="origin_ancho" string="Ancho" optional="hide" readonly="1"/>
-                        <field name="origin_grosor" string="Grosor" optional="hide" readonly="1"/>
-                        <field name="qty" string="m²" readonly="1"/>
-                        <field name="target_lot_id"
-                               string="Lote Nuevo"
-                               widget="swap_lot_selector"/>
-                        <field name="target_bloque" string="Bloque N." readonly="1"/>
-                        <field name="target_qty" string="m² N." readonly="1"/>
-                        <field name="target_alto" string="Alto N." optional="hide" readonly="1"/>
-                        <field name="target_ancho" string="Ancho N." optional="hide" readonly="1"/>
+                <field name="line_ids" readonly="1">
+                    <list>
+                        <field name="product_id" string="Producto"/>
+                        <field name="origin_lot_id" string="Lote Actual"/>
+                        <field name="origin_bloque" string="Bloque"/>
+                        <field name="origin_alto" string="Alto" optional="hide"/>
+                        <field name="origin_ancho" string="Ancho" optional="hide"/>
+                        <field name="origin_grosor" string="Grosor" optional="hide"/>
+                        <field name="qty" string="m²"/>
+                        <button name="action_open_lot_picker"
+                                string="Buscar lote..."
+                                type="object"
+                                class="btn-link text-primary fw-bold p-0"
+                                icon="fa-search"
+                                invisible="target_lot_id"/>
+                        <field name="target_lot_id" string="Lote Nuevo"/>
+                        <field name="target_bloque" string="Bloque N."/>
+                        <field name="target_qty" string="m² N."/>
+                        <field name="target_alto" string="Alto N." optional="hide"/>
+                        <field name="target_ancho" string="Ancho N." optional="hide"/>
+                        <button name="action_open_lot_picker"
+                                string="Cambiar"
+                                type="object"
+                                class="btn-link text-warning fw-bold p-0"
+                                icon="fa-exchange"
+                                invisible="not target_lot_id"/>
                         <field name="move_line_id" column_invisible="1"/>
                         <field name="picking_id" column_invisible="1"/>
                         <field name="sale_line_id" column_invisible="1"/>
@@ -35,7 +45,7 @@
                 </field>
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
-                    Haga clic en <strong>"Buscar lote..."</strong> para ver el inventario disponible con todos los detalles.
+                    Haga clic en <strong>"Buscar lote..."</strong> para abrir el buscador visual de lotes.
                 </div>
                 <footer>
                     <button name="action_confirm_swap"
