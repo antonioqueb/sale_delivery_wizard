@@ -178,7 +178,7 @@ class SaleSwapWizardLine(models.TransientModel):
     picking_id = fields.Many2one('stock.picking', string='Picking')
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
 
-    # Origin lot info (pre-loaded, read-only) — all Char to handle mixed types
+    # Origin lot info
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
     origin_alto = fields.Char(string='Alto', readonly=True)

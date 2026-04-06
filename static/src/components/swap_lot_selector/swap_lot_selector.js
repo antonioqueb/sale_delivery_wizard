@@ -93,12 +93,45 @@ export class SwapLotSelector extends Component {
         return "";
     }
 
-    // ─── Check if truly readonly ──────────────────────────────────────────
-    // In Odoo 19, props.readonly may be forced true by parent context.
-    // We check the field definition on the record to see if it's truly readonly.
-    get isEditable() {
-        // Always editable — the view controls this, not JS
-        return true;
+    /**
+     * Get the real DB ID of this wizard line record
+     */
+    _getRecordId() {
+        const rec = this.props.record;
+        if (rec.resId && typeof rec.resId === "number" && rec.resId > 0) return rec.resId;
+        if (rec.data && rec.data.id && typeof rec.data.id === "number" && rec.data.id > 0) return rec.data.id;
+        return null;
+    }
+
+    /**
+     * Collect all origin_lot_ids from ALL lines in the wizard (siblings)
+     * so we can exclude them from the search results
+     */
+    _getAllOriginLotIds() {
+        const lotIds = new Set();
+        try {
+            // Navigate up to the parent wizard record to get all lines
+            const parentRecord = this.props.record.model.root;
+            if (parentRecord && parentRecord.data && parentRecord.data.line_ids) {
+                const lines = parentRecord.data.line_ids;
+                const records = lines.records || [];
+                for (const lineRec of records) {
+                    const originLot = lineRec.data.origin_lot_id;
+                    let lotId = 0;
+                    if (originLot) {
+                        if (Array.isArray(originLot)) lotId = originLot[0];
+                        else if (typeof originLot === "number") lotId = originLot;
+                        else if (originLot.id) lotId = originLot.id;
+                    }
+                    if (lotId) lotIds.add(lotId);
+                }
+            }
+        } catch (e) {
+            // Fallback: just use the current line's origin
+            const originId = this._getOriginLotId();
+            if (originId) lotIds.add(originId);
+        }
+        return Array.from(lotIds);
     }
 
     handleClick(ev) {
@@ -114,6 +147,13 @@ export class SwapLotSelector extends Component {
         this.state.targetLotName = "";
         try {
             await this.props.record.update({ [this.props.name]: false });
+            // Also persist via orm.write if record exists in DB
+            const recId = this._getRecordId();
+            if (recId) {
+                await this.orm.write("sale.swap.wizard.line", [recId], {
+                    target_lot_id: false,
+                });
+            }
         } catch (e) {
             console.warn("[SWAP] Error clearing lot:", e);
         }
@@ -127,7 +167,7 @@ export class SwapLotSelector extends Component {
         this.destroyPopup();
         const productId = this._getProductId();
         if (!productId) {
-            console.warn("[SWAP] No product_id found, cannot open popup");
+            console.warn("[SWAP] No product_id found");
             return;
         }
 
@@ -142,6 +182,8 @@ export class SwapLotSelector extends Component {
         const root = this._popupRoot;
         const PAGE_SIZE = 35;
         const originLotId = this._getOriginLotId();
+        // Get ALL lot_ids currently assigned in the SO (all lines in the wizard)
+        const excludedLotIds = this._getAllOriginLotIds();
 
         const state = {
             quants: [],
@@ -288,7 +330,8 @@ export class SwapLotSelector extends Component {
             for (const q of state.quants) {
                 const lotId = q.lot_id ? q.lot_id[0] : 0;
                 const lotName = q.lot_id ? q.lot_id[1] : "-";
-                if (lotId === originLotId) continue;
+                // Skip lots that are already assigned in the SO picking
+                if (excludedLotIds.includes(lotId)) continue;
 
                 const loc = q.location_id ? q.location_id[1].split("/").pop() : "-";
                 const sel = state.selectedLotId === lotId;
@@ -425,7 +468,7 @@ export class SwapLotSelector extends Component {
                         {
                             product_id: productId,
                             filters: state.filters,
-                            current_lot_ids: originLotId ? [originLotId] : [],
+                            current_lot_ids: [],
                             page,
                             page_size: PAGE_SIZE,
                         }
@@ -438,7 +481,7 @@ export class SwapLotSelector extends Component {
                         {
                             product_id: productId,
                             filters: state.filters,
-                            current_lot_ids: originLotId ? [originLotId] : [],
+                            current_lot_ids: [],
                         }
                     )) || [];
                     result = {
@@ -477,12 +520,27 @@ export class SwapLotSelector extends Component {
             this.state.targetLotId = state.selectedLotId;
             this.state.targetLotName = state.selectedLotName;
             this.destroyPopup();
+
             try {
+                // 1. Update the OWL record (frontend)
                 await this.props.record.update({
                     [this.props.name]: state.selectedLotId,
                 });
+
+                // 2. ALSO persist directly via orm.write to the DB
+                //    This is the key fix: record.update alone doesn't persist
+                //    Many2one changes on transient wizard lines in Odoo 19
+                const recId = this._getRecordId();
+                if (recId) {
+                    await this.orm.write("sale.swap.wizard.line", [recId], {
+                        target_lot_id: state.selectedLotId,
+                    });
+                    console.log("[SWAP] Persisted target_lot_id=%s on line %s", state.selectedLotId, recId);
+                } else {
+                    console.warn("[SWAP] No record ID found, target_lot_id only updated in frontend");
+                }
             } catch (e) {
-                console.error("[SWAP] Error updating record:", e);
+                console.error("[SWAP] Error persisting target_lot_id:", e);
             }
         };
 
