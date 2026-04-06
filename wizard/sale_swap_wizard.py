@@ -51,51 +51,72 @@ class SaleSwapWizard(models.TransientModel):
     def action_confirm_swap(self):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
-        lines_to_swap = self.line_ids.filtered(lambda l: l.target_lot_id)
-        if not lines_to_swap:
+
+        # Read target_lot_id directly from DB to avoid web_save overwrites.
+        # The OWL widget persists via orm.write, but web_save may reset
+        # the ORM cache — search_read bypasses that.
+        line_data = self.env['sale.swap.wizard.line'].search_read(
+            [('wizard_id', '=', self.id)],
+            ['id', 'target_lot_id', 'origin_lot_id', 'product_id',
+             'move_line_id', 'picking_id', 'sale_line_id', 'qty',
+             'origin_bloque'],
+        )
+
+        lines_with_target = [
+            d for d in line_data if d.get('target_lot_id')
+        ]
+        if not lines_with_target:
             raise UserError(_(
                 'Seleccione al menos un lote destino para ejecutar el swap.'))
 
-        for line in lines_to_swap:
-            if line.origin_lot_id == line.target_lot_id:
+        for data in lines_with_target:
+            origin_lot_id = data['origin_lot_id'][0]
+            target_lot_id = data['target_lot_id'][0]
+            target_lot_name = data['target_lot_id'][1]
+            origin_lot_name = data['origin_lot_id'][1]
+
+            if origin_lot_id == target_lot_id:
                 raise UserError(_(
                     'El lote origen y destino no pueden ser el mismo (%s).',
-                    line.origin_lot_id.name))
+                    origin_lot_name))
 
-            move_line = line.move_line_id
+            move_line = self.env['stock.move.line'].browse(
+                data['move_line_id'][0]) if data.get('move_line_id') else False
             if not move_line or move_line.state not in ('assigned', 'confirmed'):
                 raise UserError(_(
                     'No se encontró movimiento pendiente para el lote %s.',
-                    line.origin_lot_id.name))
+                    origin_lot_name))
+
+            target_lot = self.env['stock.lot'].browse(target_lot_id)
+            origin_lot = self.env['stock.lot'].browse(origin_lot_id)
 
             # Check target lot availability
             target_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', line.target_lot_id.id),
+                ('lot_id', '=', target_lot_id),
                 ('location_id.usage', '=', 'internal'),
                 ('quantity', '>', 0),
             ], limit=1)
             if not target_quant:
                 raise UserError(_(
                     'El lote destino %s no tiene stock disponible.',
-                    line.target_lot_id.name))
+                    target_lot_name))
 
             # Check hold status if stock_lot_dimensions is installed
-            if hasattr(line.target_lot_id, 'hold_order_ids'):
-                active_holds = line.target_lot_id.hold_order_ids.filtered(
+            if hasattr(target_lot, 'hold_order_ids'):
+                active_holds = target_lot.hold_order_ids.filtered(
                     lambda h: h.state == 'active'
                     and h.sale_order_id != self.sale_order_id)
                 if active_holds:
                     raise UserError(_(
                         'El lote %s está apartado en otra orden (%s).',
-                        line.target_lot_id.name,
+                        target_lot_name,
                         active_holds[0].sale_order_id.name))
 
             target_qty = target_quant.quantity
-            old_lot_name = line.origin_lot_id.name
-            new_lot = line.target_lot_id
+            old_lot_name = origin_lot_name
 
             # Execute swap on the move line
-            move_line.lot_id = new_lot.id
+            move_line.lot_id = target_lot_id
             move_line.quantity = target_qty
 
             # Update the move demand if qty changed
@@ -106,6 +127,12 @@ class SaleSwapWizard(models.TransientModel):
                     move_line.move_id.product_uom_qty = total_ml_qty
 
             # Create swap record in delivery document
+            picking_id = data['picking_id'][0] if data.get('picking_id') else False
+            sale_line_id = data['sale_line_id'][0] if data.get('sale_line_id') else False
+            product_id = data['product_id'][0]
+            qty = data.get('qty', 0.0)
+            origin_bloque = data.get('origin_bloque', '')
+
             self.env['sale.delivery.document'].create({
                 'document_type': 'pick_ticket',
                 'state': 'confirmed',
@@ -113,21 +140,21 @@ class SaleSwapWizard(models.TransientModel):
                 'special_instructions': _(
                     'SWAP: %s (Bloque: %s, %.2f m²) → %s (Bloque: %s, %.2f m²)',
                     old_lot_name,
-                    line.origin_bloque or 'S/B',
-                    line.qty,
-                    new_lot.name,
-                    new_lot.x_bloque or 'S/B' if hasattr(new_lot, 'x_bloque') else 'S/B',
+                    origin_bloque or 'S/B',
+                    qty,
+                    target_lot_name,
+                    target_lot.x_bloque or 'S/B' if hasattr(target_lot, 'x_bloque') else 'S/B',
                     target_qty),
                 'line_ids': [
                     (0, 0, {
-                        'product_id': line.product_id.id,
-                        'lot_id': line.origin_lot_id.id,
-                        'qty_selected': line.qty,
+                        'product_id': product_id,
+                        'lot_id': origin_lot_id,
+                        'qty_selected': qty,
                         'is_swap_origin': True,
                     }),
                     (0, 0, {
-                        'product_id': line.product_id.id,
-                        'lot_id': new_lot.id,
+                        'product_id': product_id,
+                        'lot_id': target_lot_id,
                         'qty_selected': target_qty,
                         'is_swap_target': True,
                     }),
@@ -135,17 +162,19 @@ class SaleSwapWizard(models.TransientModel):
             })
 
             # Update SO line lot_ids if sale_stone_selection is installed
-            if (line.sale_line_id and hasattr(line.sale_line_id, 'lot_ids')
-                    and line.origin_lot_id in line.sale_line_id.lot_ids):
-                line.sale_line_id.lot_ids = [
-                    (3, line.origin_lot_id.id),
-                    (4, new_lot.id),
+            sale_line = self.env['sale.order.line'].browse(
+                sale_line_id) if sale_line_id else False
+            if (sale_line and hasattr(sale_line, 'lot_ids')
+                    and origin_lot in sale_line.lot_ids):
+                sale_line.lot_ids = [
+                    (3, origin_lot_id),
+                    (4, target_lot_id),
                 ]
 
             _logger.info(
                 'Swap executed: %s → %s on picking %s',
-                old_lot_name, new_lot.name,
-                line.picking_id.name)
+                old_lot_name, target_lot_name,
+                data['picking_id'][1] if data.get('picking_id') else 'N/A')
 
         return {
             'type': 'ir.actions.client',
@@ -153,7 +182,7 @@ class SaleSwapWizard(models.TransientModel):
             'params': {
                 'title': _('Swap Completado'),
                 'message': _(
-                    '%d swap(s) realizados exitosamente.') % len(lines_to_swap),
+                    '%d swap(s) realizados exitosamente.') % len(lines_with_target),
                 'type': 'success',
                 'sticky': False,
             },
