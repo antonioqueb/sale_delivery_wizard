@@ -68,44 +68,37 @@
                 </button>
             </xpath>
 
-            <!-- Delivery summary cards before notebook -->
+            <!-- KPI strip before notebook -->
             <xpath expr="//notebook" position="before">
-                <div class="row mt-2 mb-3" invisible="state not in ('sale', 'done')">
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-light text-center p-2">
-                            <small class="text-muted">Demanda</small>
-                            <h5><field name="x_total_demand_qty" class="mb-0"/></h5>
-                        </div>
+                <div class="som-kpi-strip" invisible="state not in ('sale', 'done')">
+                    <div class="som-kpi som-kpi--neutral">
+                        <span class="som-kpi__label">Demanda</span>
+                        <span class="som-kpi__value"><field name="x_total_demand_qty" class="d-inline"/></span>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-info text-white text-center p-2">
-                            <small>Asignado</small>
-                            <h5><field name="x_total_assigned_qty" class="mb-0"/></h5>
-                        </div>
+                    <div class="som-kpi__divider"/>
+                    <div class="som-kpi som-kpi--info">
+                        <span class="som-kpi__label">Asignado</span>
+                        <span class="som-kpi__value"><field name="x_total_assigned_qty" class="d-inline"/></span>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-success text-white text-center p-2">
-                            <small>Entregado Neto</small>
-                            <h5><field name="x_total_delivered_net_qty" class="mb-0"/></h5>
-                        </div>
+                    <div class="som-kpi__divider"/>
+                    <div class="som-kpi som-kpi--success">
+                        <span class="som-kpi__label">Entregado Neto</span>
+                        <span class="som-kpi__value"><field name="x_total_delivered_net_qty" class="d-inline"/></span>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-warning text-center p-2">
-                            <small>Devuelto</small>
-                            <h5><field name="x_total_returned_qty" class="mb-0"/></h5>
-                        </div>
+                    <div class="som-kpi__divider"/>
+                    <div class="som-kpi som-kpi--warn">
+                        <span class="som-kpi__label">Devuelto</span>
+                        <span class="som-kpi__value"><field name="x_total_returned_qty" class="d-inline"/></span>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-secondary text-white text-center p-2">
-                            <small>Pendiente</small>
-                            <h5><field name="x_total_pending_delivery_qty" class="mb-0"/></h5>
-                        </div>
+                    <div class="som-kpi__divider"/>
+                    <div class="som-kpi som-kpi--pending">
+                        <span class="som-kpi__label">Pendiente</span>
+                        <span class="som-kpi__value"><field name="x_total_pending_delivery_qty" class="d-inline"/></span>
                     </div>
-                    <div class="col-lg-2 col-md-4 col-sm-6 mb-2">
-                        <div class="card bg-primary text-white text-center p-2">
-                            <small>Fulfillment</small>
-                            <h5><field name="x_fulfillment_net_pct" widget="float" digits="[3,1]" class="mb-0"/>%</h5>
-                        </div>
+                    <div class="som-kpi__divider"/>
+                    <div class="som-kpi som-kpi--accent">
+                        <span class="som-kpi__label">Fulfillment</span>
+                        <span class="som-kpi__value"><field name="x_fulfillment_net_pct" widget="float" digits="[3,1]" class="d-inline"/>%</span>
                     </div>
                 </div>
             </xpath>
