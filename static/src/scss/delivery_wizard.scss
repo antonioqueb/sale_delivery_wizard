@@ -19,12 +19,9 @@ $som-accent-soft: #dbeafe;
 $som-accent-glow: rgba(37, 99, 235, 0.12);
 $som-success: #059669;
 $som-success-soft: #d1fae5;
-$som-success-border: #6ee7b7;
 $som-warn: #d97706;
 $som-warn-soft: #fef3c7;
-$som-warn-border: #fcd34d;
 $som-danger: #dc2626;
-$som-danger-soft: #fee2e2;
 $som-radius: 10px;
 $som-radius-sm: 6px;
 $som-radius-lg: 14px;
@@ -35,7 +32,7 @@ $som-shadow-lg: 0 12px 40px rgba(0,0,0,0.1);
 $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DIALOG SIZING — All SOM wizards use 95vw
+// DIALOG SIZING — All SOM wizards 95vw
 // ═══════════════════════════════════════════════════════════════════════════
 
 .o_dialog,
@@ -101,14 +98,13 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// WIZARD FORM STYLING
+// WIZARD FORM STYLING — Shared
 // ═══════════════════════════════════════════════════════════════════════════
 
 .sale_delivery_wizard_form,
 .sale_return_wizard_form,
 .sale_swap_wizard_form {
 
-    // ── Group labels ──
     .o_group .o_label_cell label,
     .o_group .o_td_label label {
         font-size: 11.5px;
@@ -118,13 +114,11 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         letter-spacing: 0.04em;
     }
 
-    // ── Field values ──
     .o_field_widget {
         font-size: 13px;
         color: $som-ink;
     }
 
-    // ── Separators ──
     .o_horizontal_separator {
         font-size: 12px;
         font-weight: 700;
@@ -136,7 +130,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         margin: 16px 0 12px;
     }
 
-    // ── Alert banners ──
     .alert {
         border-radius: $som-radius;
         font-size: 12.5px;
@@ -147,18 +140,13 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
             background: $som-accent-soft;
             color: $som-accent;
         }
-
         &.alert-warning {
             background: $som-warn-soft;
             color: darken($som-warn, 10%);
         }
-
-        strong {
-            font-weight: 700;
-        }
+        strong { font-weight: 700; }
     }
 
-    // ── Footer buttons ──
     footer, .modal-footer {
         .btn {
             border-radius: $som-radius-sm;
@@ -173,41 +161,31 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 background: $som-accent;
                 color: white;
                 box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
-
                 &:hover {
                     background: $som-accent-hover;
                     box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
                     transform: translateY(-1px);
                 }
             }
-
             &.btn-secondary {
                 background: $som-surface;
                 color: $som-ink-soft;
                 border: 1.5px solid $som-border;
-
                 &:hover {
                     background: $som-surface-sunken;
                     color: $som-ink;
                     border-color: $som-border-strong;
                 }
             }
-
             &.btn-warning {
                 background: $som-warn;
                 color: white;
-
-                &:hover {
-                    background: darken($som-warn, 8%);
-                }
+                &:hover { background: darken($som-warn, 8%); }
             }
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // LIST / TABLE RENDERING — Shared across all wizards
-    // ═══════════════════════════════════════════════════════════════════════
-
+    // ── List / Table ──
     .o_list_renderer {
         max-height: 55vh;
         overflow-y: auto;
@@ -229,7 +207,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 position: sticky;
                 top: 0;
                 z-index: 5;
-
                 th {
                     background: $som-surface-sunken !important;
                     color: $som-ink-muted !important;
@@ -243,45 +220,22 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 }
             }
 
-            tbody {
-                tr {
-                    transition: background $som-transition;
-
-                    &:hover {
-                        background: $som-accent-glow !important;
-                    }
-
-                    td {
-                        padding: 8px 12px;
-                        border-bottom: 1px solid lighten($som-border, 3%);
-                        vertical-align: middle;
-                        color: $som-ink;
-                    }
-
-                    // Zebra striping
-                    &:nth-child(even) {
-                        background: rgba($som-surface-sunken, 0.4);
-                    }
+            tbody tr {
+                transition: background $som-transition;
+                &:hover { background: $som-accent-glow !important; }
+                td {
+                    padding: 8px 12px;
+                    border-bottom: 1px solid lighten($som-border, 3%);
+                    vertical-align: middle;
+                    color: $som-ink;
+                }
+                &:nth-child(even) {
+                    background: rgba($som-surface-sunken, 0.4);
                 }
             }
         }
     }
 
-    // ── Boolean toggle in lists ──
-    .o_boolean_toggle {
-        .custom-control-input:checked ~ .custom-control-label::before,
-        input:checked + label::before {
-            background-color: $som-accent;
-            border-color: $som-accent;
-        }
-    }
-
-    // ── Readonly fields in tables ──
-    .o_readonly_modifier {
-        color: $som-ink-soft;
-    }
-
-    // ── Badge widgets ──
     .badge {
         font-size: 10px;
         font-weight: 700;
@@ -292,26 +246,10 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DELIVERY WIZARD — Specific enhancements
-// ═══════════════════════════════════════════════════════════════════════════
-
-.sale_delivery_wizard_form {
-    // Summary cards row
-    .d-flex.gap-2 {
-        .btn-sm {
-            font-size: 11px;
-            padding: 5px 12px;
-            border-radius: $som-radius-sm;
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// RETURN WIZARD — Specific enhancements
+// RETURN WIZARD — Radio cards
 // ═══════════════════════════════════════════════════════════════════════════
 
 .sale_return_wizard_form {
-    // Radio buttons for return action
     .o_radio_input {
         .form-check {
             padding: 8px 12px;
@@ -320,17 +258,14 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: $som-radius-sm;
             transition: all $som-transition;
             cursor: pointer;
-
             &:hover {
                 border-color: $som-accent;
                 background: $som-accent-glow;
             }
-
             &:has(input:checked) {
                 border-color: $som-accent;
                 background: $som-accent-soft;
             }
-
             label {
                 font-size: 12.5px;
                 font-weight: 500;
@@ -342,29 +277,18 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SWAP WIZARD — Specific enhancements
+// SWAP WIZARD — Column emphasis
 // ═══════════════════════════════════════════════════════════════════════════
 
 .sale_swap_wizard_form {
     .o_list_renderer table.o_list_table {
-        // Origin columns — slightly muted
-        td:nth-child(2), // product
-        td:nth-child(3), // origin lot
-        td:nth-child(4), // bloque
-        td:nth-child(7) { // m²
-            color: $som-ink-soft;
-        }
-
-        // Origin lot — monospace
         td:nth-child(3) {
             font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
             font-size: 11.5px;
             font-weight: 600;
         }
-
-        // Target columns — emphasized
-        td:nth-child(9), // target bloque
-        td:nth-child(10) { // target m²
+        td:nth-child(9),
+        td:nth-child(10) {
             font-weight: 600;
             color: $som-accent;
         }
@@ -372,78 +296,106 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SALE ORDER — Delivery Cockpit Cards
+// SALE ORDER — Delivery Cockpit KPI Strip
 // ═══════════════════════════════════════════════════════════════════════════
 
-.o_form_view[data-model="sale.order"] {
-    // Summary cards row
-    .row.mt-2.mb-3 {
-        .card {
-            border: none;
-            border-radius: $som-radius;
-            box-shadow: $som-shadow-sm;
-            transition: all $som-transition;
-            overflow: hidden;
+.o_form_view .o_content {
+    // Target the KPI cards row above notebook
+    > .o_form_sheet_bg .o_form_sheet {
+        // KPI strip
+        > .row.mt-2.mb-3 {
+            display: flex !important;
+            gap: 0;
+            margin-left: -4px !important;
+            margin-right: -4px !important;
 
-            &:hover {
-                box-shadow: $som-shadow;
-                transform: translateY(-2px);
+            > div[class*="col-"] {
+                padding-left: 4px;
+                padding-right: 4px;
             }
 
-            small {
-                font-size: 10px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                opacity: 0.85;
-            }
+            .card {
+                border: none !important;
+                border-radius: $som-radius !important;
+                padding: 14px 12px !important;
+                text-align: center;
+                position: relative;
+                overflow: hidden;
+                transition: transform $som-transition, box-shadow $som-transition;
 
-            h5 {
-                font-size: 20px;
-                font-weight: 800;
-                letter-spacing: -0.02em;
-                margin: 4px 0 0;
-                font-variant-numeric: tabular-nums;
-            }
+                &:hover {
+                    transform: translateY(-2px);
+                    box-shadow: $som-shadow;
+                }
 
-            &.bg-light {
-                background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
-                border: 1px solid $som-border;
-                small { color: $som-ink-muted; }
-                h5 { color: $som-ink; }
-            }
+                small {
+                    display: block;
+                    font-size: 9.5px !important;
+                    font-weight: 700 !important;
+                    text-transform: uppercase;
+                    letter-spacing: 0.07em;
+                    margin-bottom: 4px;
+                }
 
-            &.bg-info {
-                background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
-            }
+                h5, .o_field_widget {
+                    font-size: 22px !important;
+                    font-weight: 800 !important;
+                    letter-spacing: -0.03em;
+                    margin: 0 !important;
+                    font-variant-numeric: tabular-nums;
+                    line-height: 1.1;
+                }
 
-            &.bg-success {
-                background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
-            }
+                // ── Per-card styling ──
+                &.bg-light {
+                    background: $som-surface !important;
+                    border: 1.5px solid $som-border !important;
+                    small { color: $som-ink-muted; }
+                    h5, .o_field_widget { color: $som-ink; }
+                }
 
-            &.bg-warning {
-                background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%) !important;
-                small, h5 { color: #451a03; }
-            }
+                &.bg-info {
+                    background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%) !important;
+                    small { opacity: 0.85; }
+                }
 
-            &.bg-secondary {
-                background: linear-gradient(135deg, #475569 0%, #64748b 100%) !important;
-            }
+                &.bg-success {
+                    background: linear-gradient(135deg, #047857 0%, #10b981 100%) !important;
+                    small { opacity: 0.85; }
+                }
 
-            &.bg-primary {
-                background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%) !important;
+                &.bg-warning {
+                    background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%) !important;
+                    small, h5, .o_field_widget { color: #451a03 !important; }
+                }
+
+                &.bg-secondary {
+                    background: linear-gradient(135deg, #374151 0%, #6b7280 100%) !important;
+                    small { opacity: 0.85; }
+                }
+
+                &.bg-primary {
+                    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
+                    small { opacity: 0.85; }
+                }
+
+                // White text for dark cards
+                &.bg-info, &.bg-success, &.bg-secondary, &.bg-primary {
+                    color: white !important;
+                    h5, .o_field_widget { color: white !important; }
+                    small { color: rgba(255,255,255,0.9) !important; }
+                }
             }
         }
     }
+}
 
-    // Stat buttons
+// ── Stat buttons ──
+.o_form_view[data-model="sale.order"] {
     .oe_stat_button {
         border-radius: $som-radius-sm;
         transition: all $som-transition;
-
-        &:hover {
-            background: $som-accent-glow;
-        }
+        &:hover { background: $som-accent-glow; }
 
         .o_stat_info {
             .o_stat_value {
@@ -452,7 +404,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 color: $som-ink;
                 font-variant-numeric: tabular-nums;
             }
-
             .o_stat_text {
                 font-size: 10px;
                 font-weight: 600;
@@ -463,7 +414,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         }
     }
 
-    // Header buttons
     header {
         .btn[name="action_open_delivery_wizard"],
         .btn[name="action_open_return_wizard"],
@@ -471,24 +421,20 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: $som-radius-sm;
             font-weight: 600;
             font-size: 12.5px;
-            letter-spacing: 0.01em;
         }
     }
 
-    // Delivery status badges in order lines
-    .o_field_badge {
-        .badge {
-            font-size: 9.5px;
-            font-weight: 700;
-            padding: 3px 8px;
-            border-radius: $som-radius-pill;
-            letter-spacing: 0.03em;
-        }
+    .o_field_badge .badge {
+        font-size: 9.5px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: $som-radius-pill;
+        letter-spacing: 0.03em;
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DELIVERY DOCUMENT — Form & List views
+// DELIVERY DOCUMENT — Form
 // ═══════════════════════════════════════════════════════════════════════════
 
 .o_form_view[data-model="sale.delivery.document"] {
@@ -499,15 +445,12 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         color: $som-ink;
     }
 
-    .o_statusbar_status {
-        .btn {
-            font-size: 11px;
-            font-weight: 600;
-            border-radius: $som-radius-pill;
-        }
+    .o_statusbar_status .btn {
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: $som-radius-pill;
     }
 
-    // Redelivery banner
     .alert-warning {
         border-left: 4px solid $som-warn;
         border-radius: 0 $som-radius $som-radius 0;
