@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// SALE DELIVERY WIZARD — Premium Design System
-// Recubrimientos STO — Alphaqueb Consulting
+// SALE DELIVERY WIZARD — Design System
 // ═══════════════════════════════════════════════════════════════════════════
 
 $som-ink: #0f172a;
@@ -56,30 +55,25 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
             border-bottom: 1px solid $som-border;
             padding: 16px 24px;
             .modal-title, .o_dialog_title {
-                font-size: 15px;
-                font-weight: 700;
-                color: $som-ink;
+                font-size: 15px; font-weight: 700; color: $som-ink;
             }
         }
         .modal-body {
             max-height: calc(95vh - 120px) !important;
-            overflow-y: auto;
-            padding: 20px 24px;
-            background: $som-surface;
+            overflow-y: auto; padding: 20px 24px;
             &::-webkit-scrollbar { width: 6px; }
             &::-webkit-scrollbar-thumb { background: $som-border-strong; border-radius: 3px; }
         }
         .modal-footer {
             background: $som-surface-raised;
             border-top: 1px solid $som-border;
-            padding: 12px 24px;
-            gap: 8px;
+            padding: 12px 24px; gap: 8px;
         }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// WIZARD FORMS — Shared
+// WIZARD FORMS
 // ═══════════════════════════════════════════════════════════════════════════
 
 .sale_delivery_wizard_form,
@@ -88,31 +82,20 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
     .o_group .o_label_cell label,
     .o_group .o_td_label label {
-        font-size: 11.5px;
-        font-weight: 600;
-        color: $som-ink-muted;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        font-size: 11.5px; font-weight: 600; color: $som-ink-muted;
+        text-transform: uppercase; letter-spacing: 0.04em;
     }
-
     .o_field_widget { font-size: 13px; color: $som-ink; }
 
     .o_horizontal_separator {
-        font-size: 12px;
-        font-weight: 700;
-        color: $som-ink-soft;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        font-size: 12px; font-weight: 700; color: $som-ink-soft;
+        text-transform: uppercase; letter-spacing: 0.06em;
         border-bottom: 2px solid $som-border;
-        padding-bottom: 8px;
-        margin: 16px 0 12px;
+        padding-bottom: 8px; margin: 16px 0 12px;
     }
 
     .alert {
-        border-radius: $som-radius;
-        font-size: 12.5px;
-        border: none;
-        font-weight: 500;
+        border-radius: $som-radius; font-size: 12.5px; border: none; font-weight: 500;
         &.alert-info { background: $som-accent-soft; color: $som-accent; }
         &.alert-warning { background: $som-warn-soft; color: darken($som-warn, 10%); }
         strong { font-weight: 700; }
@@ -120,42 +103,28 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
     footer, .modal-footer {
         .btn {
-            border-radius: $som-radius-sm;
-            font-size: 12.5px;
-            font-weight: 600;
-            padding: 8px 18px;
-            transition: all $som-transition;
-            border: none;
+            border-radius: $som-radius-sm; font-size: 12.5px; font-weight: 600;
+            padding: 8px 18px; transition: all $som-transition; border: none;
             &.btn-primary {
                 background: $som-accent; color: white;
-                box-shadow: 0 1px 3px rgba(37,99,235,0.3);
                 &:hover { background: $som-accent-hover; transform: translateY(-1px); }
             }
             &.btn-secondary {
-                background: $som-surface; color: $som-ink-soft;
-                border: 1.5px solid $som-border;
-                &:hover { background: $som-surface-sunken; color: $som-ink; }
+                background: $som-surface; color: $som-ink-soft; border: 1.5px solid $som-border;
+                &:hover { background: $som-surface-sunken; }
             }
-            &.btn-warning {
-                background: $som-warn; color: white;
-                &:hover { background: darken($som-warn, 8%); }
-            }
+            &.btn-warning { background: $som-warn; color: white; }
         }
     }
 
-    // ── Tables ──
     .o_list_renderer {
-        max-height: 55vh;
-        overflow-y: auto;
-        border: 1px solid $som-border;
-        border-radius: $som-radius;
+        max-height: 55vh; overflow-y: auto;
+        border: 1px solid $som-border; border-radius: $som-radius;
         &::-webkit-scrollbar { width: 6px; }
         &::-webkit-scrollbar-thumb { background: $som-border-strong; border-radius: 3px; }
 
         table.o_list_table {
             font-size: 12.5px;
-            border-collapse: separate;
-            border-spacing: 0;
             thead {
                 position: sticky; top: 0; z-index: 5;
                 th {
@@ -165,17 +134,12 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                     text-transform: uppercase; letter-spacing: 0.05em;
                     padding: 10px 12px;
                     border-bottom: 2px solid $som-border !important;
-                    white-space: nowrap;
                 }
             }
             tbody tr {
                 transition: background $som-transition;
                 &:hover { background: $som-accent-glow !important; }
-                td {
-                    padding: 8px 12px;
-                    border-bottom: 1px solid lighten($som-border, 3%);
-                    vertical-align: middle;
-                }
+                td { padding: 8px 12px; border-bottom: 1px solid lighten($som-border, 3%); }
                 &:nth-child(even) { background: rgba($som-surface-sunken, 0.4); }
             }
         }
@@ -187,132 +151,85 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     }
 }
 
-// ── Return wizard radio cards ──
 .sale_return_wizard_form {
     .o_radio_input .form-check {
         padding: 8px 12px; margin: 4px 0;
-        border: 1.5px solid $som-border;
-        border-radius: $som-radius-sm;
+        border: 1.5px solid $som-border; border-radius: $som-radius-sm;
         transition: all $som-transition; cursor: pointer;
         &:hover { border-color: $som-accent; background: $som-accent-glow; }
         &:has(input:checked) { border-color: $som-accent; background: $som-accent-soft; }
-        label { font-size: 12.5px; font-weight: 500; color: $som-ink; cursor: pointer; }
+        label { font-size: 12.5px; font-weight: 500; cursor: pointer; }
     }
 }
 
-// ── Swap wizard column emphasis ──
-.sale_swap_wizard_form {
-    .o_list_renderer table.o_list_table {
-        td:nth-child(3) {
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 11.5px; font-weight: 600;
-        }
+.sale_swap_wizard_form .o_list_renderer table.o_list_table {
+    td:nth-child(3) {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 11.5px; font-weight: 600;
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// KPI STRIP — Integrated inline metrics
+// KPI STRIP — Clean, typographic, no colored blocks
 // ═══════════════════════════════════════════════════════════════════════════
 
-.som-kpi-strip {
+.som_kpi_strip {
     display: flex;
-    align-items: stretch;
+    align-items: baseline;
     gap: 0;
-    margin: 0 0 16px;
-    padding: 0;
-    background: $som-surface;
-    border: 1px solid $som-border;
-    border-radius: $som-radius;
-    overflow: hidden;
+    margin: 0 0 20px;
+    padding: 16px 0;
+    border-top: 1px solid $som-border;
+    border-bottom: 1px solid $som-border;
+    background: transparent;
 }
 
-.som-kpi {
+.som_kpi {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 14px 8px;
+    padding: 0 12px;
     position: relative;
-    transition: background $som-transition;
-    min-width: 0;
 
-    &:hover {
-        background: rgba(0,0,0,0.015);
+    // Vertical divider between KPIs
+    & + .som_kpi {
+        border-left: 1px solid $som-border;
     }
 }
 
-.som-kpi__label {
-    font-size: 9.5px;
-    font-weight: 700;
+.som_kpi_label {
+    font-size: 10px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    margin-bottom: 4px;
+    letter-spacing: 0.06em;
+    color: $som-ink-faint;
+    margin-top: 4px;
     white-space: nowrap;
 }
 
-.som-kpi__value {
-    font-size: 20px;
+.som_kpi_value {
+    font-size: 22px;
     font-weight: 800;
+    color: $som-ink;
     letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
     line-height: 1;
     white-space: nowrap;
 
+    // Make Odoo field widgets inherit parent styling
     .o_field_widget {
         display: inline !important;
         font-size: inherit !important;
         font-weight: inherit !important;
         color: inherit !important;
+        line-height: inherit !important;
     }
-}
 
-.som-kpi__divider {
-    width: 1px;
-    align-self: stretch;
-    background: $som-border;
-    flex-shrink: 0;
-}
-
-// ── Color variants ──
-.som-kpi--neutral {
-    .som-kpi__label { color: $som-ink-muted; }
-    .som-kpi__value { color: $som-ink; }
-}
-
-.som-kpi--info {
-    background: rgba(37, 99, 235, 0.04);
-    .som-kpi__label { color: $som-accent; }
-    .som-kpi__value { color: $som-accent; }
-    &:hover { background: rgba(37, 99, 235, 0.07); }
-}
-
-.som-kpi--success {
-    background: rgba(5, 150, 105, 0.04);
-    .som-kpi__label { color: $som-success; }
-    .som-kpi__value { color: $som-success; }
-    &:hover { background: rgba(5, 150, 105, 0.07); }
-}
-
-.som-kpi--warn {
-    background: rgba(217, 119, 6, 0.04);
-    .som-kpi__label { color: $som-warn; }
-    .som-kpi__value { color: $som-warn; }
-    &:hover { background: rgba(217, 119, 6, 0.07); }
-}
-
-.som-kpi--pending {
-    background: rgba(100, 116, 139, 0.04);
-    .som-kpi__label { color: $som-ink-muted; }
-    .som-kpi__value { color: $som-ink-soft; }
-    &:hover { background: rgba(100, 116, 139, 0.07); }
-}
-
-.som-kpi--accent {
-    background: rgba(30, 58, 138, 0.05);
-    .som-kpi__label { color: #1e3a8a; }
-    .som-kpi__value { color: #1e3a8a; }
-    &:hover { background: rgba(30, 58, 138, 0.08); }
+    // Semantic color accents — just the number, not the background
+    &.som_kpi_value--success { color: $som-success; }
+    &.som_kpi_value--warn { color: $som-warn; }
+    &.som_kpi_value--accent { color: $som-accent; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -339,8 +256,7 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         .btn[name="action_open_delivery_wizard"],
         .btn[name="action_open_return_wizard"],
         .btn[name="action_open_swap_wizard"] {
-            border-radius: $som-radius-sm;
-            font-weight: 600; font-size: 12.5px;
+            border-radius: $som-radius-sm; font-weight: 600; font-size: 12.5px;
         }
     }
     .o_field_badge .badge {
@@ -350,7 +266,7 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DELIVERY DOCUMENT — Form
+// DELIVERY DOCUMENT
 // ═══════════════════════════════════════════════════════════════════════════
 
 .o_form_view[data-model="sale.delivery.document"] {
