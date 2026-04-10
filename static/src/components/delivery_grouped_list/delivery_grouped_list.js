@@ -39,6 +39,25 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
+    /**
+     * Read a field from an OWL record proxy.
+     * In Odoo 19, record.data may be an empty proxy for transient o2m lines.
+     * Fields are accessible directly on the record object itself.
+     */
+    _readField(record, fieldName) {
+        // Try direct access on the record proxy first (Odoo 19 pattern)
+        try {
+            const val = record[fieldName];
+            if (val !== undefined) return val;
+        } catch (_e) {}
+        // Fallback to .data
+        try {
+            const val = record.data?.[fieldName];
+            if (val !== undefined) return val;
+        } catch (_e) {}
+        return undefined;
+    }
+
     async _buildGroups() {
         this.state.isLoading = true;
         try {
@@ -48,70 +67,66 @@ export class DeliveryGroupedList extends Component {
             console.log("[DGL] Total lines:", lines.length);
             console.log("[DGL] Mode:", this.state.mode);
 
-            // Dump ALL lines for debugging
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const d = line.data;
-                console.log("[DGL] --- Line %d ---", i);
-                console.log("[DGL]   line.id:", line.id, "line.resId:", line.resId);
-                console.log("[DGL]   display_type:", d.display_type);
-                console.log("[DGL]   section_name:", d.section_name);
-                console.log("[DGL]   data keys:", Object.keys(d));
+            // Debug first record to understand the proxy shape
+            if (lines.length > 0) {
+                const r = lines[0];
+                console.log("[DGL] --- Record[0] debug ---");
+                console.log("[DGL]   typeof record:", typeof r);
+                console.log("[DGL]   record.id:", r.id);
+                console.log("[DGL]   record.resId:", r.resId);
 
-                // Deep inspect product_id
-                const pid = d.product_id;
-                console.log("[DGL]   product_id raw:", pid);
-                console.log("[DGL]   product_id typeof:", typeof pid);
-                if (pid && typeof pid === "object") {
-                    console.log("[DGL]   product_id constructor:", pid.constructor?.name);
-                    console.log("[DGL]   product_id.id:", pid.id, "typeof:", typeof pid.id);
-                    console.log("[DGL]   product_id.resId:", pid.resId, "typeof:", typeof pid.resId);
-                    console.log("[DGL]   product_id.display_name:", pid.display_name);
-                    console.log("[DGL]   product_id.name:", pid.name);
-                    try {
-                        const keys = Object.keys(pid);
-                        console.log("[DGL]   product_id Object.keys:", keys);
-                        for (const k of keys) {
-                            try {
-                                console.log("[DGL]     .%s = %s (%s)", k, String(pid[k]).substring(0, 100), typeof pid[k]);
-                            } catch (e2) {
-                                console.log("[DGL]     .%s = [unreadable]", k);
-                            }
-                        }
-                    } catch (e) {
-                        console.log("[DGL]   Object.keys failed:", e.message);
-                    }
-                    try {
-                        const ownProps = Object.getOwnPropertyNames(pid);
-                        console.log("[DGL]   product_id ownPropertyNames:", ownProps);
-                    } catch (e) {}
-                    try {
-                        console.log("[DGL]   product_id JSON:", JSON.stringify(pid));
-                    } catch (e) {
-                        console.log("[DGL]   JSON.stringify failed:", e.message);
-                    }
-                    try {
-                        const proto = Object.getPrototypeOf(pid);
-                        if (proto) {
-                            console.log("[DGL]   proto keys:", Object.getOwnPropertyNames(proto).slice(0, 20));
-                        }
-                    } catch (e) {}
+                // Try direct field access on the record (not .data)
+                console.log("[DGL]   record.product_id:", r.product_id);
+                console.log("[DGL]   record.lot_id:", r.lot_id);
+                console.log("[DGL]   record.is_selected:", r.is_selected);
+                console.log("[DGL]   record.qty_available:", r.qty_available);
+                console.log("[DGL]   record.qty_to_deliver:", r.qty_to_deliver);
+                console.log("[DGL]   record.display_type:", r.display_type);
+                console.log("[DGL]   record.section_name:", r.section_name);
+                console.log("[DGL]   record.product_name:", r.product_name);
+                console.log("[DGL]   record.lot_name:", r.lot_name);
+
+                // Also check data
+                console.log("[DGL]   record.data:", r.data);
+                console.log("[DGL]   record.data keys:", r.data ? Object.keys(r.data) : "N/A");
+                console.log("[DGL]   record.data.product_id:", r.data?.product_id);
+
+                // Check _values if available
+                if (r._values) {
+                    console.log("[DGL]   record._values:", r._values);
+                    console.log("[DGL]   record._values.product_id:", r._values.product_id);
                 }
 
-                const lid = d.lot_id;
-                console.log("[DGL]   lot_id raw:", lid, "typeof:", typeof lid);
-                if (lid && typeof lid === "object") {
-                    console.log("[DGL]   lot_id.id:", lid.id, "lot_id.resId:", lid.resId, "lot_id.display_name:", lid.display_name);
+                // Check activeFields
+                if (r.activeFields) {
+                    console.log("[DGL]   record.activeFields:", Object.keys(r.activeFields));
+                }
+                if (r.fields) {
+                    console.log("[DGL]   record.fields:", Object.keys(r.fields));
                 }
 
-                console.log("[DGL]   product_name:", d.product_name);
-                console.log("[DGL]   lot_name:", d.lot_name);
-                console.log("[DGL]   is_selected:", d.is_selected);
-                console.log("[DGL]   qty_available:", d.qty_available);
-                console.log("[DGL]   qty_to_deliver:", d.qty_to_deliver);
+                // Try getFieldValue if available
+                if (typeof r.getFieldValue === "function") {
+                    console.log("[DGL]   record.getFieldValue('product_id'):", r.getFieldValue("product_id"));
+                }
+
+                // Try own property names on the proxy
+                try {
+                    const ownProps = Object.getOwnPropertyNames(r);
+                    console.log("[DGL]   record ownPropertyNames:", ownProps.slice(0, 30));
+                } catch (e) {}
+
+                // Try prototype
+                try {
+                    const proto = Object.getPrototypeOf(r);
+                    if (proto) {
+                        const protoProps = Object.getOwnPropertyNames(proto);
+                        console.log("[DGL]   record proto props:", protoProps.slice(0, 30));
+                    }
+                } catch (e) {}
             }
 
-            // Build section map
+            // Build section map from section rows
             const sectionMap = this._getSectionMap(lines);
             console.log("[DGL] Section map entries:");
             for (const [k, v] of sectionMap.entries()) {
@@ -123,36 +138,32 @@ export class DeliveryGroupedList extends Component {
             let currentSectionName = "";
 
             for (const line of lines) {
-                const d = line.data;
+                const displayType = this._readField(line, "display_type");
 
-                if (d.display_type === "line_section") {
-                    currentSectionProductId = this._m2oId(d.product_id);
-                    currentSectionName = d.section_name || "";
+                if (displayType === "line_section") {
+                    currentSectionProductId = this._m2oId(this._readField(line, "product_id"));
+                    currentSectionName = this._readField(line, "section_name") || "";
                     console.log("[DGL] >> Section: pid=%s name='%s'", currentSectionProductId, currentSectionName);
                     continue;
                 }
 
-                let productId = this._m2oId(d.product_id);
-                let productName = this._m2oName(d.product_id);
+                const rawProductId = this._readField(line, "product_id");
+                let productId = this._m2oId(rawProductId);
+                let productName = this._m2oName(rawProductId);
 
-                console.log("[DGL] Line: m2oId=%s m2oName='%s' | section pid=%s name='%s'",
-                    productId, productName, currentSectionProductId, currentSectionName);
-
+                // Fallback chain
                 if (!productId && currentSectionProductId) {
                     productId = currentSectionProductId;
-                    console.log("[DGL]   -> fallback to section pid:", productId);
                 }
-                if (!productName && d.product_name) {
-                    productName = d.product_name;
-                    console.log("[DGL]   -> fallback to related product_name:", productName);
+                if (!productName) {
+                    const pn = this._readField(line, "product_name");
+                    if (pn) productName = pn;
                 }
                 if (!productName && currentSectionName) {
                     productName = currentSectionName;
-                    console.log("[DGL]   -> fallback to section name:", productName);
                 }
                 if (!productName && productId && sectionMap.has(productId)) {
                     productName = sectionMap.get(productId);
-                    console.log("[DGL]   -> fallback to sectionMap:", productName);
                 }
                 if (!productName) productName = "Sin Producto";
 
@@ -211,33 +222,30 @@ export class DeliveryGroupedList extends Component {
     _getLines() {
         const raw = this.props.record.data[this.props.name];
         console.log("[DGL] _getLines: props.name='%s'", this.props.name);
-        console.log("[DGL] _getLines: raw type:", typeof raw, "raw:", raw);
         if (!raw) {
-            console.log("[DGL] _getLines: raw is falsy, returning []");
+            console.log("[DGL] _getLines: raw is falsy");
             return [];
         }
         if (raw.records) {
-            console.log("[DGL] _getLines: raw.records found, length:", raw.records.length);
+            console.log("[DGL] _getLines: raw.records length:", raw.records.length);
             return raw.records;
         }
         if (Array.isArray(raw)) {
             console.log("[DGL] _getLines: raw is array, length:", raw.length);
             return raw;
         }
-        try {
-            console.log("[DGL] _getLines: raw keys:", Object.keys(raw));
-        } catch (e) {}
         return [];
     }
 
     _getSectionMap(lines) {
         const map = new Map();
         for (const line of lines) {
-            const d = line.data;
-            if (d.display_type === "line_section" && d.section_name) {
-                const pid = this._m2oId(d.product_id);
+            const displayType = this._readField(line, "display_type");
+            const sectionName = this._readField(line, "section_name");
+            if (displayType === "line_section" && sectionName) {
+                const pid = this._m2oId(this._readField(line, "product_id"));
                 if (pid) {
-                    map.set(pid, d.section_name);
+                    map.set(pid, sectionName);
                 }
             }
         }
@@ -270,39 +278,39 @@ export class DeliveryGroupedList extends Component {
     }
 
     _extractLineData(lineRecord, sectionName) {
-        const d = lineRecord.data;
+        const rf = (f) => this._readField(lineRecord, f);
 
-        let productName = this._m2oName(d.product_id);
-        if (!productName && d.product_name) productName = d.product_name;
+        let productName = this._m2oName(rf("product_id"));
+        if (!productName) productName = rf("product_name") || "";
         if (!productName && sectionName) productName = sectionName;
 
-        let lotName = this._m2oName(d.lot_id);
-        if (!lotName && d.lot_name) lotName = d.lot_name;
+        let lotName = this._m2oName(rf("lot_id"));
+        if (!lotName) lotName = rf("lot_name") || "";
 
         return {
             _record: lineRecord,
-            id: lineRecord.resId || d.id,
+            id: lineRecord.resId || rf("id"),
             owlId: lineRecord.id,
-            product_id: this._m2oId(d.product_id),
+            product_id: this._m2oId(rf("product_id")),
             product_name: productName || "",
-            lot_id: this._m2oId(d.lot_id),
+            lot_id: this._m2oId(rf("lot_id")),
             lot_name: lotName || "",
-            is_selected: d.is_selected || false,
-            qty_available: d.qty_available || 0,
-            qty_to_deliver: d.qty_to_deliver || 0,
-            source_location: this._m2oName(d.source_location_id) || "",
-            qty_delivered: d.qty_delivered || 0,
-            qty_to_return: d.qty_to_return || 0,
-            origin_lot_id: this._m2oId(d.origin_lot_id),
-            origin_lot_name: this._m2oName(d.origin_lot_id) || "",
-            origin_bloque: d.origin_bloque || "",
-            origin_alto: d.origin_alto || "",
-            origin_ancho: d.origin_ancho || "",
-            qty: d.qty || 0,
-            target_lot_id: this._m2oId(d.target_lot_id),
-            target_lot_name: this._m2oName(d.target_lot_id) || "",
-            target_bloque: d.target_bloque || "",
-            target_qty: d.target_qty || 0,
+            is_selected: rf("is_selected") || false,
+            qty_available: rf("qty_available") || 0,
+            qty_to_deliver: rf("qty_to_deliver") || 0,
+            source_location: this._m2oName(rf("source_location_id")) || "",
+            qty_delivered: rf("qty_delivered") || 0,
+            qty_to_return: rf("qty_to_return") || 0,
+            origin_lot_id: this._m2oId(rf("origin_lot_id")),
+            origin_lot_name: this._m2oName(rf("origin_lot_id")) || "",
+            origin_bloque: rf("origin_bloque") || "",
+            origin_alto: rf("origin_alto") || "",
+            origin_ancho: rf("origin_ancho") || "",
+            qty: rf("qty") || 0,
+            target_lot_id: this._m2oId(rf("target_lot_id")),
+            target_lot_name: this._m2oName(rf("target_lot_id")) || "",
+            target_bloque: rf("target_bloque") || "",
+            target_qty: rf("target_qty") || 0,
         };
     }
 
