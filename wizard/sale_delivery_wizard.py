@@ -41,7 +41,6 @@ class SaleDeliveryWizard(models.TransientModel):
                 lambda l: l.is_selected and l.display_type != 'line_section'
             )
             wiz.total_selected = sum(selected_lines.mapped('qty_to_deliver'))
-
             data_lines = wiz.line_ids.filtered(
                 lambda l: l.display_type != 'line_section'
             )
@@ -53,7 +52,6 @@ class SaleDeliveryWizard(models.TransientModel):
         so_id = res.get('sale_order_id') or self.env.context.get('active_id')
         if not so_id:
             return res
-
         order = self.env['sale.order'].browse(so_id)
         res.update(self._prepare_default_wizard_vals(order))
         return res
@@ -86,6 +84,65 @@ class SaleDeliveryWizard(models.TransientModel):
             })
         return vals
 
+    # ─── RPC for grouped list widget ─────────────────────────────────
+    def get_grouped_lines_data(self):
+        """Return line data grouped by product for the JS widget."""
+        self.ensure_one()
+        groups = []
+        current_group = None
+
+        for line in self.line_ids.sorted(lambda l: (l.sequence, l.id)):
+            if line.display_type == 'line_section':
+                if current_group and current_group['lines']:
+                    groups.append(current_group)
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': line.section_name or (
+                        line.product_id.display_name if line.product_id else 'Sin Producto'),
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+                continue
+
+            if current_group is None:
+                pname = line.product_id.display_name if line.product_id else 'Sin Producto'
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': pname,
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+
+            ld = {
+                'dbId': line.id,
+                'lotId': line.lot_id.id if line.lot_id else 0,
+                'lotName': line.lot_id.name if line.lot_id else '',
+                'productId': line.product_id.id if line.product_id else 0,
+                'productName': line.product_id.display_name if line.product_id else '',
+                'isSelected': line.is_selected,
+                'qtyAvailable': line.qty_available,
+                'qtyToDeliver': line.qty_to_deliver,
+                'sourceLocation': (
+                    line.source_location_id.display_name
+                    if line.source_location_id else ''),
+            }
+            current_group['lines'].append(ld)
+            current_group['lineCount'] += 1
+            current_group['totalQty'] += line.qty_to_deliver or 0
+            if line.is_selected:
+                current_group['selectedCount'] += 1
+
+        if current_group and current_group['lines']:
+            groups.append(current_group)
+
+        return groups
+
+    # ─── Line building ───────────────────────────────────────────────
+
     def _group_lines_by_product(self, raw_lines):
         grouped = OrderedDict()
         for cmd in raw_lines:
@@ -95,22 +152,18 @@ class SaleDeliveryWizard(models.TransientModel):
 
         result = []
         Product = self.env['product.product']
-
         for pid, lines in grouped.items():
             product = Product.browse(pid) if pid else None
             section_name = product.display_name if product else _('Sin Producto')
-
             result.append((0, 0, {
                 'display_type': 'line_section',
                 'section_name': section_name,
                 'product_id': pid,
                 'sequence': len(result) * 10,
             }))
-
             for line_cmd in lines:
                 line_cmd[2]['sequence'] = len(result) * 10
                 result.append(line_cmd)
-
         return result
 
     def _safe_quant_available(self, quant):
@@ -119,11 +172,6 @@ class SaleDeliveryWizard(models.TransientModel):
         return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
 
     def _build_lines_from_sale_line_lots(self, move):
-        """
-        Fuente principal para Recubrimientos:
-        usar los lotes seleccionados en sale.order.line.lot_ids y sacar stock real
-        desde stock.quant en ubicaciones internas.
-        """
         raw_lines = []
         sale_line = move.sale_line_id
         if not sale_line or not hasattr(sale_line, 'lot_ids') or not sale_line.lot_ids:
@@ -159,7 +207,6 @@ class SaleDeliveryWizard(models.TransientModel):
                 if key in seen:
                     continue
                 seen.add(key)
-
                 raw_lines.append((0, 0, {
                     'picking_id': move.picking_id.id,
                     'move_id': move.id,
@@ -172,16 +219,11 @@ class SaleDeliveryWizard(models.TransientModel):
                     'qty_to_deliver': qty_avail if qty_avail > 0 else 0.0,
                     'is_selected': qty_avail > 0,
                 }))
-
         return raw_lines
 
     def _build_lines_from_move_lines(self, move):
-        """
-        Fallback clásico: usar move_line_ids solo si realmente traen datos.
-        """
         raw_lines = []
         seen = set()
-
         for ml in move.move_line_ids:
             lot_id = ml.lot_id.id if ml.lot_id else False
             location_id = ml.location_id.id if ml.location_id else False
@@ -191,16 +233,12 @@ class SaleDeliveryWizard(models.TransientModel):
                 or getattr(ml, 'product_uom_qty', 0.0)
                 or 0.0
             )
-
-            # ignorar placeholders completamente vacíos
             if not lot_id and not location_id and not qty_avail:
                 continue
-
             key = (move.id, ml.id, lot_id, location_id)
             if key in seen:
                 continue
             seen.add(key)
-
             raw_lines.append((0, 0, {
                 'picking_id': move.picking_id.id,
                 'move_id': move.id,
@@ -213,28 +251,22 @@ class SaleDeliveryWizard(models.TransientModel):
                 'qty_to_deliver': qty_avail if qty_avail > 0 else 0.0,
                 'is_selected': qty_avail > 0,
             }))
-
         return raw_lines
 
     def _build_lines_from_pickings(self, order):
         raw_lines = []
-
         pickings = order.picking_ids.filtered(
             lambda p: p.state in ('assigned', 'confirmed', 'waiting')
             and p.picking_type_code in ('internal', 'outgoing')
         )
-
         for picking in pickings:
             moves = picking.move_ids.filtered(
                 lambda m: m.state not in ('done', 'cancel')
             )
-
             for move in moves:
                 move_lines = self._build_lines_from_sale_line_lots(move)
-
                 if not move_lines:
                     move_lines = self._build_lines_from_move_lines(move)
-
                 if not move_lines:
                     qty_fallback = move.product_uom_qty or 0.0
                     move_lines = [(0, 0, {
@@ -246,15 +278,10 @@ class SaleDeliveryWizard(models.TransientModel):
                         'qty_to_deliver': qty_fallback if qty_fallback > 0 else 0.0,
                         'is_selected': qty_fallback > 0,
                     })]
-
                 raw_lines.extend(move_lines)
-
         return self._group_lines_by_product(raw_lines)
 
     def _build_lines_from_pick_ticket(self, order, pt):
-        """
-        Igual que pickings, pero marcando solo lo incluido en el pick ticket.
-        """
         pt_lookup = {}
         for pt_line in pt.line_ids:
             key = (
@@ -266,14 +293,11 @@ class SaleDeliveryWizard(models.TransientModel):
 
         base_lines = self._build_lines_from_pickings(order)
         adjusted = []
-
         for cmd in base_lines:
             vals = dict(cmd[2])
-
             if vals.get('display_type') == 'line_section':
                 adjusted.append((0, 0, vals))
                 continue
-
             key = (
                 vals.get('move_id'),
                 vals.get('lot_id'),
@@ -283,8 +307,9 @@ class SaleDeliveryWizard(models.TransientModel):
             vals['qty_to_deliver'] = pt_qty
             vals['is_selected'] = pt_qty > 0
             adjusted.append((0, 0, vals))
-
         return adjusted
+
+    # ─── Actions ─────────────────────────────────────────────────────
 
     def _get_selected_lines(self):
         selected = self.line_ids.filtered(
@@ -292,7 +317,6 @@ class SaleDeliveryWizard(models.TransientModel):
         )
         if not selected:
             raise UserError(_('Seleccione al menos una línea.'))
-
         for line in selected:
             if line.qty_to_deliver <= 0:
                 raise UserError(_(
@@ -317,7 +341,6 @@ class SaleDeliveryWizard(models.TransientModel):
     def action_generate_pick_ticket(self):
         self.ensure_one()
         selected = self._get_selected_lines()
-
         doc = self.env['sale.delivery.document'].create({
             'document_type': 'pick_ticket',
             'sale_order_id': self.sale_order_id.id,
@@ -334,7 +357,6 @@ class SaleDeliveryWizard(models.TransientModel):
             }) for line in selected],
         })
         doc.action_prepare()
-
         return self.env.ref(
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(doc)
@@ -350,7 +372,6 @@ class SaleDeliveryWizard(models.TransientModel):
     def action_generate_remission(self):
         self.ensure_one()
         selected = self._get_selected_lines()
-
         for line in selected:
             if line.qty_to_deliver > line.qty_available:
                 raise UserError(_(
@@ -392,14 +413,12 @@ class SaleDeliveryWizard(models.TransientModel):
                     'source_location_id': line.source_location_id.id,
                 }) for line in lines],
             })
-
             if self.pick_ticket_id:
                 doc.message_post(body=_(
                     'Remisión generada desde Pick Ticket: %s',
                     self.pick_ticket_id.name
                 ))
                 self.pick_ticket_id.state = 'confirmed'
-
             doc.action_confirm()
             docs |= doc
 
@@ -407,7 +426,6 @@ class SaleDeliveryWizard(models.TransientModel):
             return self.env.ref(
                 'sale_delivery_wizard.action_report_remission'
             ).report_action(docs)
-
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -437,14 +455,12 @@ class SaleDeliveryWizardLine(models.TransientModel):
     wizard_id = fields.Many2one(
         'sale.delivery.wizard', ondelete='cascade', required=True)
     sequence = fields.Integer(default=10)
-
     display_type = fields.Selection([
         ('line_section', 'Section'),
     ], string='Tipo de Fila')
     section_name = fields.Char(string='Nombre de Sección')
 
     is_selected = fields.Boolean(string='Sel.', default=False)
-
     picking_id = fields.Many2one('stock.picking', string='Picking')
     move_id = fields.Many2one('stock.move', string='Move')
     move_line_id = fields.Many2one('stock.move.line', string='Move Line')
@@ -469,19 +485,15 @@ class SaleDeliveryWizardLine(models.TransientModel):
         for vals in vals_list:
             if vals.get('display_type') == 'line_section':
                 continue
-
             if not vals.get('product_id') and vals.get('move_id'):
                 move = self.env['stock.move'].browse(vals['move_id'])
                 vals['product_id'] = move.product_id.id
-
             if not vals.get('sale_line_id') and vals.get('move_id'):
                 move = self.env['stock.move'].browse(vals['move_id'])
                 vals['sale_line_id'] = move.sale_line_id.id
-
             if not vals.get('lot_id') and vals.get('move_line_id'):
                 ml = self.env['stock.move.line'].browse(vals['move_line_id'])
                 vals['lot_id'] = ml.lot_id.id if ml.lot_id else False
-
             if not vals.get('source_location_id'):
                 if vals.get('quant_id'):
                     quant = self.env['stock.quant'].browse(vals['quant_id'])
@@ -489,7 +501,6 @@ class SaleDeliveryWizardLine(models.TransientModel):
                 elif vals.get('move_line_id'):
                     ml = self.env['stock.move.line'].browse(vals['move_line_id'])
                     vals['source_location_id'] = ml.location_id.id if ml.location_id else False
-
             if not vals.get('qty_available'):
                 if vals.get('quant_id'):
                     quant = self.env['stock.quant'].browse(vals['quant_id'])
@@ -510,10 +521,8 @@ class SaleDeliveryWizardLine(models.TransientModel):
                 elif vals.get('move_id'):
                     move = self.env['stock.move'].browse(vals['move_id'])
                     vals['qty_available'] = move.product_uom_qty or 0.0
-
             if vals.get('is_selected') and not vals.get('qty_to_deliver'):
                 vals['qty_to_deliver'] = vals.get('qty_available', 0.0)
-
         return super().create(vals_list)
 
     @api.onchange('is_selected')

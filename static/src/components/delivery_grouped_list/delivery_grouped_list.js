@@ -16,16 +16,16 @@ export class DeliveryGroupedList extends Component {
             isLoading: true,
             mode: "delivery",
         });
-        this._wizardId = null;
+        this._wizardModel = "";
         this._lineModel = "";
 
         onWillStart(async () => {
             this._detectMode();
-            await this._buildGroups();
+            await this._loadGroups();
         });
 
         onWillUpdateProps(async () => {
-            await this._buildGroups();
+            await this._loadGroups();
         });
     }
 
@@ -33,64 +33,50 @@ export class DeliveryGroupedList extends Component {
         const model = this.props.record?.model?.config?.resModel || "";
         if (model.includes("return")) {
             this.state.mode = "return";
+            this._wizardModel = "sale.return.wizard";
             this._lineModel = "sale.return.wizard.line";
         } else if (model.includes("swap")) {
             this.state.mode = "swap";
+            this._wizardModel = "sale.swap.wizard";
             this._lineModel = "sale.swap.wizard.line";
         } else {
             this.state.mode = "delivery";
+            this._wizardModel = "sale.delivery.wizard";
             this._lineModel = "sale.delivery.wizard.line";
         }
     }
 
-    async _buildGroups() {
+    // ═══════════════════════════════════════════════════════════════════
+    // LOAD GROUPS via RPC — never saves the wizard, never touches OWL records
+    // ═══════════════════════════════════════════════════════════════════
+    async _loadGroups() {
         this.state.isLoading = true;
         try {
-            const owlLines = this._getLines();
-
-            console.log("[DGL] _buildGroups — owlLines count:", owlLines.length);
-
-            // Debug: inspect first non-section line
-            if (owlLines.length) {
-                for (const l of owlLines) {
-                    const d = l.data || {};
-                    if (d.display_type === "line_section") continue;
-                    console.log("[DGL] Sample data line:", {
-                        product_id: d.product_id,
-                        product_id_type: typeof d.product_id,
-                        lot_id: d.lot_id,
-                        qty_available: d.qty_available,
-                        qty_to_deliver: d.qty_to_deliver,
-                        is_selected: d.is_selected,
-                        product_name: d.product_name,
-                        lot_name: d.lot_name,
-                    });
-                    break;
-                }
-            }
-
-            const hydrated = owlLines.length && this._recordsLookHydrated(owlLines);
-            console.log("[DGL] hydrated?", hydrated);
-
-            if (hydrated) {
-                this._buildGroupsFromRecords(owlLines);
-                this._syncCollapsedState();
+            const wizardId = this._getWizardId();
+            if (!wizardId) {
+                this.state.groups = [];
                 return;
             }
 
-            // Fallback: ORM
-            await this._ensureWizardSaved();
-            if (this._wizardId) {
-                await this._buildGroupsFromOrm();
-            } else {
-                this.state.groups = [];
-            }
+            const groups = await this.orm.call(
+                this._wizardModel,
+                "get_grouped_lines_data",
+                [wizardId]
+            );
+
+            this.state.groups = groups || [];
             this._syncCollapsedState();
+        } catch (e) {
+            console.error("[DGL] RPC get_grouped_lines_data failed:", e);
+            this.state.groups = [];
         } finally {
             this.state.isLoading = false;
-            console.log("[DGL] Final groups:", this.state.groups.length,
-                this.state.groups.map(g => ({ name: g.productName, lines: g.lineCount })));
         }
+    }
+
+    _getWizardId() {
+        const root = this.props.record?.model?.root || this.props.record;
+        return root?.resId || this.props.record?.resId || null;
     }
 
     _syncCollapsedState() {
@@ -101,350 +87,6 @@ export class DeliveryGroupedList extends Component {
             }
         }
         this.state.collapsed = next;
-    }
-
-    _recordsLookHydrated(lines) {
-        if (!lines.length) return false;
-        const dataLines = lines.filter((line) => {
-            const d = line?.data || {};
-            return d.display_type !== "line_section";
-        });
-        if (!dataLines.length) return false;
-        return dataLines.some((line) => {
-            const d = line.data || {};
-            const pid = this._m2oId(d.product_id);
-            const pname = this._m2oName(d.product_id);
-            const hasProduct = pid > 0 || !!d.product_name || !!pname;
-            const hasMeaningfulPayload =
-                (d.qty_available !== undefined && d.qty_available !== null && d.qty_available > 0) ||
-                (d.qty_to_deliver !== undefined && d.qty_to_deliver !== null && d.qty_to_deliver > 0) ||
-                (d.qty_delivered !== undefined && d.qty_delivered !== null && d.qty_delivered > 0) ||
-                (d.qty_to_return !== undefined && d.qty_to_return !== null && d.qty_to_return > 0) ||
-                this._m2oId(d.lot_id) > 0 ||
-                !!d.lot_name ||
-                this._m2oId(d.origin_lot_id) > 0;
-            return hasProduct && hasMeaningfulPayload;
-        });
-    }
-
-    async _ensureWizardSaved() {
-        const root = this.props.record?.model?.root || this.props.record;
-        this._wizardId = root?.resId || this.props.record?.resId || null;
-        if (this._wizardId) return;
-        try {
-            await root.save({ noReload: true, stayInEdition: true });
-            this._wizardId = root?.resId || null;
-            console.log("[DGL] Wizard saved, resId:", this._wizardId);
-        } catch (e) {
-            console.warn("[DGL] Could not save wizard:", e?.message || e);
-            this._wizardId = null;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // BUILD FROM ORM — reads line_ids from DB, groups by product
-    // ═══════════════════════════════════════════════════════════════════
-    async _buildGroupsFromOrm() {
-        if (!this._wizardId) {
-            this.state.groups = [];
-            return;
-        }
-
-        let fields;
-        if (this.state.mode === "delivery") {
-            fields = [
-                "id", "display_type", "section_name", "sequence",
-                "product_id", "lot_id", "source_location_id",
-                "is_selected", "qty_available", "qty_to_deliver",
-                "product_name", "lot_name",
-                "picking_id", "move_id", "move_line_id", "sale_line_id",
-            ];
-        } else if (this.state.mode === "return") {
-            fields = [
-                "id", "display_type", "section_name", "sequence",
-                "product_id", "lot_id",
-                "is_selected", "qty_delivered", "qty_to_return",
-                "move_id", "move_line_id", "sale_line_id",
-            ];
-        } else {
-            fields = [
-                "id", "display_type", "section_name", "sequence",
-                "product_id", "origin_lot_id", "target_lot_id",
-                "origin_bloque", "origin_alto", "origin_ancho",
-                "qty", "target_bloque", "target_qty",
-                "move_line_id", "picking_id", "sale_line_id",
-            ];
-        }
-
-        let lineData = [];
-        try {
-            lineData = await this.orm.searchRead(
-                this._lineModel,
-                [["wizard_id", "=", this._wizardId]],
-                fields,
-                { order: "sequence, id" }
-            );
-        } catch (e) {
-            console.error("[DGL] ORM searchRead failed:", e);
-            lineData = [];
-        }
-
-        console.log("[DGL] ORM lineData count:", lineData.length);
-        if (lineData.length) {
-            // Debug first few lines
-            for (const d of lineData.slice(0, 5)) {
-                console.log("[DGL] ORM line:", {
-                    id: d.id,
-                    display_type: d.display_type,
-                    section_name: d.section_name,
-                    product_id: d.product_id,
-                    lot_id: d.lot_id,
-                    qty_available: d.qty_available,
-                    qty_to_deliver: d.qty_to_deliver,
-                });
-            }
-        }
-
-        if (!lineData.length) {
-            this.state.groups = [];
-            return;
-        }
-
-        // Build a lookup: for sections, remember the product info.
-        // For data lines, use their OWN product_id first, fallback to section.
-        const grouped = new Map();
-        let currentSectionName = "";
-        let currentSectionProductId = 0;
-
-        for (const d of lineData) {
-            if (d.display_type === "line_section") {
-                currentSectionProductId = d.product_id ? d.product_id[0] : 0;
-                currentSectionName = d.section_name || (d.product_id ? d.product_id[1] : "");
-                console.log("[DGL] Section:", currentSectionName, "pid:", currentSectionProductId);
-                continue;
-            }
-
-            // Data line: use ITS OWN product_id, fallback to section's
-            let productId = d.product_id ? d.product_id[0] : 0;
-            let productName = d.product_id ? d.product_id[1] : "";
-
-            if (!productId && currentSectionProductId) {
-                productId = currentSectionProductId;
-            }
-            if (!productName && currentSectionName) {
-                productName = currentSectionName;
-            }
-            if (!productName && d.product_name) {
-                productName = d.product_name;
-            }
-            if (!productName) {
-                productName = "Sin Producto";
-            }
-
-            const groupKey = productId || productName;
-
-            if (!grouped.has(groupKey)) {
-                grouped.set(groupKey, {
-                    productId: groupKey,
-                    productName,
-                    lines: [],
-                    totalQty: 0,
-                    selectedCount: 0,
-                    lineCount: 0,
-                });
-            }
-
-            const group = grouped.get(groupKey);
-
-            // Find matching OWL record for reactivity
-            const owlRecord = this._findOwlRecordByDbId(d.id);
-
-            const ld = {
-                _record: owlRecord,
-                _dbId: d.id,
-                _lineModel: this._lineModel,
-                id: d.id,
-                owlId: owlRecord ? owlRecord.id : `db_${d.id}`,
-                product_id: productId,
-                product_name: productName,
-                lot_id: d.lot_id ? d.lot_id[0] : 0,
-                lot_name: d.lot_id ? d.lot_id[1] : (d.lot_name || ""),
-                is_selected: d.is_selected || false,
-                qty_available: d.qty_available || 0,
-                qty_to_deliver: d.qty_to_deliver || 0,
-                source_location: d.source_location_id ? d.source_location_id[1] : "",
-                qty_delivered: d.qty_delivered || 0,
-                qty_to_return: d.qty_to_return || 0,
-                origin_lot_id: d.origin_lot_id ? d.origin_lot_id[0] : 0,
-                origin_lot_name: d.origin_lot_id ? d.origin_lot_id[1] : "",
-                origin_bloque: d.origin_bloque || "",
-                origin_alto: d.origin_alto || "",
-                origin_ancho: d.origin_ancho || "",
-                qty: d.qty || 0,
-                target_lot_id: d.target_lot_id ? d.target_lot_id[0] : 0,
-                target_lot_name: d.target_lot_id ? d.target_lot_id[1] : "",
-                target_bloque: d.target_bloque || "",
-                target_qty: d.target_qty || 0,
-            };
-
-            group.lines.push(ld);
-            group.lineCount++;
-
-            if (this.state.mode === "delivery") {
-                group.totalQty += ld.qty_to_deliver || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else if (this.state.mode === "return") {
-                group.totalQty += ld.qty_to_return || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else {
-                group.totalQty += ld.qty || 0;
-            }
-        }
-
-        this.state.groups = Array.from(grouped.values()).filter((g) => g.lineCount > 0);
-    }
-
-    /**
-     * Find the OWL record that corresponds to a given DB id.
-     * After wizard save, OWL records get resId populated.
-     */
-    _findOwlRecordByDbId(dbId) {
-        if (!dbId) return null;
-        const owlLines = this._getLines();
-        for (const line of owlLines) {
-            if (line.resId === dbId) return line;
-            if (line.data && line.data.id === dbId) return line;
-        }
-        return null;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // BUILD FROM OWL RECORDS
-    // ═══════════════════════════════════════════════════════════════════
-    _buildGroupsFromRecords(lines) {
-        const grouped = new Map();
-        let currentSectionProductId = 0;
-        let currentSectionName = "";
-
-        for (const line of lines) {
-            const d = line.data || {};
-
-            if (d.display_type === "line_section") {
-                currentSectionProductId = this._m2oId(d.product_id);
-                currentSectionName = d.section_name || this._m2oName(d.product_id) || "";
-                continue;
-            }
-
-            let productId = this._m2oId(d.product_id);
-            let productName = this._m2oName(d.product_id);
-
-            if (!productId && currentSectionProductId) productId = currentSectionProductId;
-            if (!productName && d.product_name) productName = d.product_name;
-            if (!productName && currentSectionName) productName = currentSectionName;
-            if (!productName) productName = "Sin Producto";
-
-            const groupKey = productId || productName;
-
-            if (!grouped.has(groupKey)) {
-                grouped.set(groupKey, {
-                    productId: groupKey,
-                    productName,
-                    lines: [],
-                    totalQty: 0,
-                    selectedCount: 0,
-                    lineCount: 0,
-                });
-            }
-
-            const group = grouped.get(groupKey);
-            const ld = this._extractLineData(line, currentSectionName);
-            group.lines.push(ld);
-            group.lineCount++;
-
-            if (this.state.mode === "delivery") {
-                group.totalQty += ld.qty_to_deliver || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else if (this.state.mode === "return") {
-                group.totalQty += ld.qty_to_return || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else {
-                group.totalQty += ld.qty || 0;
-            }
-        }
-
-        this.state.groups = Array.from(grouped.values()).filter((g) => g.lineCount > 0);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // HELPERS
-    // ═══════════════════════════════════════════════════════════════════
-    _getLines() {
-        const raw = this.props.record?.data?.[this.props.name];
-        if (!raw) return [];
-        return raw.records || [];
-    }
-
-    _m2oId(field) {
-        if (!field) return 0;
-        if (typeof field === "number") return field;
-        if (Array.isArray(field)) return field[0] || 0;
-        if (typeof field === "object") {
-            if (typeof field.resId === "number" && field.resId > 0) return field.resId;
-            if (typeof field.id === "number" && field.id > 0) return field.id;
-            if (field.data && typeof field.data.id === "number") return field.data.id;
-            if (typeof field[0] === "number") return field[0];
-        }
-        return 0;
-    }
-
-    _m2oName(field) {
-        if (!field) return "";
-        if (Array.isArray(field)) return field[1] || "";
-        if (typeof field === "object") {
-            if (field.display_name) return field.display_name;
-            if (field.name) return field.name;
-            if (field.data && field.data.display_name) return field.data.display_name;
-            if (typeof field[1] === "string") return field[1];
-        }
-        return "";
-    }
-
-    _extractLineData(lineRecord, sectionName) {
-        const d = lineRecord.data || {};
-        let productName = this._m2oName(d.product_id);
-        if (!productName && d.product_name) productName = d.product_name;
-        if (!productName && sectionName) productName = sectionName;
-
-        let lotName = this._m2oName(d.lot_id);
-        if (!lotName && d.lot_name) lotName = d.lot_name;
-
-        return {
-            _record: lineRecord,
-            _dbId: lineRecord.resId || null,
-            _lineModel: this._lineModel,
-            id: lineRecord.resId || d.id,
-            owlId: lineRecord.id,
-            product_id: this._m2oId(d.product_id),
-            product_name: productName || "",
-            lot_id: this._m2oId(d.lot_id),
-            lot_name: lotName || "",
-            is_selected: d.is_selected || false,
-            qty_available: d.qty_available || 0,
-            qty_to_deliver: d.qty_to_deliver || 0,
-            source_location: this._m2oName(d.source_location_id) || "",
-            qty_delivered: d.qty_delivered || 0,
-            qty_to_return: d.qty_to_return || 0,
-            origin_lot_id: this._m2oId(d.origin_lot_id),
-            origin_lot_name: this._m2oName(d.origin_lot_id) || "",
-            origin_bloque: d.origin_bloque || "",
-            origin_alto: d.origin_alto || "",
-            origin_ancho: d.origin_ancho || "",
-            qty: d.qty || 0,
-            target_lot_id: this._m2oId(d.target_lot_id),
-            target_lot_name: this._m2oName(d.target_lot_id) || "",
-            target_bloque: d.target_bloque || "",
-            target_qty: d.target_qty || 0,
-        };
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -470,30 +112,19 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
-    async _updateLine(lineData, updates) {
-        if (lineData._record) {
-            try {
-                await lineData._record.update(updates);
-                return;
-            } catch (e) {
-                console.warn("[DGL] record.update failed, falling back to ORM:", e?.message || e);
-            }
-        }
-        if (lineData._dbId && lineData._lineModel) {
-            await this.orm.write(lineData._lineModel, [lineData._dbId], updates);
-        }
-    }
-
+    // ═══════════════════════════════════════════════════════════════════
+    // LINE UPDATES — direct ORM write, then reload
+    // ═══════════════════════════════════════════════════════════════════
     async toggleLineSelected(lineData) {
-        const newVal = !lineData.is_selected;
+        const newVal = !lineData.isSelected;
         const updates = { is_selected: newVal };
         if (this.state.mode === "delivery") {
-            updates.qty_to_deliver = newVal ? (lineData.qty_available || 0) : 0;
+            updates.qty_to_deliver = newVal ? (lineData.qtyAvailable || 0) : 0;
         } else if (this.state.mode === "return") {
-            updates.qty_to_return = newVal ? (lineData.qty_delivered || 0) : 0;
+            updates.qty_to_return = newVal ? (lineData.qtyDelivered || 0) : 0;
         }
-        await this._updateLine(lineData, updates);
-        await this._buildGroups();
+        await this.orm.write(this._lineModel, [lineData.dbId], updates);
+        await this._loadGroups();
     }
 
     async onQtyChange(lineData, event) {
@@ -506,21 +137,21 @@ export class DeliveryGroupedList extends Component {
             updates.qty_to_return = val;
             updates.is_selected = val > 0;
         }
-        await this._updateLine(lineData, updates);
-        await this._buildGroups();
+        await this.orm.write(this._lineModel, [lineData.dbId], updates);
+        await this._loadGroups();
     }
 
     async selectAllInGroup(group) {
         for (const ld of group.lines) {
             const updates = { is_selected: true };
             if (this.state.mode === "delivery") {
-                updates.qty_to_deliver = ld.qty_available || 0;
+                updates.qty_to_deliver = ld.qtyAvailable || 0;
             } else if (this.state.mode === "return") {
-                updates.qty_to_return = ld.qty_delivered || 0;
+                updates.qty_to_return = ld.qtyDelivered || 0;
             }
-            await this._updateLine(ld, updates);
+            await this.orm.write(this._lineModel, [ld.dbId], updates);
         }
-        await this._buildGroups();
+        await this._loadGroups();
     }
 
     async deselectAllInGroup(group) {
@@ -531,17 +162,17 @@ export class DeliveryGroupedList extends Component {
             } else if (this.state.mode === "return") {
                 updates.qty_to_return = 0;
             }
-            await this._updateLine(ld, updates);
+            await this.orm.write(this._lineModel, [ld.dbId], updates);
         }
-        await this._buildGroups();
+        await this._loadGroups();
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // SWAP POPUP
     // ═══════════════════════════════════════════════════════════════════
     openSwapSelector(lineData) {
-        const productId = lineData.product_id;
-        const originLotId = lineData.origin_lot_id;
+        const productId = lineData.productId;
+        const originLotId = lineData.originLotId;
         if (!productId) return;
         this._openSwapPopup(lineData, productId, originLotId);
     }
@@ -558,8 +189,8 @@ export class DeliveryGroupedList extends Component {
             totalCount: 0,
             isLoading: false,
             page: 0,
-            selectedLotId: lineData.target_lot_id || null,
-            selectedLotName: lineData.target_lot_name || "",
+            selectedLotId: lineData.targetLotId || null,
+            selectedLotName: lineData.targetLotName || "",
             filters: { lot_name: "", bloque: "", atado: "" },
         };
         let searchTimeout = null;
@@ -668,21 +299,18 @@ export class DeliveryGroupedList extends Component {
         const doConfirm = async () => {
             if (!st.selectedLotId) return;
             cleanup();
-            if (lineData._record) {
-                try { await lineData._record.update({ target_lot_id: st.selectedLotId }); } catch (_e) {}
-            }
-            if (lineData._dbId) {
-                try {
-                    await self.orm.write(lineData._lineModel || "sale.swap.wizard.line", [lineData._dbId], { target_lot_id: st.selectedLotId });
-                } catch (_e) {}
-            }
-            await self._buildGroups();
+            await self.orm.write(
+                self._lineModel,
+                [lineData.dbId],
+                { target_lot_id: st.selectedLotId }
+            );
+            await self._loadGroups();
         };
 
         root.innerHTML = `<div class="dgl-overlay" id="dgl-overlay"><div class="dgl-popup">
             <div class="dgl-popup-header"><span><i class="fa fa-exchange me-2"></i>Seleccionar Lote de Reemplazo</span>
             <div class="d-flex align-items-center gap-2">
-                <span class="dgl-origin-badge"><i class="fa fa-cube me-1"></i>Actual: <strong>${lineData.origin_lot_name}</strong></span>
+                <span class="dgl-origin-badge"><i class="fa fa-cube me-1"></i>Actual: <strong>${lineData.originLotName || ""}</strong></span>
                 <span class="dgl-sel-badge" id="dgl-sel-badge" style="display:none"><i class="fa fa-arrow-right me-1"></i>Nuevo: <strong id="dgl-sel-name">—</strong></span>
                 <button class="dgl-confirm-btn dgl-btn-green" disabled><i class="fa fa-check me-1"></i>Confirmar</button>
                 <button class="dgl-close-btn"><i class="fa fa-times"></i></button>
@@ -723,17 +351,17 @@ export class DeliveryGroupedList extends Component {
     }
 
     async clearSwapTarget(lineData) {
-        if (lineData._record) {
-            try { await lineData._record.update({ target_lot_id: false }); } catch (_e) {}
-        }
-        if (lineData._dbId) {
-            try {
-                await this.orm.write(lineData._lineModel || "sale.swap.wizard.line", [lineData._dbId], { target_lot_id: false });
-            } catch (_e) {}
-        }
-        await this._buildGroups();
+        await this.orm.write(
+            this._lineModel,
+            [lineData.dbId],
+            { target_lot_id: false }
+        );
+        await this._loadGroups();
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // FORMATTERS
+    // ═══════════════════════════════════════════════════════════════════
     fmt(num) {
         if (num === null || num === undefined || isNaN(num)) return "0.00";
         return parseFloat(num).toFixed(2);

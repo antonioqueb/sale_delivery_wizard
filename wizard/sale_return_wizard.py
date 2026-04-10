@@ -54,7 +54,6 @@ class SaleReturnWizard(models.TransientModel):
         return res
 
     def _group_lines_by_product(self, raw_lines):
-        """Insert section headers grouping lines by product."""
         from collections import OrderedDict
         grouped = OrderedDict()
         for cmd in raw_lines:
@@ -81,8 +80,61 @@ class SaleReturnWizard(models.TransientModel):
                 seq += 1
         return result
 
+    # ─── RPC for grouped list widget ─────────────────────────────────
+    def get_grouped_lines_data(self):
+        """Return line data grouped by product for the JS widget."""
+        self.ensure_one()
+        groups = []
+        current_group = None
+
+        for line in self.line_ids.sorted(lambda l: (l.sequence, l.id)):
+            if line.display_type == 'line_section':
+                if current_group and current_group['lines']:
+                    groups.append(current_group)
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': line.section_name or (
+                        line.product_id.display_name if line.product_id else 'Sin Producto'),
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+                continue
+
+            if current_group is None:
+                pname = line.product_id.display_name if line.product_id else 'Sin Producto'
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': pname,
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+
+            ld = {
+                'dbId': line.id,
+                'lotId': line.lot_id.id if line.lot_id else 0,
+                'lotName': line.lot_id.name if line.lot_id else '',
+                'productId': line.product_id.id if line.product_id else 0,
+                'productName': line.product_id.display_name if line.product_id else '',
+                'isSelected': line.is_selected,
+                'qtyDelivered': line.qty_delivered,
+                'qtyToReturn': line.qty_to_return,
+            }
+            current_group['lines'].append(ld)
+            current_group['lineCount'] += 1
+            current_group['totalQty'] += line.qty_to_return or 0
+            if line.is_selected:
+                current_group['selectedCount'] += 1
+
+        if current_group and current_group['lines']:
+            groups.append(current_group)
+
+        return groups
+
     def action_confirm_return(self):
-        """Process the return: create return picking, validate it, and create document."""
         self.ensure_one()
         selected = self.line_ids.filtered(
             lambda l: l.is_selected and l.display_type != 'line_section')
@@ -91,8 +143,6 @@ class SaleReturnWizard(models.TransientModel):
                 'Seleccione al menos una línea para devolver.'))
 
         order = self.sale_order_id
-
-        # Group by original picking
         move_returns = {}
         for line in selected:
             if line.qty_to_return <= 0:
@@ -119,18 +169,15 @@ class SaleReturnWizard(models.TransientModel):
                 })
             result = return_wiz.action_create_returns()
             if result and result.get('res_id'):
-                ret_picking = self.env['stock.picking'].browse(
-                    result['res_id'])
+                ret_picking = self.env['stock.picking'].browse(result['res_id'])
                 return_pickings |= ret_picking
 
-        # Create delivery document and validate each return picking
         docs = self.env['sale.delivery.document']
         for ret_picking in return_pickings:
             orig_picking = ret_picking.move_ids.mapped(
                 'origin_returned_move_id.picking_id')
             picking_lines = [
-                l for l in selected
-                if l.move_id.picking_id in orig_picking
+                l for l in selected if l.move_id.picking_id in orig_picking
             ]
             if not picking_lines:
                 picking_lines = selected
@@ -154,12 +201,10 @@ class SaleReturnWizard(models.TransientModel):
             })
 
             self._validate_return_picking(ret_picking, picking_lines)
-
             doc.state = 'confirmed'
             doc.delivery_date = fields.Datetime.now()
             docs |= doc
 
-        # ── Post-return action ──
         if self.return_action == 'reagendar':
             self._action_reagendar(order, selected)
 
@@ -194,10 +239,6 @@ class SaleReturnWizard(models.TransientModel):
             },
         }
 
-    # ──────────────────────────────────────────────
-    #  REAGENDAR
-    # ──────────────────────────────────────────────
-
     def _action_reagendar(self, order, wizard_lines):
         warehouse = order.warehouse_id
         pick_type = warehouse.out_type_id
@@ -229,7 +270,6 @@ class SaleReturnWizard(models.TransientModel):
         move_map = {}
         for (product_id, sale_line_id, uom_id), wls in grouped.items():
             total_qty = sum(wl.qty_to_return for wl in wls)
-
             move = self.env['stock.move'].create({
                 'product_id': product_id,
                 'product_uom_qty': total_qty,
@@ -241,7 +281,6 @@ class SaleReturnWizard(models.TransientModel):
                 'origin': order.name,
             })
             move_map[sale_line_id] = move
-
             for wl in wls:
                 if wl.lot_id:
                     self.env['stock.move.line'].create({
@@ -256,10 +295,6 @@ class SaleReturnWizard(models.TransientModel):
 
         new_picking.action_confirm()
         new_picking.action_assign()
-
-        _logger.info(
-            'Redelivery picking %s created for SO %s (state: %s)',
-            new_picking.name, order.name, new_picking.state)
 
         doc_lines = []
         for wl in wizard_lines:
@@ -290,16 +325,7 @@ class SaleReturnWizard(models.TransientModel):
             'line_ids': doc_lines,
         })
         doc.action_prepare()
-
-        _logger.info(
-            'Redelivery document %s created for SO %s',
-            doc.name, order.name)
-
         return doc
-
-    # ──────────────────────────────────────────────
-    #  Validate return picking
-    # ──────────────────────────────────────────────
 
     def _validate_return_picking(self, picking, wizard_lines):
         if picking.state in ('draft', 'confirmed', 'waiting'):
@@ -313,8 +339,7 @@ class SaleReturnWizard(models.TransientModel):
                     lot_qty.get(wl.lot_id.id, 0.0) + wl.qty_to_return)
             else:
                 product_qty[wl.product_id.id] = (
-                    product_qty.get(wl.product_id.id, 0.0)
-                    + wl.qty_to_return)
+                    product_qty.get(wl.product_id.id, 0.0) + wl.qty_to_return)
 
         for move in picking.move_ids:
             if move.move_line_ids:
@@ -334,7 +359,6 @@ class SaleReturnWizard(models.TransientModel):
                         qty += wl.qty_to_return
                         if wl.lot_id:
                             lot_id = wl.lot_id.id
-
                 if qty > 0:
                     self.env['stock.move.line'].create({
                         'move_id': move.id,
@@ -346,31 +370,23 @@ class SaleReturnWizard(models.TransientModel):
                         'location_dest_id': move.location_dest_id.id,
                     })
 
-        result = picking.with_context(
-            skip_backorder=False,
-        ).button_validate()
-
+        result = picking.with_context(skip_backorder=False).button_validate()
         if isinstance(result, dict):
             if result.get('res_model') == 'stock.backorder.confirmation':
                 backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
                     button_validate_picking_ids=picking.ids,
-                ).create({
-                    'pick_ids': [(4, picking.id)],
-                })
+                ).create({'pick_ids': [(4, picking.id)]})
                 backorder_wiz.process()
             elif result.get('res_model') == 'stock.immediate.transfer':
                 immediate_wiz = self.env['stock.immediate.transfer'].with_context(
                     button_validate_picking_ids=picking.ids,
-                ).create({
-                    'pick_ids': [(4, picking.id)],
-                })
+                ).create({'pick_ids': [(4, picking.id)]})
                 immediate_wiz.process()
 
         if picking.state != 'done':
             _logger.warning(
                 'Return picking %s could not be validated (state: %s)',
                 picking.name, picking.state)
-
         return picking.state == 'done'
 
 
@@ -414,21 +430,14 @@ class SaleReturnWizardLine(models.TransientModel):
                 vals['qty_delivered'] = ml.quantity or ml.qty_done or 0.0
         return super().create(vals_list)
 
-    def _refresh_qty_delivered(self):
-        if self.display_type == 'line_section':
-            return
-        if self.qty_delivered <= 0 and self.move_line_id:
-            self.qty_delivered = (
-                self.move_line_id.quantity
-                or self.move_line_id.qty_done
-                or 0.0)
-
     @api.onchange('is_selected')
     def _onchange_is_selected(self):
         if self.display_type == 'line_section':
             return
         if self.is_selected:
-            self._refresh_qty_delivered()
+            if self.qty_delivered <= 0 and self.move_line_id:
+                self.qty_delivered = (
+                    self.move_line_id.quantity or self.move_line_id.qty_done or 0.0)
             if self.qty_to_return <= 0:
                 self.qty_to_return = self.qty_delivered
         else:
@@ -440,7 +449,9 @@ class SaleReturnWizardLine(models.TransientModel):
             return
         if self.qty_to_return > 0:
             self.is_selected = True
-        self._refresh_qty_delivered()
+        if self.qty_delivered <= 0 and self.move_line_id:
+            self.qty_delivered = (
+                self.move_line_id.quantity or self.move_line_id.qty_done or 0.0)
         if self.qty_to_return > self.qty_delivered and self.qty_delivered > 0:
             return {'warning': {
                 'title': _('Cantidad excedida'),

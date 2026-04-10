@@ -49,7 +49,6 @@ class SaleSwapWizard(models.TransientModel):
         return res
 
     def _group_lines_by_product(self, raw_lines):
-        """Insert section headers grouping lines by product."""
         from collections import OrderedDict
         grouped = OrderedDict()
         for cmd in raw_lines:
@@ -76,37 +75,73 @@ class SaleSwapWizard(models.TransientModel):
                 seq += 1
         return result
 
+    # ─── RPC for grouped list widget ─────────────────────────────────
+    def get_grouped_lines_data(self):
+        """Return line data grouped by product for the JS widget."""
+        self.ensure_one()
+        groups = []
+        current_group = None
+
+        for line in self.line_ids.sorted(lambda l: (l.sequence, l.id)):
+            if line.display_type == 'line_section':
+                if current_group and current_group['lines']:
+                    groups.append(current_group)
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': line.section_name or (
+                        line.product_id.display_name if line.product_id else 'Sin Producto'),
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+                continue
+
+            if current_group is None:
+                pname = line.product_id.display_name if line.product_id else 'Sin Producto'
+                current_group = {
+                    'productId': line.product_id.id or 0,
+                    'productName': pname,
+                    'lines': [],
+                    'totalQty': 0,
+                    'selectedCount': 0,
+                    'lineCount': 0,
+                }
+
+            ld = {
+                'dbId': line.id,
+                'productId': line.product_id.id if line.product_id else 0,
+                'productName': line.product_id.display_name if line.product_id else '',
+                'originLotId': line.origin_lot_id.id if line.origin_lot_id else 0,
+                'originLotName': line.origin_lot_id.name if line.origin_lot_id else '',
+                'originBloque': line.origin_bloque or '',
+                'originAlto': line.origin_alto or '',
+                'originAncho': line.origin_ancho or '',
+                'qty': line.qty or 0,
+                'targetLotId': line.target_lot_id.id if line.target_lot_id else 0,
+                'targetLotName': line.target_lot_id.name if line.target_lot_id else '',
+                'targetBloque': line.target_bloque or '',
+                'targetQty': line.target_qty or 0,
+            }
+            current_group['lines'].append(ld)
+            current_group['lineCount'] += 1
+            current_group['totalQty'] += line.qty or 0
+
+        if current_group and current_group['lines']:
+            groups.append(current_group)
+
+        return groups
+
     def action_confirm_swap(self):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
 
-        _logger.info('[SWAP DEBUG] ══════════════════════════════════════')
-        _logger.info('[SWAP DEBUG] action_confirm_swap called on wizard id=%s', self.id)
-        _logger.info('[SWAP DEBUG] sale_order_id=%s', self.sale_order_id.id)
-
-        _logger.info('[SWAP DEBUG] self.line_ids count=%d', len(self.line_ids))
-        for line in self.line_ids:
-            if line.display_type == 'line_section':
-                continue
-            _logger.info(
-                '[SWAP DEBUG] ORM line id=%s origin_lot=%s target_lot=%s target_lot_id_raw=%s',
-                line.id, line.origin_lot_id.name if line.origin_lot_id else 'N/A',
-                line.target_lot_id.name if line.target_lot_id else 'N/A',
-                line.target_lot_id.id if line.target_lot_id else False)
-
-        # Read target_lot_id directly from DB to avoid web_save overwrites.
         line_data = self.env['sale.swap.wizard.line'].search_read(
             [('wizard_id', '=', self.id), ('display_type', '!=', 'line_section')],
             ['id', 'target_lot_id', 'origin_lot_id', 'product_id',
              'move_line_id', 'picking_id', 'sale_line_id', 'qty',
              'origin_bloque'],
         )
-
-        _logger.info('[SWAP DEBUG] search_read returned %d lines', len(line_data))
-        for d in line_data:
-            _logger.info(
-                '[SWAP DEBUG] DB line id=%s origin_lot=%s target_lot=%s',
-                d['id'], d.get('origin_lot_id'), d.get('target_lot_id'))
 
         self.env.cr.execute(
             "SELECT id, origin_lot_id, target_lot_id FROM sale_swap_wizard_line "
@@ -118,10 +153,8 @@ class SaleSwapWizard(models.TransientModel):
         lines_with_target = [
             d for d in line_data if d.get('target_lot_id')
         ]
-        _logger.info('[SWAP DEBUG] lines_with_target count=%d', len(lines_with_target))
 
         if not lines_with_target:
-            _logger.warning('[SWAP DEBUG] NO lines with target_lot_id found — raising UserError')
             raise UserError(_(
                 'Seleccione al menos un lote destino para ejecutar el swap.'))
 
@@ -178,8 +211,6 @@ class SaleSwapWizard(models.TransientModel):
                 if total_ml_qty != move_line.move_id.product_uom_qty:
                     move_line.move_id.product_uom_qty = total_ml_qty
 
-            picking_id = data['picking_id'][0] if data.get('picking_id') else False
-            sale_line_id = data['sale_line_id'][0] if data.get('sale_line_id') else False
             product_id = data['product_id'][0]
             qty = data.get('qty', 0.0)
             origin_bloque = data.get('origin_bloque', '')
@@ -212,6 +243,7 @@ class SaleSwapWizard(models.TransientModel):
                 ],
             })
 
+            sale_line_id = data['sale_line_id'][0] if data.get('sale_line_id') else False
             sale_line = self.env['sale.order.line'].browse(
                 sale_line_id) if sale_line_id else False
             if (sale_line and hasattr(sale_line, 'lot_ids')
@@ -225,8 +257,6 @@ class SaleSwapWizard(models.TransientModel):
                 'Swap executed: %s → %s on picking %s',
                 old_lot_name, target_lot_name,
                 data['picking_id'][1] if data.get('picking_id') else 'N/A')
-
-        _logger.info('[SWAP DEBUG] ══════════════════════════════════════')
 
         return {
             'type': 'ir.actions.client',
@@ -266,14 +296,12 @@ class SaleSwapWizardLine(models.TransientModel):
     picking_id = fields.Many2one('stock.picking', string='Picking')
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
 
-    # Origin lot info
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
     origin_alto = fields.Char(string='Alto', readonly=True)
     origin_ancho = fields.Char(string='Ancho', readonly=True)
     origin_grosor = fields.Char(string='Grosor', readonly=True)
 
-    # Target lot info (computed on selection)
     target_bloque = fields.Char(
         string='Bloque Nuevo', compute='_compute_target_info', readonly=True)
     target_atado = fields.Char(
