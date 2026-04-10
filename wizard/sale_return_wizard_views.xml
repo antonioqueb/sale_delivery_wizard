@@ -19,7 +19,7 @@
                 <separator string="Material Entregado"/>
 
                 <!-- OUTSIDE of <group> for full width -->
-                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
+                <field name="line_ids" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     <strong>Reagendar:</strong> El material regresa al pedido para reentrega.<br/>
