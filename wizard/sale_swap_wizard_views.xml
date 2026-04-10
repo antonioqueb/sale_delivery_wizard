@@ -8,17 +8,17 @@
                 <group>
                     <field name="sale_order_id" readonly="1"/>
                 </group>
+
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
 
+                <!-- OUTSIDE of <group> for full width -->
                 <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
-                    Haga clic en <strong>"Buscar lote..."</strong> para ver el inventario disponible con todos los detalles.
                 </div>
                 <footer>
-                    <button name="action_confirm_swap"
-                            string="Ejecutar Swap"
+                    <button name="action_confirm_swap" string="Ejecutar Swap"
                             type="object" class="btn-primary"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>

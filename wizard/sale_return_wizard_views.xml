@@ -8,26 +8,26 @@
                 <group>
                     <group>
                         <field name="sale_order_id" readonly="1"/>
-                        <field name="return_reason_id"
-                               options="{'no_create': True}"/>
+                        <field name="return_reason_id" options="{'no_create': True}"/>
                     </group>
                     <group>
                         <field name="return_action" widget="radio"/>
                         <field name="notes" placeholder="Notas adicionales..."/>
                     </group>
                 </group>
+
                 <separator string="Material Entregado"/>
 
+                <!-- OUTSIDE of <group> for full width -->
                 <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     <strong>Reagendar:</strong> El material regresa al pedido para reentrega.<br/>
-                    <strong>Reponer:</strong> El material se libera a inventario. La línea queda pendiente de nueva asignación.<br/>
-                    <strong>Finiquitar:</strong> Se libera material, se genera nota de crédito y se cierra la línea.
+                    <strong>Reponer:</strong> El material se libera a inventario.<br/>
+                    <strong>Finiquitar:</strong> Se libera material, nota de crédito y se cierra la línea.
                 </div>
                 <footer>
-                    <button name="action_confirm_return"
-                            string="Confirmar Devolución"
+                    <button name="action_confirm_return" string="Confirmar Devolución"
                             type="object" class="btn-primary"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>

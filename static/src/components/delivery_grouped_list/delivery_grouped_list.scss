@@ -22,8 +22,44 @@ $dgl-radius-sm: 5px;
 $dgl-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CRITICAL: Force full-width inside Odoo form wizard dialogs
+// The widget gets placed inside .o_field_widget which may be constrained
+// by the form layout. We need to break out of it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+.sale_delivery_wizard_form,
+.sale_return_wizard_form,
+.sale_swap_wizard_form {
+    // The o_field_widget containing our widget must be full-width
+    .o_field_widget:has(.dgl-root) {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 100% !important;
+        padding: 0 !important;
+    }
+
+    // Also ensure the parent o_wrap_field / o_cell are full-width
+    .o_wrap_field:has(.dgl-root),
+    .o_cell:has(.dgl-root) {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+
+    // The inner_group / outer_group containing the widget
+    .o_inner_group:has(.dgl-root),
+    .o_group:has(.dgl-root) {
+        width: 100% !important;
+        max-width: 100% !important;
+        display: block !important;
+    }
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────
 .dgl-root {
+    width: 100% !important;
+    min-width: 0;
     border: 1px solid $dgl-border;
     border-radius: $dgl-radius;
     overflow: hidden;
@@ -67,7 +103,6 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
         border-color: $dgl-primary-light;
         color: $dgl-primary;
     }
-
     i { font-size: 10px; }
 }
 
@@ -92,18 +127,16 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
 .dgl-groups {
     max-height: 55vh;
     overflow-y: auto;
-
     &::-webkit-scrollbar { width: 6px; }
     &::-webkit-scrollbar-thumb { background: $dgl-border-strong; border-radius: 3px; }
 }
 
 .dgl-group {
     border-bottom: 1px solid $dgl-border;
-
     &:last-child { border-bottom: none; }
 }
 
-// ─── Group Header (accordion toggle) ──────────────────────────────────────
+// ─── Group Header ─────────────────────────────────────────────────────────
 .dgl-group-header {
     display: flex;
     align-items: center;
@@ -114,13 +147,7 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
     transition: background $dgl-transition;
     user-select: none;
 
-    &:hover {
-        background: $dgl-primary-soft;
-    }
-
-    .collapsed & {
-        border-bottom: none;
-    }
+    &:hover { background: $dgl-primary-soft; }
 }
 
 .dgl-group-toggle {
@@ -129,8 +156,6 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
     align-items: center;
     justify-content: center;
     color: $dgl-ink-muted;
-    transition: transform 0.2s;
-
     i { font-size: 11px; transition: transform 0.2s; }
 }
 
@@ -174,39 +199,17 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
     font-weight: 700;
     white-space: nowrap;
 
-    &.dgl-badge-count {
-        background: $dgl-surface-sunken;
-        color: $dgl-ink-muted;
-        border: 1px solid $dgl-border;
-    }
-
-    &.dgl-badge-selected {
-        background: $dgl-success-soft;
-        color: $dgl-success;
-    }
-
-    &.dgl-badge-qty {
-        background: $dgl-primary-soft;
-        color: $dgl-primary;
-        font-variant-numeric: tabular-nums;
-    }
+    &.dgl-badge-count { background: $dgl-surface-sunken; color: $dgl-ink-muted; border: 1px solid $dgl-border; }
+    &.dgl-badge-selected { background: $dgl-success-soft; color: $dgl-success; }
+    &.dgl-badge-qty { background: $dgl-primary-soft; color: $dgl-primary; font-variant-numeric: tabular-nums; }
 }
 
 .dgl-mini-btn {
-    width: 22px;
-    height: 22px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1.5px solid $dgl-border;
-    border-radius: 4px;
-    background: $dgl-surface;
-    cursor: pointer;
-    transition: all 0.12s;
-    padding: 0;
-
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1.5px solid $dgl-border; border-radius: 4px;
+    background: $dgl-surface; cursor: pointer; transition: all 0.12s; padding: 0;
     i { font-size: 11px; }
-
     &.dgl-mini-sel {
         color: $dgl-primary;
         &:hover { background: $dgl-primary; color: white; border-color: $dgl-primary; }
@@ -217,14 +220,14 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
     }
 }
 
-// ─── Group Body (collapsible content) ─────────────────────────────────────
+// ─── Group Body ───────────────────────────────────────────────────────────
 .dgl-group-body {
     animation: dglSlideDown 0.2s ease;
 }
 
 @keyframes dglSlideDown {
-    from { opacity: 0; max-height: 0; }
-    to { opacity: 1; max-height: 2000px; }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 // ─── Data Table ───────────────────────────────────────────────────────────
@@ -237,14 +240,9 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
         tr { background: $dgl-surface-sunken; }
         th {
             padding: 6px 10px;
-            font-size: 9.5px;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: $dgl-ink-faint;
-            letter-spacing: 0.04em;
-            border-bottom: 1px solid $dgl-border;
-            white-space: nowrap;
-
+            font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+            color: $dgl-ink-faint; letter-spacing: 0.04em;
+            border-bottom: 1px solid $dgl-border; white-space: nowrap;
             &.col-sel { width: 36px; text-align: center; }
             &.col-qty { width: 100px; }
         }
@@ -255,19 +253,14 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
             transition: background 0.1s;
             &:hover { background: rgba($dgl-primary, 0.03); }
             &:not(:last-child) td { border-bottom: 1px solid #f1f5f9; }
-
             &.dgl-row-selected {
                 background: #f0fdf4;
                 &:hover { background: #dcfce7; }
                 td:first-child { box-shadow: inset 3px 0 0 0 $dgl-success; }
             }
         }
-
         td {
-            padding: 7px 10px;
-            color: $dgl-ink;
-            vertical-align: middle;
-
+            padding: 7px 10px; color: $dgl-ink; vertical-align: middle;
             &.col-sel { text-align: center; width: 36px; }
         }
     }
@@ -280,113 +273,60 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
 
 .dgl-cell-lot {
     font-family: $dgl-mono;
-    font-size: 11.5px;
-    font-weight: 700;
-    color: $dgl-primary;
-    white-space: nowrap;
+    font-size: 11.5px; font-weight: 700; color: $dgl-primary; white-space: nowrap;
 }
 
 .dgl-qty-input {
-    width: 80px;
-    padding: 3px 6px;
-    border: 1.5px solid $dgl-border;
-    border-radius: $dgl-radius-sm;
-    font-size: 12px;
-    font-weight: 600;
-    text-align: right;
-    color: $dgl-ink;
-    background: white;
+    width: 80px; padding: 3px 6px;
+    border: 1.5px solid $dgl-border; border-radius: $dgl-radius-sm;
+    font-size: 12px; font-weight: 600; text-align: right;
+    color: $dgl-ink; background: white; font-variant-numeric: tabular-nums;
     transition: border-color 0.15s;
-    font-variant-numeric: tabular-nums;
-
-    &:focus {
-        outline: none;
-        border-color: $dgl-primary-light;
-        box-shadow: 0 0 0 2px rgba($dgl-primary-light, 0.15);
-    }
-
+    &:focus { outline: none; border-color: $dgl-primary-light; box-shadow: 0 0 0 2px rgba($dgl-primary-light, 0.15); }
     &::-webkit-outer-spin-button,
     &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     -moz-appearance: textfield;
 }
 
-// ─── Swap target cell ─────────────────────────────────────────────────────
-.dgl-swap-target-cell {
-    min-width: 160px;
-}
+// ─── Swap target ──────────────────────────────────────────────────────────
+.dgl-swap-target-cell { min-width: 160px; }
 
 .dgl-swap-pick-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    background: #ede9fe;
-    color: #5b21b6;
-    border: 1.5px dashed #a78bfa;
-    border-radius: $dgl-radius-sm;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; background: #ede9fe; color: #5b21b6;
+    border: 1.5px dashed #a78bfa; border-radius: $dgl-radius-sm;
+    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
     transition: all 0.15s;
-    white-space: nowrap;
-
     &:hover { background: #5b21b6; color: white; border-color: #5b21b6; border-style: solid; }
     i { font-size: 10px; }
 }
 
 .dgl-swap-chosen {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 8px;
-    background: $dgl-success-soft;
-    color: $dgl-success;
-    border: 1.5px solid #6ee7b7;
-    border-radius: $dgl-radius-sm;
-    font-size: 11.5px;
-    font-weight: 700;
-    cursor: pointer;
-    font-family: $dgl-mono;
-    transition: all 0.15s;
-
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; background: $dgl-success-soft; color: $dgl-success;
+    border: 1.5px solid #6ee7b7; border-radius: $dgl-radius-sm;
+    font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: $dgl-mono;
     &:hover { background: #a7f3d0; }
 }
 
 .dgl-swap-clear {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px; height: 16px;
-    border: none; border-radius: 50%;
-    background: rgba(0,0,0,0.1);
-    color: inherit; cursor: pointer; padding: 0;
-    transition: all 0.12s;
-
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border: none; border-radius: 50%;
+    background: rgba(0,0,0,0.1); color: inherit; cursor: pointer; padding: 0;
     &:hover { background: #ef4444; color: white; }
     i { font-size: 8px; }
 }
 
-// ─── Swap popup (reused from swap_lot_selector pattern) ───────────────────
+// ─── Swap popup ───────────────────────────────────────────────────────────
 .dgl-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(4px);
-    z-index: 10600;
-    display: flex;
-    align-items: stretch;
-    justify-content: stretch;
-    padding: 16px;
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
+    z-index: 10600; display: flex; align-items: stretch; justify-content: stretch; padding: 16px;
 }
 
 .dgl-popup {
-    background: white;
-    border-radius: 14px;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    background: white; border-radius: 14px; width: 100%; height: 100%;
+    display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 20px 60px rgba(0,0,0,0.2);
     animation: dglPopIn 0.2s ease;
 }
@@ -397,94 +337,50 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
 }
 
 .dgl-popup-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 18px;
-    background: linear-gradient(135deg, #5b21b6, #7c3aed);
-    color: white;
-    font-size: 14px;
-    font-weight: 700;
-    gap: 10px;
-    flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; background: linear-gradient(135deg, #5b21b6, #7c3aed);
+    color: white; font-size: 14px; font-weight: 700; gap: 10px; flex-wrap: wrap;
 }
 
 .dgl-origin-badge {
-    background: rgba(255,255,255,0.15);
-    padding: 3px 10px;
-    border-radius: 100px;
-    font-size: 11px;
-    white-space: nowrap;
+    background: rgba(255,255,255,0.15); padding: 3px 10px; border-radius: 100px;
+    font-size: 11px; white-space: nowrap;
     strong { font-family: $dgl-mono; font-size: 10.5px; }
 }
 
 .dgl-sel-badge {
-    background: $dgl-success;
-    padding: 3px 10px;
-    border-radius: 100px;
-    font-size: 11px;
-    white-space: nowrap;
+    background: $dgl-success; padding: 3px 10px; border-radius: 100px;
+    font-size: 11px; white-space: nowrap;
     strong { font-family: $dgl-mono; font-size: 10.5px; }
 }
 
 .dgl-btn-green {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 14px;
-    background: #10b981;
-    color: white;
-    border: none;
-    border-radius: $dgl-radius-sm;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 14px; background: #10b981; color: white; border: none;
+    border-radius: $dgl-radius-sm; font-size: 12px; font-weight: 600; cursor: pointer;
     &:hover:not(:disabled) { background: #059669; }
     &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .dgl-close-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px; height: 30px;
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 6px;
-    background: rgba(255,255,255,0.15);
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-    transition: background 0.15s;
+    display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 6px; background: rgba(255,255,255,0.15); color: white;
+    cursor: pointer; font-size: 14px;
     &:hover { background: rgba(255,255,255,0.3); }
 }
 
 .dgl-popup-filters {
-    display: flex;
-    align-items: flex-end;
-    gap: 10px;
-    padding: 10px 14px;
-    background: $dgl-surface-raised;
-    border-bottom: 1px solid $dgl-border;
-    flex-wrap: wrap;
+    display: flex; align-items: flex-end; gap: 10px; padding: 10px 14px;
+    background: $dgl-surface-raised; border-bottom: 1px solid $dgl-border; flex-wrap: wrap;
 }
 
 .dgl-fg {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    label {
-        font-size: 9px; font-weight: 700; text-transform: uppercase;
-        color: $dgl-ink-faint; letter-spacing: 0.05em;
-    }
+    display: flex; flex-direction: column; gap: 2px;
+    label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: $dgl-ink-faint; }
     input, select {
-        padding: 5px 8px;
-        border: 1.5px solid $dgl-border;
-        border-radius: $dgl-radius-sm;
-        font-size: 12px;
-        width: 120px;
-        color: $dgl-ink;
-        background: white;
+        padding: 5px 8px; border: 1.5px solid $dgl-border; border-radius: $dgl-radius-sm;
+        font-size: 12px; width: 120px; color: $dgl-ink; background: white;
         &:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.15); }
     }
 }
@@ -492,117 +388,69 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
 .dgl-spacer { flex: 1; }
 
 .dgl-popup-body {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-    background: white;
+    flex: 1; overflow-y: auto; min-height: 0; background: white;
     &::-webkit-scrollbar { width: 6px; }
     &::-webkit-scrollbar-thumb { background: $dgl-border-strong; border-radius: 3px; }
 }
 
 .dgl-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 50%;
-    min-height: 200px;
-    color: $dgl-ink-faint;
-    gap: 10px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; height: 50%; min-height: 200px; color: $dgl-ink-faint; gap: 10px;
 }
 
 .dgl-popup-footer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 10px 18px;
-    background: $dgl-surface-raised;
-    border-top: 1px solid $dgl-border;
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    padding: 10px 18px; background: $dgl-surface-raised; border-top: 1px solid $dgl-border;
 }
 
 .dgl-btn-outline {
-    padding: 6px 14px;
-    background: white;
-    color: $dgl-ink-muted;
-    border: 1.5px solid $dgl-border;
-    border-radius: $dgl-radius-sm;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
+    padding: 6px 14px; background: white; color: $dgl-ink-muted;
+    border: 1.5px solid $dgl-border; border-radius: $dgl-radius-sm;
+    font-size: 12px; font-weight: 600; cursor: pointer;
     &:hover { background: $dgl-surface-sunken; }
 }
 
 .dgl-btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 14px;
-    background: #5b21b6;
-    color: white;
-    border: none;
-    border-radius: $dgl-radius-sm;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 14px; background: #5b21b6; color: white; border: none;
+    border-radius: $dgl-radius-sm; font-size: 12px; font-weight: 600; cursor: pointer;
     &:hover:not(:disabled) { background: #7c3aed; }
     &:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .dgl-popup-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-
+    width: 100%; border-collapse: collapse; font-size: 12px;
     thead {
         position: sticky; top: 0; z-index: 5;
         tr { background: $dgl-surface-sunken; }
         th {
-            padding: 8px 10px;
-            font-size: 9.5px; font-weight: 700;
-            text-transform: uppercase;
-            color: $dgl-ink-faint;
-            border-bottom: 2px solid $dgl-border;
-            white-space: nowrap;
+            padding: 8px 10px; font-size: 9.5px; font-weight: 700;
+            text-transform: uppercase; color: $dgl-ink-faint;
+            border-bottom: 2px solid $dgl-border; white-space: nowrap;
             background: $dgl-surface-sunken;
         }
     }
     tbody tr {
-        cursor: pointer;
-        transition: background 0.1s;
+        cursor: pointer; transition: background 0.1s;
         &:hover { background: rgba(#5b21b6, 0.04); }
         &.dgl-row-sel {
             background: #ede9fe;
             &:hover { background: #ddd6fe; }
             td:first-child { box-shadow: inset 3px 0 0 0 #5b21b6; }
         }
-        td {
-            padding: 7px 10px;
-            border-bottom: 1px solid #f1f5f9;
-            vertical-align: middle;
-            white-space: nowrap;
-        }
+        td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; white-space: nowrap; }
     }
 }
 
 .dgl-radio {
-    width: 18px; height: 18px;
-    border: 2px solid $dgl-border-strong;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: white;
+    width: 18px; height: 18px; border: 2px solid $dgl-border-strong; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center; background: white;
     i { font-size: 9px; color: white; }
     &.checked { background: #5b21b6; border-color: #5b21b6; }
 }
 
 .dgl-tag {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 100px;
-    font-size: 9px;
-    font-weight: 600;
+    display: inline-block; padding: 1px 6px; border-radius: 100px; font-size: 9px; font-weight: 600;
     &.dgl-tag-placa { background: #e2e8f0; color: #4a5568; }
     &.dgl-tag-formato { background: #fefcbf; color: #744210; }
     &.dgl-tag-pieza { background: #bee3f8; color: #2a4365; }

@@ -2,7 +2,6 @@
 <templates xml:space="preserve">
     <t t-name="sale_delivery_wizard.DeliveryGroupedList" owl="1">
         <div class="dgl-root">
-            <!-- Toolbar -->
             <div class="dgl-toolbar">
                 <div class="dgl-toolbar-left">
                     <button class="dgl-tool-btn" t-on-click="expandAll" title="Expandir todo">
@@ -19,24 +18,19 @@
                 </div>
             </div>
 
-            <!-- Loading -->
             <div t-if="state.isLoading" class="dgl-loading">
                 <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"/>
                 <div class="mt-2 text-muted">Cargando...</div>
             </div>
 
-            <!-- Empty -->
             <div t-elif="state.groups.length === 0" class="dgl-empty-state">
                 <i class="fa fa-inbox fa-3x text-muted"/>
                 <div class="mt-2 text-muted">No hay líneas</div>
             </div>
 
-            <!-- Groups -->
             <div t-else="" class="dgl-groups">
                 <t t-foreach="state.groups" t-as="group" t-key="group.productId">
                     <div class="dgl-group" t-att-class="isCollapsed(group.productId) ? 'collapsed' : 'expanded'">
-
-                        <!-- Group Header (clickable) -->
                         <div class="dgl-group-header" t-on-click="() => this.toggleGroup(group.productId)">
                             <div class="dgl-group-toggle">
                                 <i t-att-class="isCollapsed(group.productId) ? 'fa fa-chevron-right' : 'fa fa-chevron-down'"/>
@@ -46,119 +40,64 @@
                                 <span class="dgl-product-name"><t t-esc="group.productName"/></span>
                             </div>
                             <div class="dgl-group-badges">
-                                <span class="dgl-badge dgl-badge-count">
-                                    <t t-esc="group.lineCount"/> lote(s)
-                                </span>
+                                <span class="dgl-badge dgl-badge-count"><t t-esc="group.lineCount"/> lote(s)</span>
                                 <t t-if="state.mode !== 'swap'">
                                     <span class="dgl-badge dgl-badge-selected" t-if="group.selectedCount > 0">
-                                        <i class="fa fa-check-circle me-1"/>
-                                        <t t-esc="group.selectedCount"/> sel.
+                                        <i class="fa fa-check-circle me-1"/><t t-esc="group.selectedCount"/> sel.
                                     </span>
                                 </t>
-                                <span class="dgl-badge dgl-badge-qty">
-                                    <t t-esc="fmt(group.totalQty)"/>
-                                    <t t-if="state.mode !== 'swap'"> m²</t>
-                                    <t t-else=""> m²</t>
-                                </span>
-                                <!-- Per-group select/deselect (delivery + return only) -->
+                                <span class="dgl-badge dgl-badge-qty"><t t-esc="fmt(group.totalQty)"/> m²</span>
                                 <t t-if="state.mode !== 'swap'">
-                                    <button class="dgl-mini-btn dgl-mini-sel" t-on-click.stop="() => this.selectAllInGroup(group)" title="Seleccionar todo en grupo">
-                                        <i class="fa fa-check-square-o"/>
-                                    </button>
-                                    <button class="dgl-mini-btn dgl-mini-desel" t-on-click.stop="() => this.deselectAllInGroup(group)" title="Deseleccionar todo en grupo">
-                                        <i class="fa fa-square-o"/>
-                                    </button>
+                                    <button class="dgl-mini-btn dgl-mini-sel" t-on-click.stop="() => this.selectAllInGroup(group)" title="Seleccionar todo"><i class="fa fa-check-square-o"/></button>
+                                    <button class="dgl-mini-btn dgl-mini-desel" t-on-click.stop="() => this.deselectAllInGroup(group)" title="Deseleccionar todo"><i class="fa fa-square-o"/></button>
                                 </t>
                             </div>
                         </div>
 
-                        <!-- Group Body (collapsible) -->
                         <div class="dgl-group-body" t-if="!isCollapsed(group.productId)">
-                            <!-- DELIVERY MODE -->
                             <t t-if="state.mode === 'delivery'">
                                 <table class="dgl-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="col-sel">Sel.</th>
-                                            <th>Lote</th>
-                                            <th>Ubicación</th>
-                                            <th class="text-end">Disponible</th>
-                                            <th class="text-end col-qty">A Entregar</th>
-                                        </tr>
-                                    </thead>
+                                    <thead><tr>
+                                        <th class="col-sel">Sel.</th><th>Lote</th><th>Ubicación</th>
+                                        <th class="text-end">Disponible</th><th class="text-end col-qty">A Entregar</th>
+                                    </tr></thead>
                                     <tbody>
                                         <t t-foreach="group.lines" t-as="line" t-key="line.owlId">
                                             <tr t-att-class="line.is_selected ? 'dgl-row-selected' : ''">
-                                                <td class="col-sel">
-                                                    <input type="checkbox" class="form-check-input"
-                                                           t-att-checked="line.is_selected"
-                                                           t-on-change="() => this.toggleLineSelected(line)"/>
-                                                </td>
+                                                <td class="col-sel"><input type="checkbox" class="form-check-input" t-att-checked="line.is_selected" t-on-change="() => this.toggleLineSelected(line)"/></td>
                                                 <td class="dgl-cell-lot"><t t-esc="line.lot_name || '-'"/></td>
                                                 <td class="text-muted small"><t t-esc="line.source_location || '-'"/></td>
                                                 <td class="text-end text-muted"><t t-esc="fmt(line.qty_available)"/></td>
-                                                <td class="text-end col-qty">
-                                                    <input type="number" class="dgl-qty-input"
-                                                           t-att-value="line.qty_to_deliver"
-                                                           step="0.01" min="0"
-                                                           t-att-max="line.qty_available"
-                                                           t-on-change="(ev) => this.onQtyChange(line, ev)"/>
-                                                </td>
+                                                <td class="text-end col-qty"><input type="number" class="dgl-qty-input" t-att-value="line.qty_to_deliver" step="0.01" min="0" t-att-max="line.qty_available" t-on-change="(ev) => this.onQtyChange(line, ev)"/></td>
                                             </tr>
                                         </t>
                                     </tbody>
                                 </table>
                             </t>
-
-                            <!-- RETURN MODE -->
                             <t t-if="state.mode === 'return'">
                                 <table class="dgl-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="col-sel">Sel.</th>
-                                            <th>Lote</th>
-                                            <th class="text-end">Entregado</th>
-                                            <th class="text-end col-qty">A Devolver</th>
-                                        </tr>
-                                    </thead>
+                                    <thead><tr>
+                                        <th class="col-sel">Sel.</th><th>Lote</th>
+                                        <th class="text-end">Entregado</th><th class="text-end col-qty">A Devolver</th>
+                                    </tr></thead>
                                     <tbody>
                                         <t t-foreach="group.lines" t-as="line" t-key="line.owlId">
                                             <tr t-att-class="line.is_selected ? 'dgl-row-selected' : ''">
-                                                <td class="col-sel">
-                                                    <input type="checkbox" class="form-check-input"
-                                                           t-att-checked="line.is_selected"
-                                                           t-on-change="() => this.toggleLineSelected(line)"/>
-                                                </td>
+                                                <td class="col-sel"><input type="checkbox" class="form-check-input" t-att-checked="line.is_selected" t-on-change="() => this.toggleLineSelected(line)"/></td>
                                                 <td class="dgl-cell-lot"><t t-esc="line.lot_name || '-'"/></td>
                                                 <td class="text-end text-muted"><t t-esc="fmt(line.qty_delivered)"/></td>
-                                                <td class="text-end col-qty">
-                                                    <input type="number" class="dgl-qty-input"
-                                                           t-att-value="line.qty_to_return"
-                                                           step="0.01" min="0"
-                                                           t-att-max="line.qty_delivered"
-                                                           t-on-change="(ev) => this.onQtyChange(line, ev)"/>
-                                                </td>
+                                                <td class="text-end col-qty"><input type="number" class="dgl-qty-input" t-att-value="line.qty_to_return" step="0.01" min="0" t-att-max="line.qty_delivered" t-on-change="(ev) => this.onQtyChange(line, ev)"/></td>
                                             </tr>
                                         </t>
                                     </tbody>
                                 </table>
                             </t>
-
-                            <!-- SWAP MODE -->
                             <t t-if="state.mode === 'swap'">
                                 <table class="dgl-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Lote Actual</th>
-                                            <th>Bloque</th>
-                                            <th class="text-end">Alto</th>
-                                            <th class="text-end">Ancho</th>
-                                            <th class="text-end">m²</th>
-                                            <th>Lote Nuevo</th>
-                                            <th>Bloque N.</th>
-                                            <th class="text-end">m² N.</th>
-                                        </tr>
-                                    </thead>
+                                    <thead><tr>
+                                        <th>Lote Actual</th><th>Bloque</th><th class="text-end">Alto</th><th class="text-end">Ancho</th><th class="text-end">m²</th>
+                                        <th>Lote Nuevo</th><th>Bloque N.</th><th class="text-end">m² N.</th>
+                                    </tr></thead>
                                     <tbody>
                                         <t t-foreach="group.lines" t-as="line" t-key="line.owlId">
                                             <tr>
@@ -170,17 +109,12 @@
                                                 <td class="dgl-swap-target-cell">
                                                     <t t-if="line.target_lot_id">
                                                         <div class="dgl-swap-chosen" t-on-click="() => this.openSwapSelector(line)">
-                                                            <i class="fa fa-cube me-1"/>
-                                                            <span><t t-esc="line.target_lot_name"/></span>
-                                                            <button class="dgl-swap-clear" t-on-click.stop="() => this.clearSwapTarget(line)" title="Quitar">
-                                                                <i class="fa fa-times"/>
-                                                            </button>
+                                                            <i class="fa fa-cube me-1"/><span><t t-esc="line.target_lot_name"/></span>
+                                                            <button class="dgl-swap-clear" t-on-click.stop="() => this.clearSwapTarget(line)"><i class="fa fa-times"/></button>
                                                         </div>
                                                     </t>
                                                     <t t-else="">
-                                                        <button class="dgl-swap-pick-btn" t-on-click="() => this.openSwapSelector(line)">
-                                                            <i class="fa fa-search me-1"/> Buscar lote...
-                                                        </button>
+                                                        <button class="dgl-swap-pick-btn" t-on-click="() => this.openSwapSelector(line)"><i class="fa fa-search me-1"/> Buscar lote...</button>
                                                     </t>
                                                 </td>
                                                 <td class="text-muted"><t t-esc="line.target_bloque || '-'"/></td>

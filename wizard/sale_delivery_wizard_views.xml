@@ -5,7 +5,6 @@
         <field name="model">sale.delivery.wizard</field>
         <field name="arch" type="xml">
             <form string="Entregar Material" class="sale_delivery_wizard_form">
-                <!-- Status banner -->
                 <div class="alert alert-info p-2 mb-2 text-center"
                      invisible="wizard_state != 'pick_ticket'">
                     <strong>Pick Ticket generado:</strong>
@@ -27,15 +26,14 @@
                     </group>
                 </group>
 
-                <group>
-                    <div class="d-flex gap-2 mb-2">
-                        <button name="action_select_all" string="Seleccionar Todo"
-                                type="object" class="btn-secondary btn-sm"/>
-                        <button name="action_deselect_all" string="Deseleccionar Todo"
-                                type="object" class="btn-secondary btn-sm"/>
-                    </div>
-                </group>
+                <div class="d-flex gap-2 mb-2 ms-2">
+                    <button name="action_select_all" string="Seleccionar Todo"
+                            type="object" class="btn-secondary btn-sm"/>
+                    <button name="action_deselect_all" string="Deseleccionar Todo"
+                            type="object" class="btn-secondary btn-sm"/>
+                </div>
 
+                <!-- OUTSIDE of <group> so it takes full width -->
                 <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <group>
@@ -49,20 +47,14 @@
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state != 'select'"
-                            help="Genera documento de preparación. No descuenta inventario."/>
-
+                            invisible="wizard_state != 'select'"/>
                     <button name="action_print_pick_ticket"
                             string="Imprimir Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select'"
-                            help="Imprime el pick ticket generado."/>
-
+                            invisible="wizard_state == 'select'"/>
                     <button name="action_generate_remission"
                             string="Generar Remisión"
-                            type="object" class="btn-primary"
-                            help="Genera remisión y descuenta inventario."/>
-
+                            type="object" class="btn-primary"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
