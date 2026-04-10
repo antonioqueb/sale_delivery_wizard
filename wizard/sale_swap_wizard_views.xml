@@ -9,48 +9,9 @@
                     <field name="sale_order_id" readonly="1"/>
                 </group>
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
-                <field name="line_ids" nolabel="1">
-                    <list editable="bottom" create="0" delete="0">
-                        <field name="display_type" column_invisible="1"/>
-                        <field name="sequence" column_invisible="1"/>
-                        <field name="section_name" string="Producto"
-                               invisible="display_type != 'line_section'"
-                               readonly="1"/>
-                        <field name="product_id" string="Producto" readonly="1"
-                               invisible="display_type == 'line_section'"
-                               column_invisible="1"/>
-                        <field name="origin_lot_id" string="Lote Actual" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="origin_bloque" string="Bloque" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="origin_alto" string="Alto" optional="hide" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="origin_ancho" string="Ancho" optional="hide" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="origin_grosor" string="Grosor" optional="hide" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="qty" string="m²" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="target_lot_id"
-                               string="Lote Nuevo"
-                               widget="swap_lot_selector"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="target_bloque" string="Bloque N." readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="target_qty" string="m² N." readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="target_alto" string="Alto N." optional="hide" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="target_ancho" string="Ancho N." optional="hide" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="move_line_id" column_invisible="1"/>
-                        <field name="picking_id" column_invisible="1"/>
-                        <field name="sale_line_id" column_invisible="1"/>
-                        <field name="origin_atado" column_invisible="1"/>
-                        <field name="target_atado" column_invisible="1"/>
-                        <field name="target_grosor" column_invisible="1"/>
-                    </list>
-                </field>
+
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
+
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
                     Haga clic en <strong>"Buscar lote..."</strong> para ver el inventario disponible con todos los detalles.

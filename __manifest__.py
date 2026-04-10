@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -12,6 +12,7 @@
         - Devoluciones con motivo y resolución (Reagendar/Reponer/Finiquitar)
         - Fulfillment neto (entregado - devuelto)
         - Cockpit operativo en el formulario de venta
+        - Vista agrupada por producto con acordeones colapsables
     """,
     'author': 'Alphaqueb Consulting SAS',
     'website': 'https://alphaqueb.com',
@@ -38,6 +39,11 @@
         'web.assets_backend': [
             'sale_delivery_wizard/static/src/scss/delivery_wizard.scss',
             'sale_delivery_wizard/static/src/scss/swap_lot_selector.scss',
+            # Delivery Grouped List (collapsible accordion widget)
+            'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.scss',
+            'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.xml',
+            'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.js',
+            # Swap Lot Selector (kept for backward compat, now also used inside grouped list)
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.xml',
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.js',
         ],

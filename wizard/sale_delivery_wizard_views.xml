@@ -36,33 +36,7 @@
                     </div>
                 </group>
 
-                <field name="line_ids">
-                    <list editable="bottom">
-                        <field name="display_type" column_invisible="1"/>
-                        <field name="sequence" column_invisible="1"/>
-                        <field name="is_selected" widget="boolean_toggle"
-                               column_invisible="0"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="section_name" string="Producto"
-                               invisible="display_type != 'line_section'"
-                               readonly="1"/>
-                        <field name="lot_name" string="Lote"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="source_location_id" string="Ubicación" optional="hide"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="qty_available" string="Disponible" readonly="1"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="qty_to_deliver" string="A Entregar"
-                               invisible="display_type == 'line_section'"/>
-                        <field name="product_id" column_invisible="1"/>
-                        <field name="product_name" column_invisible="1"/>
-                        <field name="lot_id" column_invisible="1"/>
-                        <field name="picking_id" column_invisible="1"/>
-                        <field name="move_id" column_invisible="1"/>
-                        <field name="move_line_id" column_invisible="1"/>
-                        <field name="sale_line_id" column_invisible="1"/>
-                    </list>
-                </field>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <group>
                     <group>
