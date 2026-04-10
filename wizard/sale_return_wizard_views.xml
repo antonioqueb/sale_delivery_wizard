@@ -19,7 +19,18 @@
                 <separator string="Material Entregado"/>
 
                 <!-- OUTSIDE of <group> for full width -->
-                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
+                <field name="line_ids" nolabel="1">
+    <list editable="bottom">
+        <field name="display_type" column_invisible="1"/>
+        <field name="section_name" column_invisible="1"/>
+        <field name="sequence" column_invisible="1"/>
+        <field name="is_selected" string="Sel." widget="boolean"/>
+        <field name="product_id" readonly="1" string="Producto"/>
+        <field name="lot_id" readonly="1" string="Lote/Placa"/>
+        <field name="qty_delivered" readonly="1" string="Entregado"/>
+        <field name="qty_to_return" string="A Devolver"/>
+    </list>
+</field>
 
                 <div class="alert alert-info mt-2" role="alert">
                     <strong>Reagendar:</strong> El material regresa al pedido para reentrega.<br/>

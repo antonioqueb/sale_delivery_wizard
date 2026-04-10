@@ -12,7 +12,18 @@
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
 
                 <!-- OUTSIDE of <group> for full width -->
-                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
+                <field name="line_ids" nolabel="1">
+    <list editable="bottom">
+        <field name="display_type" column_invisible="1"/>
+        <field name="section_name" column_invisible="1"/>
+        <field name="sequence" column_invisible="1"/>
+        <field name="product_id" readonly="1" string="Producto"/>
+        <field name="origin_lot_id" readonly="1" string="Lote Actual"/>
+        <field name="origin_bloque" readonly="1" string="Bloque"/>
+        <field name="qty" readonly="1" string="m²"/>
+        <field name="target_lot_id" widget="swap_lot_selector" string="Lote Nuevo"/>
+    </list>
+</field>
 
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
