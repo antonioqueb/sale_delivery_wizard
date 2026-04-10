@@ -44,53 +44,118 @@ export class DeliveryGroupedList extends Component {
         try {
             const lines = this._getLines();
 
-            // Build a map of product_id → section_name from line_section rows
-            // This is the most reliable source of product names since Python
-            // inserts them with the actual display_name.
+            console.log("[DGL] ═══ BUILD GROUPS START ═══");
+            console.log("[DGL] Total lines:", lines.length);
+            console.log("[DGL] Mode:", this.state.mode);
+
+            // Dump ALL lines for debugging
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const d = line.data;
+                console.log("[DGL] --- Line %d ---", i);
+                console.log("[DGL]   line.id:", line.id, "line.resId:", line.resId);
+                console.log("[DGL]   display_type:", d.display_type);
+                console.log("[DGL]   section_name:", d.section_name);
+                console.log("[DGL]   data keys:", Object.keys(d));
+
+                // Deep inspect product_id
+                const pid = d.product_id;
+                console.log("[DGL]   product_id raw:", pid);
+                console.log("[DGL]   product_id typeof:", typeof pid);
+                if (pid && typeof pid === "object") {
+                    console.log("[DGL]   product_id constructor:", pid.constructor?.name);
+                    console.log("[DGL]   product_id.id:", pid.id, "typeof:", typeof pid.id);
+                    console.log("[DGL]   product_id.resId:", pid.resId, "typeof:", typeof pid.resId);
+                    console.log("[DGL]   product_id.display_name:", pid.display_name);
+                    console.log("[DGL]   product_id.name:", pid.name);
+                    try {
+                        const keys = Object.keys(pid);
+                        console.log("[DGL]   product_id Object.keys:", keys);
+                        for (const k of keys) {
+                            try {
+                                console.log("[DGL]     .%s = %s (%s)", k, String(pid[k]).substring(0, 100), typeof pid[k]);
+                            } catch (e2) {
+                                console.log("[DGL]     .%s = [unreadable]", k);
+                            }
+                        }
+                    } catch (e) {
+                        console.log("[DGL]   Object.keys failed:", e.message);
+                    }
+                    try {
+                        const ownProps = Object.getOwnPropertyNames(pid);
+                        console.log("[DGL]   product_id ownPropertyNames:", ownProps);
+                    } catch (e) {}
+                    try {
+                        console.log("[DGL]   product_id JSON:", JSON.stringify(pid));
+                    } catch (e) {
+                        console.log("[DGL]   JSON.stringify failed:", e.message);
+                    }
+                    try {
+                        const proto = Object.getPrototypeOf(pid);
+                        if (proto) {
+                            console.log("[DGL]   proto keys:", Object.getOwnPropertyNames(proto).slice(0, 20));
+                        }
+                    } catch (e) {}
+                }
+
+                const lid = d.lot_id;
+                console.log("[DGL]   lot_id raw:", lid, "typeof:", typeof lid);
+                if (lid && typeof lid === "object") {
+                    console.log("[DGL]   lot_id.id:", lid.id, "lot_id.resId:", lid.resId, "lot_id.display_name:", lid.display_name);
+                }
+
+                console.log("[DGL]   product_name:", d.product_name);
+                console.log("[DGL]   lot_name:", d.lot_name);
+                console.log("[DGL]   is_selected:", d.is_selected);
+                console.log("[DGL]   qty_available:", d.qty_available);
+                console.log("[DGL]   qty_to_deliver:", d.qty_to_deliver);
+            }
+
+            // Build section map
             const sectionMap = this._getSectionMap(lines);
+            console.log("[DGL] Section map entries:");
+            for (const [k, v] of sectionMap.entries()) {
+                console.log("[DGL]   pid=%s -> name='%s'", k, v);
+            }
 
             const grouped = new Map();
-
-            // Track which section we're currently under
             let currentSectionProductId = 0;
             let currentSectionName = "";
 
             for (const line of lines) {
                 const d = line.data;
 
-                // Track current section context
                 if (d.display_type === "line_section") {
                     currentSectionProductId = this._m2oId(d.product_id);
                     currentSectionName = d.section_name || "";
+                    console.log("[DGL] >> Section: pid=%s name='%s'", currentSectionProductId, currentSectionName);
                     continue;
                 }
 
-                // ── Resolve product ID ──
                 let productId = this._m2oId(d.product_id);
-                // If proxy didn't resolve, use the section's product_id
+                let productName = this._m2oName(d.product_id);
+
+                console.log("[DGL] Line: m2oId=%s m2oName='%s' | section pid=%s name='%s'",
+                    productId, productName, currentSectionProductId, currentSectionName);
+
                 if (!productId && currentSectionProductId) {
                     productId = currentSectionProductId;
+                    console.log("[DGL]   -> fallback to section pid:", productId);
                 }
-
-                // ── Resolve product name ──
-                let productName = this._m2oName(d.product_id);
-                // Fallback 1: related Char field
                 if (!productName && d.product_name) {
                     productName = d.product_name;
+                    console.log("[DGL]   -> fallback to related product_name:", productName);
                 }
-                // Fallback 2: section name from the section row above this line
                 if (!productName && currentSectionName) {
                     productName = currentSectionName;
+                    console.log("[DGL]   -> fallback to section name:", productName);
                 }
-                // Fallback 3: section map by product_id
                 if (!productName && productId && sectionMap.has(productId)) {
                     productName = sectionMap.get(productId);
+                    console.log("[DGL]   -> fallback to sectionMap:", productName);
                 }
-                if (!productName) {
-                    productName = "Sin Producto";
-                }
+                if (!productName) productName = "Sin Producto";
 
-                // Use name as grouping key if numeric ID is 0
                 const groupKey = productId || productName;
 
                 if (!grouped.has(groupKey)) {
@@ -109,7 +174,6 @@ export class DeliveryGroupedList extends Component {
                 group.lines.push(ld);
                 group.lineCount++;
 
-                // Update name if we got a better one later
                 if (ld.product_name && ld.product_name !== "Sin Producto"
                     && group.productName === "Sin Producto") {
                     group.productName = ld.product_name;
@@ -128,6 +192,12 @@ export class DeliveryGroupedList extends Component {
 
             this.state.groups = Array.from(grouped.values());
 
+            console.log("[DGL] ═══ RESULT: %d groups ═══", this.state.groups.length);
+            for (const g of this.state.groups) {
+                console.log("[DGL]   '%s' (%d lines, %.2f m²)", g.productName, g.lineCount, g.totalQty);
+            }
+            console.log("[DGL] ═══ BUILD GROUPS END ═══");
+
             if (Object.keys(this.state.collapsed).length === 0) {
                 for (const g of this.state.groups) {
                     this.state.collapsed[g.productId] = false;
@@ -140,14 +210,26 @@ export class DeliveryGroupedList extends Component {
 
     _getLines() {
         const raw = this.props.record.data[this.props.name];
-        if (!raw) return [];
-        return raw.records || [];
+        console.log("[DGL] _getLines: props.name='%s'", this.props.name);
+        console.log("[DGL] _getLines: raw type:", typeof raw, "raw:", raw);
+        if (!raw) {
+            console.log("[DGL] _getLines: raw is falsy, returning []");
+            return [];
+        }
+        if (raw.records) {
+            console.log("[DGL] _getLines: raw.records found, length:", raw.records.length);
+            return raw.records;
+        }
+        if (Array.isArray(raw)) {
+            console.log("[DGL] _getLines: raw is array, length:", raw.length);
+            return raw;
+        }
+        try {
+            console.log("[DGL] _getLines: raw keys:", Object.keys(raw));
+        } catch (e) {}
+        return [];
     }
 
-    /**
-     * Build a map: product_id (number) → section_name (string)
-     * from line_section rows inserted by Python's _group_lines_by_product.
-     */
     _getSectionMap(lines) {
         const map = new Map();
         for (const line of lines) {
@@ -162,10 +244,6 @@ export class DeliveryGroupedList extends Component {
         return map;
     }
 
-    /**
-     * Extract ID from a Many2one field in an OWL sub-record.
-     * Odoo 19 OWL stores these as proxy objects with various shapes.
-     */
     _m2oId(field) {
         if (!field) return 0;
         if (typeof field === "number") return field;
@@ -194,12 +272,10 @@ export class DeliveryGroupedList extends Component {
     _extractLineData(lineRecord, sectionName) {
         const d = lineRecord.data;
 
-        // Robust product name: proxy → related char → section name
         let productName = this._m2oName(d.product_id);
         if (!productName && d.product_name) productName = d.product_name;
         if (!productName && sectionName) productName = sectionName;
 
-        // Robust lot name: proxy → related char
         let lotName = this._m2oName(d.lot_id);
         if (!lotName && d.lot_name) lotName = d.lot_name;
 
