@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from odoo import api, fields, models, _
 
 
@@ -11,46 +12,33 @@ class SaleOrder(models.Model):
 
     # ── Computed summary ──
     x_total_assigned_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Total Asignado')
+        compute='_compute_delivery_summary', string='Total Asignado')
     x_total_delivered_gross_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Entregado Bruto')
+        compute='_compute_delivery_summary', string='Entregado Bruto')
     x_total_returned_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Devuelto')
+        compute='_compute_delivery_summary', string='Devuelto')
     x_total_delivered_net_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Entregado Neto')
+        compute='_compute_delivery_summary', string='Entregado Neto')
     x_total_pending_delivery_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Pendiente Entrega')
+        compute='_compute_delivery_summary', string='Pendiente Entrega')
     x_total_demand_qty = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Demanda Total')
+        compute='_compute_delivery_summary', string='Demanda Total')
     x_fulfillment_net_pct = fields.Float(
-        compute='_compute_delivery_summary',
-        string='Fulfillment Neto %')
+        compute='_compute_delivery_summary', string='Fulfillment Neto %')
 
     # ── Counts ──
     x_delivery_document_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Documentos')
+        compute='_compute_document_counts', string='Documentos')
     x_remission_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Remisiones')
+        compute='_compute_document_counts', string='Remisiones')
     x_return_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Devoluciones')
+        compute='_compute_document_counts', string='Devoluciones')
     x_pick_ticket_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Pick Tickets')
+        compute='_compute_document_counts', string='Pick Tickets')
     x_redelivery_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Reentregas')
+        compute='_compute_document_counts', string='Reentregas')
     x_redelivery_pending_count = fields.Integer(
-        compute='_compute_document_counts',
-        string='Reentregas Pendientes')
+        compute='_compute_document_counts', string='Reentregas Pendientes')
 
     @api.depends(
         'order_line.product_uom_qty',
@@ -63,7 +51,6 @@ class SaleOrder(models.Model):
                 lambda l: l.product_id.type != 'service')
             demand = sum(lines.mapped('product_uom_qty'))
             assigned = sum(lines.mapped('product_uom_qty'))
-            # qty_delivered is already net in Odoo (outgoing done - incoming done)
             delivered_net = sum(lines.mapped('qty_delivered'))
             returned = sum(lines.mapped('x_returned_qty'))
             pending = demand - delivered_net
@@ -96,6 +83,242 @@ class SaleOrder(models.Model):
                 docs.filtered(
                     lambda d: d.document_type == 'redelivery'
                     and d.state in ('draft', 'prepared')))
+
+    # ─── RPC for grouped list widget (before wizard is saved) ────────
+    def get_delivery_grouped_data(self, mode='delivery'):
+        """Build grouped line data directly from the sale order,
+        without needing a persisted wizard. Called by the JS widget
+        when the wizard hasn't been saved yet.
+        """
+        self.ensure_one()
+
+        if mode == 'delivery':
+            return self._build_delivery_groups()
+        elif mode == 'return':
+            return self._build_return_groups()
+        elif mode == 'swap':
+            return self._build_swap_groups()
+        return []
+
+    def _safe_quant_available(self, quant):
+        if hasattr(quant, 'available_quantity'):
+            return quant.available_quantity or 0.0
+        return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
+
+    def _build_delivery_groups(self):
+        """Build delivery groups from pending pickings."""
+        groups_map = OrderedDict()
+        Quant = self.env['stock.quant']
+
+        pickings = self.picking_ids.filtered(
+            lambda p: p.state in ('assigned', 'confirmed', 'waiting')
+            and p.picking_type_code in ('internal', 'outgoing')
+        )
+
+        for picking in pickings:
+            for move in picking.move_ids.filtered(
+                    lambda m: m.state not in ('done', 'cancel')):
+                pid = move.product_id.id
+                pname = move.product_id.display_name
+
+                if pid not in groups_map:
+                    groups_map[pid] = {
+                        'productId': pid,
+                        'productName': pname,
+                        'lines': [],
+                        'totalQty': 0,
+                        'selectedCount': 0,
+                        'lineCount': 0,
+                    }
+                group = groups_map[pid]
+
+                # Try sale_line lots first
+                sale_line = move.sale_line_id
+                lots_used = False
+                if sale_line and hasattr(sale_line, 'lot_ids') and sale_line.lot_ids:
+                    seen = set()
+                    for lot in sale_line.lot_ids:
+                        quants = Quant.search([
+                            ('product_id', '=', pid),
+                            ('lot_id', '=', lot.id),
+                            ('location_id.usage', '=', 'internal'),
+                            ('quantity', '>', 0),
+                        ], order='location_id')
+
+                        if not quants:
+                            group['lines'].append({
+                                'dbId': 0,
+                                'lotId': lot.id,
+                                'lotName': lot.name or '',
+                                'productId': pid,
+                                'productName': pname,
+                                'isSelected': False,
+                                'qtyAvailable': 0,
+                                'qtyToDeliver': 0,
+                                'sourceLocation': '',
+                            })
+                            group['lineCount'] += 1
+                            continue
+
+                        for quant in quants:
+                            key = (move.id, lot.id, quant.location_id.id)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            qty_avail = self._safe_quant_available(quant)
+                            ld = {
+                                'dbId': 0,
+                                'lotId': lot.id,
+                                'lotName': lot.name or '',
+                                'productId': pid,
+                                'productName': pname,
+                                'isSelected': qty_avail > 0,
+                                'qtyAvailable': qty_avail,
+                                'qtyToDeliver': qty_avail if qty_avail > 0 else 0,
+                                'sourceLocation': quant.location_id.display_name or '',
+                            }
+                            group['lines'].append(ld)
+                            group['lineCount'] += 1
+                            group['totalQty'] += ld['qtyToDeliver']
+                            if ld['isSelected']:
+                                group['selectedCount'] += 1
+                            lots_used = True
+
+                if not lots_used:
+                    # Fallback to move lines
+                    for ml in move.move_line_ids:
+                        lot_id = ml.lot_id.id if ml.lot_id else 0
+                        qty = ml.quantity or getattr(ml, 'reserved_uom_qty', 0) or 0
+                        if not lot_id and not qty:
+                            continue
+                        ld = {
+                            'dbId': 0,
+                            'lotId': lot_id,
+                            'lotName': ml.lot_id.name if ml.lot_id else '',
+                            'productId': pid,
+                            'productName': pname,
+                            'isSelected': qty > 0,
+                            'qtyAvailable': qty,
+                            'qtyToDeliver': qty if qty > 0 else 0,
+                            'sourceLocation': ml.location_id.display_name if ml.location_id else '',
+                        }
+                        group['lines'].append(ld)
+                        group['lineCount'] += 1
+                        group['totalQty'] += ld['qtyToDeliver']
+                        if ld['isSelected']:
+                            group['selectedCount'] += 1
+                        lots_used = True
+
+                if not lots_used:
+                    qty = move.product_uom_qty or 0
+                    ld = {
+                        'dbId': 0,
+                        'lotId': 0,
+                        'lotName': '',
+                        'productId': pid,
+                        'productName': pname,
+                        'isSelected': qty > 0,
+                        'qtyAvailable': qty,
+                        'qtyToDeliver': qty,
+                        'sourceLocation': '',
+                    }
+                    group['lines'].append(ld)
+                    group['lineCount'] += 1
+                    group['totalQty'] += qty
+                    if qty > 0:
+                        group['selectedCount'] += 1
+
+        return [g for g in groups_map.values() if g['lineCount'] > 0]
+
+    def _build_return_groups(self):
+        """Build return groups from done outgoing pickings."""
+        groups_map = OrderedDict()
+
+        for picking in self.picking_ids.filtered(
+                lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'):
+            for move in picking.move_ids.filtered(lambda m: m.state == 'done'):
+                pid = move.product_id.id
+                pname = move.product_id.display_name
+
+                if pid not in groups_map:
+                    groups_map[pid] = {
+                        'productId': pid,
+                        'productName': pname,
+                        'lines': [],
+                        'totalQty': 0,
+                        'selectedCount': 0,
+                        'lineCount': 0,
+                    }
+                group = groups_map[pid]
+
+                for ml in move.move_line_ids:
+                    qty = ml.quantity or ml.qty_done or 0
+                    if qty <= 0:
+                        continue
+                    ld = {
+                        'dbId': 0,
+                        'lotId': ml.lot_id.id if ml.lot_id else 0,
+                        'lotName': ml.lot_id.name if ml.lot_id else '',
+                        'productId': pid,
+                        'productName': pname,
+                        'isSelected': True,
+                        'qtyDelivered': qty,
+                        'qtyToReturn': qty,
+                    }
+                    group['lines'].append(ld)
+                    group['lineCount'] += 1
+                    group['totalQty'] += qty
+                    group['selectedCount'] += 1
+
+        return [g for g in groups_map.values() if g['lineCount'] > 0]
+
+    def _build_swap_groups(self):
+        """Build swap groups from assigned pickings with lots."""
+        groups_map = OrderedDict()
+
+        for picking in self.picking_ids.filtered(
+                lambda p: p.state in ('assigned', 'confirmed')
+                and p.picking_type_code in ('outgoing', 'internal')):
+            for move in picking.move_ids.filtered(
+                    lambda m: m.state in ('assigned', 'confirmed')):
+                for ml in move.move_line_ids:
+                    if not ml.lot_id:
+                        continue
+                    pid = move.product_id.id
+                    pname = move.product_id.display_name
+                    lot = ml.lot_id
+
+                    if pid not in groups_map:
+                        groups_map[pid] = {
+                            'productId': pid,
+                            'productName': pname,
+                            'lines': [],
+                            'totalQty': 0,
+                            'selectedCount': 0,
+                            'lineCount': 0,
+                        }
+                    group = groups_map[pid]
+
+                    ld = {
+                        'dbId': 0,
+                        'productId': pid,
+                        'productName': pname,
+                        'originLotId': lot.id,
+                        'originLotName': lot.name or '',
+                        'originBloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
+                        'originAlto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
+                        'originAncho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
+                        'qty': ml.quantity or move.product_uom_qty or 0,
+                        'targetLotId': 0,
+                        'targetLotName': '',
+                        'targetBloque': '',
+                        'targetQty': 0,
+                    }
+                    group['lines'].append(ld)
+                    group['lineCount'] += 1
+                    group['totalQty'] += ld['qty']
+
+        return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     # ── Action buttons ──
 
@@ -170,10 +393,7 @@ class SaleOrder(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.document',
             'view_mode': 'list,form',
-            'domain': [
-                ('sale_order_id', '=', self.id),
-                ('document_type', '=', 'remission'),
-            ],
+            'domain': [('sale_order_id', '=', self.id), ('document_type', '=', 'remission')],
         }
 
     def action_view_returns(self):
@@ -183,10 +403,7 @@ class SaleOrder(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.document',
             'view_mode': 'list,form',
-            'domain': [
-                ('sale_order_id', '=', self.id),
-                ('document_type', '=', 'return'),
-            ],
+            'domain': [('sale_order_id', '=', self.id), ('document_type', '=', 'return')],
         }
 
     def action_view_pick_tickets(self):
@@ -196,10 +413,7 @@ class SaleOrder(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.document',
             'view_mode': 'list,form',
-            'domain': [
-                ('sale_order_id', '=', self.id),
-                ('document_type', '=', 'pick_ticket'),
-            ],
+            'domain': [('sale_order_id', '=', self.id), ('document_type', '=', 'pick_ticket')],
         }
 
     def action_view_redeliveries(self):
@@ -209,8 +423,5 @@ class SaleOrder(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.document',
             'view_mode': 'list,form',
-            'domain': [
-                ('sale_order_id', '=', self.id),
-                ('document_type', '=', 'redelivery'),
-            ],
+            'domain': [('sale_order_id', '=', self.id), ('document_type', '=', 'redelivery')],
         }
