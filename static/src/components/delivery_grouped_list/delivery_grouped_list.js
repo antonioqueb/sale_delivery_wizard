@@ -43,32 +43,53 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // BUILD GROUPS — OWL-first strategy
-    // ═══════════════════════════════════════════════════════════════════
     async _buildGroups() {
         this.state.isLoading = true;
         try {
             const owlLines = this._getLines();
 
-            // 1) Prioridad: usar records OWL si vienen hidratados.
-            //    default_get ya los llena con todos los datos de negocio.
-            if (owlLines.length && this._recordsLookHydrated(owlLines)) {
+            console.log("[DGL] _buildGroups — owlLines count:", owlLines.length);
+
+            // Debug: inspect first non-section line
+            if (owlLines.length) {
+                for (const l of owlLines) {
+                    const d = l.data || {};
+                    if (d.display_type === "line_section") continue;
+                    console.log("[DGL] Sample data line:", {
+                        product_id: d.product_id,
+                        product_id_type: typeof d.product_id,
+                        lot_id: d.lot_id,
+                        qty_available: d.qty_available,
+                        qty_to_deliver: d.qty_to_deliver,
+                        is_selected: d.is_selected,
+                        product_name: d.product_name,
+                        lot_name: d.lot_name,
+                    });
+                    break;
+                }
+            }
+
+            const hydrated = owlLines.length && this._recordsLookHydrated(owlLines);
+            console.log("[DGL] hydrated?", hydrated);
+
+            if (hydrated) {
                 this._buildGroupsFromRecords(owlLines);
                 this._syncCollapsedState();
                 return;
             }
 
-            // 2) Fallback: ORM solo si OWL no tiene datos útiles
+            // Fallback: ORM
             await this._ensureWizardSaved();
             if (this._wizardId) {
-                await this._buildGroupsFromOrm(owlLines);
+                await this._buildGroupsFromOrm();
             } else {
                 this.state.groups = [];
             }
             this._syncCollapsedState();
         } finally {
             this.state.isLoading = false;
+            console.log("[DGL] Final groups:", this.state.groups.length,
+                this.state.groups.map(g => ({ name: g.productName, lines: g.lineCount })));
         }
     }
 
@@ -89,15 +110,16 @@ export class DeliveryGroupedList extends Component {
             return d.display_type !== "line_section";
         });
         if (!dataLines.length) return false;
-        // Basta con que AL MENOS UNA línea tenga datos reales
         return dataLines.some((line) => {
             const d = line.data || {};
-            const hasProduct = this._m2oId(d.product_id) > 0 || !!d.product_name;
+            const pid = this._m2oId(d.product_id);
+            const pname = this._m2oName(d.product_id);
+            const hasProduct = pid > 0 || !!d.product_name || !!pname;
             const hasMeaningfulPayload =
-                (d.qty_available !== undefined && d.qty_available !== null) ||
-                (d.qty_to_deliver !== undefined && d.qty_to_deliver !== null) ||
-                (d.qty_delivered !== undefined && d.qty_delivered !== null) ||
-                (d.qty_to_return !== undefined && d.qty_to_return !== null) ||
+                (d.qty_available !== undefined && d.qty_available !== null && d.qty_available > 0) ||
+                (d.qty_to_deliver !== undefined && d.qty_to_deliver !== null && d.qty_to_deliver > 0) ||
+                (d.qty_delivered !== undefined && d.qty_delivered !== null && d.qty_delivered > 0) ||
+                (d.qty_to_return !== undefined && d.qty_to_return !== null && d.qty_to_return > 0) ||
                 this._m2oId(d.lot_id) > 0 ||
                 !!d.lot_name ||
                 this._m2oId(d.origin_lot_id) > 0;
@@ -112,6 +134,7 @@ export class DeliveryGroupedList extends Component {
         try {
             await root.save({ noReload: true, stayInEdition: true });
             this._wizardId = root?.resId || null;
+            console.log("[DGL] Wizard saved, resId:", this._wizardId);
         } catch (e) {
             console.warn("[DGL] Could not save wizard:", e?.message || e);
             this._wizardId = null;
@@ -119,66 +142,9 @@ export class DeliveryGroupedList extends Component {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BUILD FROM OWL RECORDS (preferred path)
+    // BUILD FROM ORM — reads line_ids from DB, groups by product
     // ═══════════════════════════════════════════════════════════════════
-    _buildGroupsFromRecords(lines) {
-        const grouped = new Map();
-        let currentSectionProductId = 0;
-        let currentSectionName = "";
-
-        for (const line of lines) {
-            const d = line.data || {};
-
-            if (d.display_type === "line_section") {
-                currentSectionProductId = this._m2oId(d.product_id);
-                currentSectionName = d.section_name || "";
-                continue;
-            }
-
-            let productId = this._m2oId(d.product_id);
-            let productName = this._m2oName(d.product_id);
-
-            if (!productId && currentSectionProductId) productId = currentSectionProductId;
-            if (!productName && d.product_name) productName = d.product_name;
-            if (!productName && currentSectionName) productName = currentSectionName;
-            if (!productName) productName = "Sin Producto";
-
-            const groupKey = productId || productName;
-
-            if (!grouped.has(groupKey)) {
-                grouped.set(groupKey, {
-                    productId: groupKey,
-                    productName,
-                    lines: [],
-                    totalQty: 0,
-                    selectedCount: 0,
-                    lineCount: 0,
-                });
-            }
-
-            const group = grouped.get(groupKey);
-            const ld = this._extractLineData(line, currentSectionName);
-            group.lines.push(ld);
-            group.lineCount++;
-
-            if (this.state.mode === "delivery") {
-                group.totalQty += ld.qty_to_deliver || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else if (this.state.mode === "return") {
-                group.totalQty += ld.qty_to_return || 0;
-                if (ld.is_selected) group.selectedCount++;
-            } else {
-                group.totalQty += ld.qty || 0;
-            }
-        }
-
-        this.state.groups = Array.from(grouped.values()).filter((g) => g.lineCount > 0);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // BUILD FROM ORM (fallback)
-    // ═══════════════════════════════════════════════════════════════════
-    async _buildGroupsFromOrm(owlRecords) {
+    async _buildGroupsFromOrm() {
         if (!this._wizardId) {
             this.state.groups = [];
             return;
@@ -223,11 +189,29 @@ export class DeliveryGroupedList extends Component {
             lineData = [];
         }
 
+        console.log("[DGL] ORM lineData count:", lineData.length);
+        if (lineData.length) {
+            // Debug first few lines
+            for (const d of lineData.slice(0, 5)) {
+                console.log("[DGL] ORM line:", {
+                    id: d.id,
+                    display_type: d.display_type,
+                    section_name: d.section_name,
+                    product_id: d.product_id,
+                    lot_id: d.lot_id,
+                    qty_available: d.qty_available,
+                    qty_to_deliver: d.qty_to_deliver,
+                });
+            }
+        }
+
         if (!lineData.length) {
             this.state.groups = [];
             return;
         }
 
+        // Build a lookup: for sections, remember the product info.
+        // For data lines, use their OWN product_id first, fallback to section.
         const grouped = new Map();
         let currentSectionName = "";
         let currentSectionProductId = 0;
@@ -235,15 +219,27 @@ export class DeliveryGroupedList extends Component {
         for (const d of lineData) {
             if (d.display_type === "line_section") {
                 currentSectionProductId = d.product_id ? d.product_id[0] : 0;
-                currentSectionName = d.section_name || "";
+                currentSectionName = d.section_name || (d.product_id ? d.product_id[1] : "");
+                console.log("[DGL] Section:", currentSectionName, "pid:", currentSectionProductId);
                 continue;
             }
 
-            const productId = d.product_id ? d.product_id[0] : (currentSectionProductId || 0);
+            // Data line: use ITS OWN product_id, fallback to section's
+            let productId = d.product_id ? d.product_id[0] : 0;
             let productName = d.product_id ? d.product_id[1] : "";
-            if (!productName && d.product_name) productName = d.product_name;
-            if (!productName && currentSectionName) productName = currentSectionName;
-            if (!productName) productName = "Sin Producto";
+
+            if (!productId && currentSectionProductId) {
+                productId = currentSectionProductId;
+            }
+            if (!productName && currentSectionName) {
+                productName = currentSectionName;
+            }
+            if (!productName && d.product_name) {
+                productName = d.product_name;
+            }
+            if (!productName) {
+                productName = "Sin Producto";
+            }
 
             const groupKey = productId || productName;
 
@@ -260,12 +256,15 @@ export class DeliveryGroupedList extends Component {
 
             const group = grouped.get(groupKey);
 
+            // Find matching OWL record for reactivity
+            const owlRecord = this._findOwlRecordByDbId(d.id);
+
             const ld = {
-                _record: null,
+                _record: owlRecord,
                 _dbId: d.id,
                 _lineModel: this._lineModel,
                 id: d.id,
-                owlId: `db_${d.id}`,
+                owlId: owlRecord ? owlRecord.id : `db_${d.id}`,
                 product_id: productId,
                 product_name: productName,
                 lot_id: d.lot_id ? d.lot_id[0] : 0,
@@ -288,6 +287,77 @@ export class DeliveryGroupedList extends Component {
                 target_qty: d.target_qty || 0,
             };
 
+            group.lines.push(ld);
+            group.lineCount++;
+
+            if (this.state.mode === "delivery") {
+                group.totalQty += ld.qty_to_deliver || 0;
+                if (ld.is_selected) group.selectedCount++;
+            } else if (this.state.mode === "return") {
+                group.totalQty += ld.qty_to_return || 0;
+                if (ld.is_selected) group.selectedCount++;
+            } else {
+                group.totalQty += ld.qty || 0;
+            }
+        }
+
+        this.state.groups = Array.from(grouped.values()).filter((g) => g.lineCount > 0);
+    }
+
+    /**
+     * Find the OWL record that corresponds to a given DB id.
+     * After wizard save, OWL records get resId populated.
+     */
+    _findOwlRecordByDbId(dbId) {
+        if (!dbId) return null;
+        const owlLines = this._getLines();
+        for (const line of owlLines) {
+            if (line.resId === dbId) return line;
+            if (line.data && line.data.id === dbId) return line;
+        }
+        return null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // BUILD FROM OWL RECORDS
+    // ═══════════════════════════════════════════════════════════════════
+    _buildGroupsFromRecords(lines) {
+        const grouped = new Map();
+        let currentSectionProductId = 0;
+        let currentSectionName = "";
+
+        for (const line of lines) {
+            const d = line.data || {};
+
+            if (d.display_type === "line_section") {
+                currentSectionProductId = this._m2oId(d.product_id);
+                currentSectionName = d.section_name || this._m2oName(d.product_id) || "";
+                continue;
+            }
+
+            let productId = this._m2oId(d.product_id);
+            let productName = this._m2oName(d.product_id);
+
+            if (!productId && currentSectionProductId) productId = currentSectionProductId;
+            if (!productName && d.product_name) productName = d.product_name;
+            if (!productName && currentSectionName) productName = currentSectionName;
+            if (!productName) productName = "Sin Producto";
+
+            const groupKey = productId || productName;
+
+            if (!grouped.has(groupKey)) {
+                grouped.set(groupKey, {
+                    productId: groupKey,
+                    productName,
+                    lines: [],
+                    totalQty: 0,
+                    selectedCount: 0,
+                    lineCount: 0,
+                });
+            }
+
+            const group = grouped.get(groupKey);
+            const ld = this._extractLineData(line, currentSectionName);
             group.lines.push(ld);
             group.lineCount++;
 
@@ -401,7 +471,6 @@ export class DeliveryGroupedList extends Component {
     }
 
     async _updateLine(lineData, updates) {
-        // Prefer OWL record update for reactivity
         if (lineData._record) {
             try {
                 await lineData._record.update(updates);
@@ -410,7 +479,6 @@ export class DeliveryGroupedList extends Component {
                 console.warn("[DGL] record.update failed, falling back to ORM:", e?.message || e);
             }
         }
-        // Fallback: direct ORM write
         if (lineData._dbId && lineData._lineModel) {
             await this.orm.write(lineData._lineModel, [lineData._dbId], updates);
         }
@@ -577,29 +645,14 @@ export class DeliveryGroupedList extends Component {
                         "stock.quant",
                         "search_stone_inventory_for_so_paginated",
                         [],
-                        {
-                            product_id: productId,
-                            filters: st.filters,
-                            current_lot_ids: [],
-                            page,
-                            page_size: PAGE_SIZE,
-                        }
+                        { product_id: productId, filters: st.filters, current_lot_ids: [], page, page_size: PAGE_SIZE }
                     );
                 } catch (_e) {
                     const all = await self.orm.call(
-                        "stock.quant",
-                        "search_stone_inventory_for_so",
-                        [],
-                        {
-                            product_id: productId,
-                            filters: st.filters,
-                            current_lot_ids: [],
-                        }
+                        "stock.quant", "search_stone_inventory_for_so", [],
+                        { product_id: productId, filters: st.filters, current_lot_ids: [] }
                     ) || [];
-                    result = {
-                        items: all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
-                        total: all.length,
-                    };
+                    result = { items: all.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), total: all.length };
                 }
                 st.quants = reset ? (result.items || []) : [...st.quants, ...(result.items || [])];
                 st.totalCount = result.total || 0;
@@ -616,17 +669,11 @@ export class DeliveryGroupedList extends Component {
             if (!st.selectedLotId) return;
             cleanup();
             if (lineData._record) {
-                try {
-                    await lineData._record.update({ target_lot_id: st.selectedLotId });
-                } catch (_e) {}
+                try { await lineData._record.update({ target_lot_id: st.selectedLotId }); } catch (_e) {}
             }
             if (lineData._dbId) {
                 try {
-                    await self.orm.write(
-                        lineData._lineModel || "sale.swap.wizard.line",
-                        [lineData._dbId],
-                        { target_lot_id: st.selectedLotId }
-                    );
+                    await self.orm.write(lineData._lineModel || "sale.swap.wizard.line", [lineData._dbId], { target_lot_id: st.selectedLotId });
                 } catch (_e) {}
             }
             await self._buildGroups();
@@ -653,9 +700,7 @@ export class DeliveryGroupedList extends Component {
 
         root.querySelector(".dgl-close-btn").addEventListener("click", cleanup);
         root.querySelector("#dgl-cancel").addEventListener("click", cleanup);
-        root.querySelector("#dgl-overlay").addEventListener("click", (e) => {
-            if (e.target.id === "dgl-overlay") cleanup();
-        });
+        root.querySelector("#dgl-overlay").addEventListener("click", (e) => { if (e.target.id === "dgl-overlay") cleanup(); });
         root.querySelectorAll(".dgl-confirm-btn").forEach((b) => b.addEventListener("click", doConfirm));
 
         root._kh = (e) => { if (e.key === "Escape") cleanup(); };
@@ -679,25 +724,16 @@ export class DeliveryGroupedList extends Component {
 
     async clearSwapTarget(lineData) {
         if (lineData._record) {
-            try {
-                await lineData._record.update({ target_lot_id: false });
-            } catch (_e) {}
+            try { await lineData._record.update({ target_lot_id: false }); } catch (_e) {}
         }
         if (lineData._dbId) {
             try {
-                await this.orm.write(
-                    lineData._lineModel || "sale.swap.wizard.line",
-                    [lineData._dbId],
-                    { target_lot_id: false }
-                );
+                await this.orm.write(lineData._lineModel || "sale.swap.wizard.line", [lineData._dbId], { target_lot_id: false });
             } catch (_e) {}
         }
         await this._buildGroups();
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // FORMATTERS
-    // ═══════════════════════════════════════════════════════════════════
     fmt(num) {
         if (num === null || num === undefined || isNaN(num)) return "0.00";
         return parseFloat(num).toFixed(2);
