@@ -13,8 +13,8 @@ import { useService } from "@web/core/utils/hooks";
  * - Before any wizard button fires, _writeSelectionsToRecord() pushes a JSON
  *   string to the OWL record's `widget_selections` field. When Odoo's FormController
  *   does web_save, this Text field persists correctly (unlike one2many M2O fields).
- * - The wizard Python reads `widget_selections` JSON and updates its line_ids
- *   server-side before executing the action.
+ * - The wizard Python reads `widget_selections` JSON and builds the document
+ *   directly from the JSON payload, ignoring potentially corrupted line_ids.
  */
 export class DeliveryGroupedList extends Component {
     static template = "sale_delivery_wizard.DeliveryGroupedList";
@@ -30,17 +30,20 @@ export class DeliveryGroupedList extends Component {
         });
         this._wizardModel = "";
         this._lineModel = "";
+        this._writeTimeout = null;
+        this._initialized = false;
 
         onWillStart(async () => {
             this._detectMode();
             await this._loadGroups();
+            this._initialized = true;
         });
 
         onWillUpdateProps(async () => {
-            // Only reload if we don't have groups yet
-            if (!this.state.groups.length) {
-                await this._loadGroups();
-            }
+            // NO-OP: Never reload once initialized.
+            // The only thing that triggers updateProps is our own root.update()
+            // call to push widget_selections. Reloading here would wipe
+            // the user's local selections.
         });
     }
 
@@ -61,6 +64,9 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // LOAD GROUPS — runs ONCE on mount, never again
+    // ═══════════════════════════════════════════════════════════════════
     async _loadGroups() {
         this.state.isLoading = true;
         try {
@@ -83,8 +89,6 @@ export class DeliveryGroupedList extends Component {
                 }
             }
             this._syncCollapsedState();
-            // Write initial selections to the record
-            this._writeSelectionsToRecord();
         } catch (e) {
             console.error("[DGL] Load groups failed:", e);
             this.state.groups = [];
@@ -124,12 +128,20 @@ export class DeliveryGroupedList extends Component {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // WRITE SELECTIONS TO OWL RECORD
-    // This pushes a JSON string to widget_selections field.
-    // When Odoo's FormController does web_save before a button action,
-    // this field persists correctly (it's just a Text, not a one2many).
+    // WRITE SELECTIONS TO OWL RECORD (debounced)
+    //
+    // Pushes a JSON string into the widget_selections Text field.
+    // Debounced at 300ms so rapid checkbox clicks don't fire multiple
+    // root.update() calls (which could trigger OWL re-renders).
     // ═══════════════════════════════════════════════════════════════════
     _writeSelectionsToRecord() {
+        if (this._writeTimeout) clearTimeout(this._writeTimeout);
+        this._writeTimeout = setTimeout(() => {
+            this._doWriteSelectionsToRecord();
+        }, 300);
+    }
+
+    _doWriteSelectionsToRecord() {
         const selections = [];
         for (const group of this.state.groups) {
             for (const line of group.lines) {
@@ -152,7 +164,6 @@ export class DeliveryGroupedList extends Component {
             }
         }
         const json = JSON.stringify(selections);
-        // Update the OWL record's widget_selections field
         try {
             const root = this.props.record?.model?.root || this.props.record;
             if (root && root.update) {
@@ -172,7 +183,8 @@ export class DeliveryGroupedList extends Component {
     collapseAll() { for (const g of this.state.groups) this.state.collapsed[g.productId] = true; }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SELECTION — In-memory, then write JSON to record
+    // SELECTION — Pure in-memory, then debounced write to record
+    // No RPC, no reload, no flicker
     // ═══════════════════════════════════════════════════════════════════
     toggleLineSelected(lineData) {
         const newVal = !lineData.isSelected;
