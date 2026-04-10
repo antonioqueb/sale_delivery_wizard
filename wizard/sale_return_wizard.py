@@ -1,5 +1,6 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+import json
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -21,6 +22,10 @@ class SaleReturnWizard(models.TransientModel):
     notes = fields.Text(string='Notas')
     line_ids = fields.One2many(
         'sale.return.wizard.line', 'wizard_id', string='Líneas')
+
+    # ── JSON field written by JS widget ──
+    widget_selections = fields.Text(
+        string='Selecciones del Widget', default='[]')
 
     @api.model
     def default_get(self, fields_list):
@@ -82,7 +87,6 @@ class SaleReturnWizard(models.TransientModel):
 
     # ─── RPC for grouped list widget ─────────────────────────────────
     def get_grouped_lines_data(self):
-        """Return line data grouped by product for the JS widget."""
         self.ensure_one()
         groups = []
         current_group = None
@@ -122,6 +126,11 @@ class SaleReturnWizard(models.TransientModel):
                 'isSelected': line.is_selected,
                 'qtyDelivered': line.qty_delivered,
                 'qtyToReturn': line.qty_to_return,
+                'moveId': line.move_id.id if line.move_id else 0,
+                'moveLineId': line.move_line_id.id if line.move_line_id else 0,
+                'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
+                'pickingId': line.move_id.picking_id.id if line.move_id and line.move_id.picking_id else 0,
+                'sourceLocationId': 0,
             }
             current_group['lines'].append(ld)
             current_group['lineCount'] += 1
@@ -134,8 +143,292 @@ class SaleReturnWizard(models.TransientModel):
 
         return groups
 
+    # ─── Action ──────────────────────────────────────────────────────
+
     def action_confirm_return(self):
         self.ensure_one()
+
+        # Try widget_selections first
+        try:
+            sels = json.loads(self.widget_selections or '[]')
+        except (json.JSONDecodeError, TypeError):
+            sels = []
+
+        if sels:
+            return self._confirm_return_from_selections(sels)
+        else:
+            return self._confirm_return_from_lines()
+
+    def _confirm_return_from_selections(self, sels):
+        """Process return using widget_selections JSON."""
+        order = self.sale_order_id
+
+        # Build a structure similar to what _confirm_return_from_lines expects
+        # Group by original picking
+        move_returns = {}
+        for sel in sels:
+            if sel.get('qty', 0) <= 0:
+                continue
+            move_id = sel.get('moveId', 0)
+            if not move_id:
+                continue
+            move = self.env['stock.move'].browse(move_id)
+            if not move.exists():
+                continue
+            picking = move.picking_id
+            move_returns.setdefault(picking, []).append({
+                'move': move,
+                'product_id': sel.get('productId'),
+                'lot_id': sel.get('lotId') or False,
+                'qty': sel.get('qty', 0),
+                'sale_line_id': sel.get('saleLineId') or False,
+                'move_line_id': sel.get('moveLineId') or False,
+            })
+
+        if not move_returns:
+            raise UserError(_(
+                'Seleccione al menos una línea para devolver.'))
+
+        return_pickings = self.env['stock.picking']
+        for picking, sel_lines in move_returns.items():
+            return_wiz = self.env['stock.return.picking'].with_context(
+                active_id=picking.id,
+                active_model='stock.picking',
+            ).create({})
+            return_wiz.product_return_moves.unlink()
+            for sl in sel_lines:
+                self.env['stock.return.picking.line'].create({
+                    'wizard_id': return_wiz.id,
+                    'product_id': sl['product_id'],
+                    'quantity': sl['qty'],
+                    'move_id': sl['move'].id,
+                    'uom_id': sl['move'].product_uom.id,
+                })
+            result = return_wiz.action_create_returns()
+            if result and result.get('res_id'):
+                ret_picking = self.env['stock.picking'].browse(result['res_id'])
+                return_pickings |= ret_picking
+
+        docs = self.env['sale.delivery.document']
+        for ret_picking in return_pickings:
+            orig_picking = ret_picking.move_ids.mapped(
+                'origin_returned_move_id.picking_id')
+            picking_sels = []
+            for picking, sl_list in move_returns.items():
+                if picking in orig_picking:
+                    picking_sels.extend(sl_list)
+            if not picking_sels:
+                # Fallback: use all selections
+                for sl_list in move_returns.values():
+                    picking_sels.extend(sl_list)
+
+            doc = self.env['sale.delivery.document'].create({
+                'document_type': 'return',
+                'sale_order_id': order.id,
+                'return_picking_id': ret_picking.id,
+                'return_reason_id': self.return_reason_id.id,
+                'return_action': self.return_action,
+                'special_instructions': self.notes or '',
+                'line_ids': [(0, 0, {
+                    'product_id': sl['product_id'],
+                    'lot_id': sl['lot_id'],
+                    'qty_selected': sl['qty'],
+                    'qty_done': sl['qty'],
+                    'sale_line_id': sl['sale_line_id'],
+                    'move_id': sl['move'].id,
+                    'move_line_id': sl['move_line_id'],
+                }) for sl in picking_sels],
+            })
+
+            self._validate_return_picking_from_sels(ret_picking, picking_sels)
+            doc.state = 'confirmed'
+            doc.delivery_date = fields.Datetime.now()
+            docs |= doc
+
+        if self.return_action == 'reagendar':
+            self._action_reagendar_from_sels(order, sels)
+
+        action_label = dict(
+            self._fields['return_action'].selection
+        ).get(self.return_action)
+
+        if self.return_action == 'reagendar':
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Devolución Procesada — Reentrega Creada'),
+                    'message': _(
+                        'Se recibió la devolución y se creó una reentrega '
+                        'pendiente con el mismo material.'),
+                    'type': 'success',
+                    'sticky': True,
+                },
+            }
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Devolución Procesada'),
+                'message': _(
+                    '%d devolución(es) procesada(s) con acción: %s.',
+                    len(docs), action_label),
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
+    def _validate_return_picking_from_sels(self, picking, sel_lines):
+        """Validate return picking using selection dicts."""
+        if picking.state in ('draft', 'confirmed', 'waiting'):
+            picking.action_assign()
+
+        lot_qty = {}
+        product_qty = {}
+        for sl in sel_lines:
+            if sl.get('lot_id'):
+                lot_qty[sl['lot_id']] = lot_qty.get(sl['lot_id'], 0) + sl['qty']
+            else:
+                pid = sl['product_id']
+                product_qty[pid] = product_qty.get(pid, 0) + sl['qty']
+
+        for move in picking.move_ids:
+            if move.move_line_ids:
+                for ml in move.move_line_ids:
+                    lot_id = ml.lot_id.id if ml.lot_id else False
+                    if lot_id and lot_id in lot_qty:
+                        ml.quantity = lot_qty[lot_id]
+                    elif ml.product_id.id in product_qty:
+                        ml.quantity = product_qty[ml.product_id.id]
+                    else:
+                        ml.quantity = 0
+            else:
+                qty = sum(sl['qty'] for sl in sel_lines
+                          if sl['product_id'] == move.product_id.id)
+                if qty > 0:
+                    lot_id = next(
+                        (sl['lot_id'] for sl in sel_lines
+                         if sl['product_id'] == move.product_id.id and sl.get('lot_id')),
+                        False)
+                    self.env['stock.move.line'].create({
+                        'move_id': move.id,
+                        'picking_id': picking.id,
+                        'product_id': move.product_id.id,
+                        'lot_id': lot_id,
+                        'quantity': qty,
+                        'location_id': move.location_id.id,
+                        'location_dest_id': move.location_dest_id.id,
+                    })
+
+        result = picking.with_context(skip_backorder=False).button_validate()
+        if isinstance(result, dict):
+            if result.get('res_model') == 'stock.backorder.confirmation':
+                backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({'pick_ids': [(4, picking.id)]})
+                backorder_wiz.process()
+            elif result.get('res_model') == 'stock.immediate.transfer':
+                immediate_wiz = self.env['stock.immediate.transfer'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                ).create({'pick_ids': [(4, picking.id)]})
+                immediate_wiz.process()
+
+    def _action_reagendar_from_sels(self, order, sels):
+        """Create redelivery picking from selections."""
+        warehouse = order.warehouse_id
+        pick_type = warehouse.out_type_id
+        if not pick_type:
+            pick_type = self.env['stock.picking.type'].search([
+                ('code', '=', 'outgoing'),
+                ('warehouse_id', '=', warehouse.id),
+            ], limit=1)
+        if not pick_type:
+            raise UserError(_(
+                'No se encontró tipo de picking de salida para el almacén %s.',
+                warehouse.name))
+
+        new_picking = self.env['stock.picking'].create({
+            'picking_type_id': pick_type.id,
+            'partner_id': order.partner_shipping_id.id or order.partner_id.id,
+            'origin': order.name,
+            'location_id': pick_type.default_location_src_id.id,
+            'location_dest_id': pick_type.default_location_dest_id.id
+                or self.env.ref('stock.stock_location_customers').id,
+            'sale_id': order.id,
+        })
+
+        grouped = {}
+        for sel in sels:
+            if sel.get('qty', 0) <= 0:
+                continue
+            move_id = sel.get('moveId', 0)
+            move = self.env['stock.move'].browse(move_id) if move_id else False
+            uom_id = move.product_uom.id if move else self.env['product.product'].browse(
+                sel['productId']).uom_id.id
+            key = (sel['productId'], sel.get('saleLineId', 0), uom_id)
+            grouped.setdefault(key, []).append(sel)
+
+        move_map = {}
+        for (product_id, sale_line_id, uom_id), sel_group in grouped.items():
+            total_qty = sum(s['qty'] for s in sel_group)
+            move = self.env['stock.move'].create({
+                'product_id': product_id,
+                'product_uom_qty': total_qty,
+                'product_uom': uom_id,
+                'picking_id': new_picking.id,
+                'location_id': new_picking.location_id.id,
+                'location_dest_id': new_picking.location_dest_id.id,
+                'sale_line_id': sale_line_id or False,
+                'origin': order.name,
+            })
+            move_map[sale_line_id] = move
+            for s in sel_group:
+                if s.get('lotId'):
+                    self.env['stock.move.line'].create({
+                        'move_id': move.id,
+                        'product_id': product_id,
+                        'lot_id': s['lotId'],
+                        'quantity': s['qty'],
+                        'location_id': new_picking.location_id.id,
+                        'location_dest_id': new_picking.location_dest_id.id,
+                        'picking_id': new_picking.id,
+                    })
+
+        new_picking.action_confirm()
+        new_picking.action_assign()
+
+        doc_lines = []
+        for sel in sels:
+            if sel.get('qty', 0) <= 0:
+                continue
+            move = move_map.get(sel.get('saleLineId', 0))
+            doc_lines.append((0, 0, {
+                'product_id': sel['productId'],
+                'lot_id': sel.get('lotId') or False,
+                'qty_selected': sel['qty'],
+                'sale_line_id': sel.get('saleLineId') or False,
+                'move_id': move.id if move else False,
+                'source_location_id': new_picking.location_id.id,
+            }))
+
+        doc = self.env['sale.delivery.document'].create({
+            'document_type': 'redelivery',
+            'sale_order_id': order.id,
+            'picking_id': new_picking.id,
+            'delivery_address': order.partner_shipping_id.contact_address or '',
+            'special_instructions': _(
+                'REENTREGA por devolución.'),
+            'line_ids': doc_lines,
+        })
+        doc.action_prepare()
+        return doc
+
+    # ═══════════════════════════════════════════════════════════════════
+    # FALLBACK: Original methods using line_ids (unchanged)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _confirm_return_from_lines(self):
+        """Original return logic using line_ids."""
         selected = self.line_ids.filtered(
             lambda l: l.is_selected and l.display_type != 'line_section')
         if not selected:
@@ -177,8 +470,7 @@ class SaleReturnWizard(models.TransientModel):
             orig_picking = ret_picking.move_ids.mapped(
                 'origin_returned_move_id.picking_id')
             picking_lines = [
-                l for l in selected if l.move_id.picking_id in orig_picking
-            ]
+                l for l in selected if l.move_id.picking_id in orig_picking]
             if not picking_lines:
                 picking_lines = selected
 
@@ -320,8 +612,7 @@ class SaleReturnWizard(models.TransientModel):
                         wl.product_id.display_name,
                         wl.lot_id.name or 'S/L',
                         wl.qty_to_return,
-                    ) for wl in wizard_lines
-                )),
+                    ) for wl in wizard_lines)),
             'line_ids': doc_lines,
         })
         doc.action_prepare()

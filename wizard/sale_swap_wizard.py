@@ -14,6 +14,10 @@ class SaleSwapWizard(models.TransientModel):
     line_ids = fields.One2many(
         'sale.swap.wizard.line', 'wizard_id', string='Lotes Asignados')
 
+    # ── JSON field for widget consistency (swap uses target_lot_id on lines) ──
+    widget_selections = fields.Text(
+        string='Selecciones del Widget', default='[]')
+
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -77,7 +81,6 @@ class SaleSwapWizard(models.TransientModel):
 
     # ─── RPC for grouped list widget ─────────────────────────────────
     def get_grouped_lines_data(self):
-        """Return line data grouped by product for the JS widget."""
         self.ensure_one()
         groups = []
         current_group = None
@@ -122,6 +125,9 @@ class SaleSwapWizard(models.TransientModel):
                 'targetLotName': line.target_lot_id.name if line.target_lot_id else '',
                 'targetBloque': line.target_bloque or '',
                 'targetQty': line.target_qty or 0,
+                'pickingId': line.picking_id.id if line.picking_id else 0,
+                'moveLineId': line.move_line_id.id if line.move_line_id else 0,
+                'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
             }
             current_group['lines'].append(ld)
             current_group['lineCount'] += 1
@@ -136,6 +142,7 @@ class SaleSwapWizard(models.TransientModel):
         """Execute lot swaps on pending pickings."""
         self.ensure_one()
 
+        # Read target_lot_id directly from DB to avoid web_save overwrites
         line_data = self.env['sale.swap.wizard.line'].search_read(
             [('wizard_id', '=', self.id), ('display_type', '!=', 'line_section')],
             ['id', 'target_lot_id', 'origin_lot_id', 'product_id',

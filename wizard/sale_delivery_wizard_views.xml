@@ -13,6 +13,7 @@
                 </div>
 
                 <field name="wizard_state" invisible="1"/>
+                <field name="widget_selections" invisible="1"/>
 
                 <group>
                     <group>
@@ -26,30 +27,7 @@
                     </group>
                 </group>
 
-                <div class="d-flex gap-2 mb-2 ms-2">
-                    <button name="action_select_all" string="Seleccionar Todo"
-                            type="object" class="btn-secondary btn-sm"/>
-                    <button name="action_deselect_all" string="Deseleccionar Todo"
-                            type="object" class="btn-secondary btn-sm"/>
-                </div>
-
-                <field name="line_ids" widget="section_and_note_one2many" nolabel="1">
-                    <list editable="bottom" default_order="sequence,id">
-                        <field name="sequence" widget="handle"/>
-                        <field name="display_type" column_invisible="1"/>
-                        <field name="section_name" string="Producto"/>
-                        <field name="is_selected" string="Sel."/>
-                        <field name="product_id" column_invisible="1"/>
-                        <field name="lot_id" readonly="1" string="Lote/Placa"/>
-                        <field name="source_location_id" readonly="1" string="Ubicación"/>
-                        <field name="qty_available" readonly="1" string="Disponible"/>
-                        <field name="qty_to_deliver" string="A Entregar"/>
-                        <field name="picking_id" column_invisible="1"/>
-                        <field name="move_id" column_invisible="1"/>
-                        <field name="move_line_id" column_invisible="1"/>
-                        <field name="sale_line_id" column_invisible="1"/>
-                    </list>
-                </field>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <group>
                     <group>

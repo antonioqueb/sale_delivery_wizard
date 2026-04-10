@@ -5,6 +5,8 @@
         <field name="model">sale.return.wizard</field>
         <field name="arch" type="xml">
             <form string="Devolución de Material" class="sale_return_wizard_form">
+                <field name="widget_selections" invisible="1"/>
+
                 <group>
                     <group>
                         <field name="sale_order_id" readonly="1"/>
@@ -18,21 +20,7 @@
 
                 <separator string="Material Entregado"/>
 
-                <field name="line_ids" widget="section_and_note_one2many" nolabel="1">
-                    <list editable="bottom" default_order="sequence,id">
-                        <field name="sequence" widget="handle"/>
-                        <field name="display_type" column_invisible="1"/>
-                        <field name="section_name" string="Producto"/>
-                        <field name="is_selected" string="Sel."/>
-                        <field name="product_id" column_invisible="1"/>
-                        <field name="lot_id" readonly="1" string="Lote/Placa"/>
-                        <field name="qty_delivered" readonly="1" string="Entregado"/>
-                        <field name="qty_to_return" string="A Devolver"/>
-                        <field name="move_id" column_invisible="1"/>
-                        <field name="move_line_id" column_invisible="1"/>
-                        <field name="sale_line_id" column_invisible="1"/>
-                    </list>
-                </field>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     <strong>Reagendar:</strong> El material regresa al pedido para reentrega.<br/>

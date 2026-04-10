@@ -5,31 +5,15 @@
         <field name="model">sale.swap.wizard</field>
         <field name="arch" type="xml">
             <form string="Swap de Lotes" class="sale_swap_wizard_form">
+                <field name="widget_selections" invisible="1"/>
+
                 <group>
                     <field name="sale_order_id" readonly="1"/>
                 </group>
 
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
 
-                <field name="line_ids" widget="section_and_note_one2many" nolabel="1">
-                    <list editable="bottom" default_order="sequence,id">
-                        <field name="sequence" widget="handle"/>
-                        <field name="display_type" column_invisible="1"/>
-                        <field name="section_name" string="Producto"/>
-                        <field name="product_id" column_invisible="1"/>
-                        <field name="origin_lot_id" readonly="1" string="Lote Actual"/>
-                        <field name="origin_bloque" readonly="1" string="Bloque"/>
-                        <field name="origin_alto" readonly="1" string="Alto"/>
-                        <field name="origin_ancho" readonly="1" string="Ancho"/>
-                        <field name="qty" readonly="1" string="m²"/>
-                        <field name="target_lot_id" widget="swap_lot_selector" string="Lote Nuevo"/>
-                        <field name="target_bloque" readonly="1" string="Bloque N."/>
-                        <field name="target_qty" readonly="1" string="m² N."/>
-                        <field name="move_line_id" column_invisible="1"/>
-                        <field name="picking_id" column_invisible="1"/>
-                        <field name="sale_line_id" column_invisible="1"/>
-                    </list>
-                </field>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.
