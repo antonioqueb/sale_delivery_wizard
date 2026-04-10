@@ -37,8 +37,7 @@
                     <list editable="bottom" default_order="sequence,id">
                         <field name="sequence" widget="handle"/>
                         <field name="display_type" column_invisible="1"/>
-                        <field name="section_name" string="Producto"
-                            widget="section_and_note_text"/>
+                        <field name="section_name" string="Producto"/>
                         <field name="is_selected" string="Sel."/>
                         <field name="product_id" column_invisible="1"/>
                         <field name="lot_id" readonly="1" string="Lote/Placa"/>
