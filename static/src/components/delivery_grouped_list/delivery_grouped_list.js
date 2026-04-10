@@ -44,54 +44,58 @@ export class DeliveryGroupedList extends Component {
         try {
             const lines = this._getLines();
 
-            // Debug: dump first line structure
-            if (lines.length > 0) {
-                const first = lines[0];
-                const d = first.data;
-                console.log("[DGL] ═══ RECORD STRUCTURE DUMP ═══");
-                console.log("[DGL] line.id:", first.id, "line.resId:", first.resId);
-                console.log("[DGL] data keys:", Object.keys(d));
-                console.log("[DGL] product_id raw:", d.product_id);
-                console.log("[DGL] product_id type:", typeof d.product_id);
-                if (d.product_id && typeof d.product_id === "object") {
-                    console.log("[DGL] product_id keys:", Object.keys(d.product_id));
-                    console.log("[DGL] product_id.id:", d.product_id.id);
-                    console.log("[DGL] product_id.resId:", d.product_id.resId);
-                    console.log("[DGL] product_id.display_name:", d.product_id.display_name);
-                    console.log("[DGL] product_id[0]:", d.product_id[0]);
-                    console.log("[DGL] product_id[1]:", d.product_id[1]);
-                    // Try to iterate
-                    try {
-                        for (const [k, v] of Object.entries(d.product_id)) {
-                            console.log("[DGL]   product_id[%s] = %s (%s)", k, v, typeof v);
-                        }
-                    } catch(e) {
-                        console.log("[DGL]   entries() failed:", e.message);
-                    }
-                }
-                console.log("[DGL] lot_id raw:", d.lot_id);
-                console.log("[DGL] lot_name raw:", d.lot_name);
-                console.log("[DGL] is_selected:", d.is_selected);
-                console.log("[DGL] qty_available:", d.qty_available);
-                console.log("[DGL] qty_to_deliver:", d.qty_to_deliver);
-                console.log("[DGL] display_type:", d.display_type);
-                console.log("[DGL] ═══════════════════════════════");
-            }
+            // Build a map of product_id → section_name from line_section rows
+            // This is the most reliable source of product names since Python
+            // inserts them with the actual display_name.
+            const sectionMap = this._getSectionMap(lines);
 
             const grouped = new Map();
+
+            // Track which section we're currently under
+            let currentSectionProductId = 0;
+            let currentSectionName = "";
 
             for (const line of lines) {
                 const d = line.data;
 
-                // Skip section rows
-                if (d.display_type === "line_section") continue;
+                // Track current section context
+                if (d.display_type === "line_section") {
+                    currentSectionProductId = this._m2oId(d.product_id);
+                    currentSectionName = d.section_name || "";
+                    continue;
+                }
 
-                const productId = this._m2oId(d.product_id);
-                const productName = this._m2oName(d.product_id) || "Sin Producto";
+                // ── Resolve product ID ──
+                let productId = this._m2oId(d.product_id);
+                // If proxy didn't resolve, use the section's product_id
+                if (!productId && currentSectionProductId) {
+                    productId = currentSectionProductId;
+                }
 
-                if (!grouped.has(productId)) {
-                    grouped.set(productId, {
-                        productId,
+                // ── Resolve product name ──
+                let productName = this._m2oName(d.product_id);
+                // Fallback 1: related Char field
+                if (!productName && d.product_name) {
+                    productName = d.product_name;
+                }
+                // Fallback 2: section name from the section row above this line
+                if (!productName && currentSectionName) {
+                    productName = currentSectionName;
+                }
+                // Fallback 3: section map by product_id
+                if (!productName && productId && sectionMap.has(productId)) {
+                    productName = sectionMap.get(productId);
+                }
+                if (!productName) {
+                    productName = "Sin Producto";
+                }
+
+                // Use name as grouping key if numeric ID is 0
+                const groupKey = productId || productName;
+
+                if (!grouped.has(groupKey)) {
+                    grouped.set(groupKey, {
+                        productId: groupKey,
                         productName,
                         lines: [],
                         totalQty: 0,
@@ -100,10 +104,16 @@ export class DeliveryGroupedList extends Component {
                     });
                 }
 
-                const group = grouped.get(productId);
-                const ld = this._extractLineData(line);
+                const group = grouped.get(groupKey);
+                const ld = this._extractLineData(line, currentSectionName);
                 group.lines.push(ld);
                 group.lineCount++;
+
+                // Update name if we got a better one later
+                if (ld.product_name && ld.product_name !== "Sin Producto"
+                    && group.productName === "Sin Producto") {
+                    group.productName = ld.product_name;
+                }
 
                 if (this.state.mode === "delivery") {
                     group.totalQty += ld.qty_to_deliver || 0;
@@ -135,6 +145,24 @@ export class DeliveryGroupedList extends Component {
     }
 
     /**
+     * Build a map: product_id (number) → section_name (string)
+     * from line_section rows inserted by Python's _group_lines_by_product.
+     */
+    _getSectionMap(lines) {
+        const map = new Map();
+        for (const line of lines) {
+            const d = line.data;
+            if (d.display_type === "line_section" && d.section_name) {
+                const pid = this._m2oId(d.product_id);
+                if (pid) {
+                    map.set(pid, d.section_name);
+                }
+            }
+        }
+        return map;
+    }
+
+    /**
      * Extract ID from a Many2one field in an OWL sub-record.
      * Odoo 19 OWL stores these as proxy objects with various shapes.
      */
@@ -143,12 +171,9 @@ export class DeliveryGroupedList extends Component {
         if (typeof field === "number") return field;
         if (Array.isArray(field)) return field[0] || 0;
         if (typeof field === "object") {
-            // Standard OWL record proxy patterns:
             if (typeof field.resId === "number" && field.resId > 0) return field.resId;
             if (typeof field.id === "number" && field.id > 0) return field.id;
-            // Some proxies store data nested
             if (field.data && typeof field.data.id === "number") return field.data.id;
-            // Fallback: try index access
             if (typeof field[0] === "number") return field[0];
         }
         return 0;
@@ -166,16 +191,26 @@ export class DeliveryGroupedList extends Component {
         return "";
     }
 
-    _extractLineData(lineRecord) {
+    _extractLineData(lineRecord, sectionName) {
         const d = lineRecord.data;
+
+        // Robust product name: proxy → related char → section name
+        let productName = this._m2oName(d.product_id);
+        if (!productName && d.product_name) productName = d.product_name;
+        if (!productName && sectionName) productName = sectionName;
+
+        // Robust lot name: proxy → related char
+        let lotName = this._m2oName(d.lot_id);
+        if (!lotName && d.lot_name) lotName = d.lot_name;
+
         return {
             _record: lineRecord,
             id: lineRecord.resId || d.id,
             owlId: lineRecord.id,
             product_id: this._m2oId(d.product_id),
-            product_name: this._m2oName(d.product_id),
+            product_name: productName || "",
             lot_id: this._m2oId(d.lot_id),
-            lot_name: this._m2oName(d.lot_id) || (d.lot_name || ""),
+            lot_name: lotName || "",
             is_selected: d.is_selected || false,
             qty_available: d.qty_available || 0,
             qty_to_deliver: d.qty_to_deliver || 0,
