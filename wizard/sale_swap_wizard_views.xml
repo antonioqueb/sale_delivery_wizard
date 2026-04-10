@@ -12,7 +12,7 @@
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
 
                 <!-- OUTSIDE of <group> for full width -->
-                <field name="line_ids" nolabel="1"/>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <div class="alert alert-info mt-2" role="alert">
                     Solo se procesarán las líneas donde seleccione un <strong>Lote Nuevo</strong>.

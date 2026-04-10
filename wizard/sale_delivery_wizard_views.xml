@@ -34,7 +34,7 @@
                 </div>
 
                 <!-- OUTSIDE of <group> so it takes full width -->
-                <field name="line_ids" nolabel="1"/>
+                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
                 <group>
                     <group>
