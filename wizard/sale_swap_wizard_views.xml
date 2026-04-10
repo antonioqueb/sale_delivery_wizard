@@ -11,20 +11,38 @@
                 <separator string="Lotes Asignados — Seleccione Lote Nuevo para hacer swap"/>
                 <field name="line_ids" nolabel="1">
                     <list editable="bottom" create="0" delete="0">
-                        <field name="product_id" string="Producto" readonly="1"/>
-                        <field name="origin_lot_id" string="Lote Actual" readonly="1"/>
-                        <field name="origin_bloque" string="Bloque" readonly="1"/>
-                        <field name="origin_alto" string="Alto" optional="hide" readonly="1"/>
-                        <field name="origin_ancho" string="Ancho" optional="hide" readonly="1"/>
-                        <field name="origin_grosor" string="Grosor" optional="hide" readonly="1"/>
-                        <field name="qty" string="m²" readonly="1"/>
+                        <field name="display_type" column_invisible="1"/>
+                        <field name="sequence" column_invisible="1"/>
+                        <field name="section_name" string="Producto"
+                               invisible="display_type != 'line_section'"
+                               readonly="1"/>
+                        <field name="product_id" string="Producto" readonly="1"
+                               invisible="display_type == 'line_section'"
+                               column_invisible="1"/>
+                        <field name="origin_lot_id" string="Lote Actual" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="origin_bloque" string="Bloque" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="origin_alto" string="Alto" optional="hide" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="origin_ancho" string="Ancho" optional="hide" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="origin_grosor" string="Grosor" optional="hide" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="qty" string="m²" readonly="1"
+                               invisible="display_type == 'line_section'"/>
                         <field name="target_lot_id"
                                string="Lote Nuevo"
-                               widget="swap_lot_selector"/>
-                        <field name="target_bloque" string="Bloque N." readonly="1"/>
-                        <field name="target_qty" string="m² N." readonly="1"/>
-                        <field name="target_alto" string="Alto N." optional="hide" readonly="1"/>
-                        <field name="target_ancho" string="Ancho N." optional="hide" readonly="1"/>
+                               widget="swap_lot_selector"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="target_bloque" string="Bloque N." readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="target_qty" string="m² N." readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="target_alto" string="Alto N." optional="hide" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="target_ancho" string="Ancho N." optional="hide" readonly="1"
+                               invisible="display_type == 'line_section'"/>
                         <field name="move_line_id" column_invisible="1"/>
                         <field name="picking_id" column_invisible="1"/>
                         <field name="sale_line_id" column_invisible="1"/>

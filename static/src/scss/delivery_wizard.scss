@@ -142,6 +142,33 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
                 td { padding: 8px 12px; border-bottom: 1px solid lighten($som-border, 3%); }
                 &:nth-child(even) { background: rgba($som-surface-sunken, 0.4); }
             }
+
+            // ── Section rows (product group headers) ──
+            tbody tr.o_is_line_section,
+            tbody tr[data-display_type="line_section"],
+            tbody tr.o_section {
+                background: linear-gradient(90deg, $som-accent-soft 0%, $som-surface-raised 100%) !important;
+                border-top: 2px solid $som-accent !important;
+                border-bottom: 1px solid $som-border !important;
+
+                &:hover {
+                    background: linear-gradient(90deg, $som-accent-soft 0%, $som-surface-raised 100%) !important;
+                }
+
+                td {
+                    padding: 10px 14px !important;
+                    border-bottom: 1px solid $som-border !important;
+                    font-size: 13px !important;
+                    font-weight: 700 !important;
+                    color: $som-accent !important;
+                    letter-spacing: 0.01em;
+
+                    &:before {
+                        content: "📦 ";
+                        font-size: 13px;
+                    }
+                }
+            }
         }
     }
 
@@ -192,7 +219,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     padding: 0 12px;
     position: relative;
 
-    // Vertical divider between KPIs
     & + .som_kpi {
         border-left: 1px solid $som-border;
     }
@@ -217,7 +243,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     line-height: 1;
     white-space: nowrap;
 
-    // Make Odoo field widgets inherit parent styling
     .o_field_widget {
         display: inline !important;
         font-size: inherit !important;
@@ -226,7 +251,6 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         line-height: inherit !important;
     }
 
-    // Semantic color accents — just the number, not the background
     &.som_kpi_value--success { color: $som-success; }
     &.som_kpi_value--warn { color: $som-warn; }
     &.som_kpi_value--accent { color: $som-accent; }

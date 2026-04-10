@@ -38,13 +38,24 @@
 
                 <field name="line_ids">
                     <list editable="bottom">
-                        <field name="is_selected" widget="boolean_toggle"/>
-                        <field name="product_name" string="Producto"/>
-                        <field name="lot_name" string="Lote"/>
-                        <field name="source_location_id" string="Ubicación" optional="hide"/>
-                        <field name="qty_available" string="Disponible" readonly="1"/>
-                        <field name="qty_to_deliver" string="A Entregar"/>
+                        <field name="display_type" column_invisible="1"/>
+                        <field name="sequence" column_invisible="1"/>
+                        <field name="is_selected" widget="boolean_toggle"
+                               column_invisible="0"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="section_name" string="Producto"
+                               invisible="display_type != 'line_section'"
+                               readonly="1"/>
+                        <field name="lot_name" string="Lote"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="source_location_id" string="Ubicación" optional="hide"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="qty_available" string="Disponible" readonly="1"
+                               invisible="display_type == 'line_section'"/>
+                        <field name="qty_to_deliver" string="A Entregar"
+                               invisible="display_type == 'line_section'"/>
                         <field name="product_id" column_invisible="1"/>
+                        <field name="product_name" column_invisible="1"/>
                         <field name="lot_id" column_invisible="1"/>
                         <field name="picking_id" column_invisible="1"/>
                         <field name="move_id" column_invisible="1"/>
@@ -61,25 +72,22 @@
                 </group>
 
                 <footer>
-                    <!-- Step 1: Generate Pick Ticket (only when no PT yet) -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
                             invisible="wizard_state != 'select'"
                             help="Genera documento de preparación. No descuenta inventario."/>
 
-                    <!-- Step 2: After PT generated - can print, swap, or go to remission -->
                     <button name="action_print_pick_ticket"
                             string="Imprimir Pick Ticket"
                             type="object" class="btn-secondary"
                             invisible="wizard_state == 'select'"
                             help="Imprime el pick ticket generado."/>
 
-                    <!-- Remission available at any step -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
                             type="object" class="btn-primary"
-                            help="Genera remisión y descuenta inventario. Usa la selección del Pick Ticket."/>
+                            help="Genera remisión y descuenta inventario."/>
 
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>

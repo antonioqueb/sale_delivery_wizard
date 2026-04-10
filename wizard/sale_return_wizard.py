@@ -31,7 +31,7 @@ class SaleReturnWizard(models.TransientModel):
         order = self.env['sale.order'].browse(so_id)
         res['sale_order_id'] = order.id
 
-        lines = []
+        raw_lines = []
         for picking in order.picking_ids.filtered(
                 lambda p: p.state == 'done'
                 and p.picking_type_code == 'outgoing'):
@@ -40,7 +40,7 @@ class SaleReturnWizard(models.TransientModel):
                 for ml in move.move_line_ids:
                     qty = ml.quantity or ml.qty_done or 0.0
                     if qty > 0:
-                        lines.append((0, 0, {
+                        raw_lines.append((0, 0, {
                             'move_id': move.id,
                             'move_line_id': ml.id,
                             'sale_line_id': move.sale_line_id.id,
@@ -50,13 +50,42 @@ class SaleReturnWizard(models.TransientModel):
                             'qty_to_return': qty,
                             'is_selected': True,
                         }))
-        res['line_ids'] = lines
+        res['line_ids'] = self._group_lines_by_product(raw_lines)
         return res
+
+    def _group_lines_by_product(self, raw_lines):
+        """Insert section headers grouping lines by product."""
+        from collections import OrderedDict
+        grouped = OrderedDict()
+        for cmd in raw_lines:
+            vals = cmd[2]
+            pid = vals.get('product_id', 0)
+            grouped.setdefault(pid, []).append(cmd)
+
+        result = []
+        Product = self.env['product.product']
+        seq = 0
+        for pid, lines in grouped.items():
+            product = Product.browse(pid) if pid else None
+            section_name = product.display_name if product else _('Sin Producto')
+            result.append((0, 0, {
+                'display_type': 'line_section',
+                'section_name': section_name,
+                'product_id': pid,
+                'sequence': seq,
+            }))
+            seq += 1
+            for line_cmd in lines:
+                line_cmd[2]['sequence'] = seq
+                result.append(line_cmd)
+                seq += 1
+        return result
 
     def action_confirm_return(self):
         """Process the return: create return picking, validate it, and create document."""
         self.ensure_one()
-        selected = self.line_ids.filtered('is_selected')
+        selected = self.line_ids.filtered(
+            lambda l: l.is_selected and l.display_type != 'line_section')
         if not selected:
             raise UserError(_(
                 'Seleccione al menos una línea para devolver.'))
@@ -124,7 +153,6 @@ class SaleReturnWizard(models.TransientModel):
                 }) for line in picking_lines],
             })
 
-            # Validate the return picking (receive material back)
             self._validate_return_picking(ret_picking, picking_lines)
 
             doc.state = 'confirmed'
@@ -167,14 +195,10 @@ class SaleReturnWizard(models.TransientModel):
         }
 
     # ──────────────────────────────────────────────
-    #  REAGENDAR: create new outgoing picking + redelivery doc
+    #  REAGENDAR
     # ──────────────────────────────────────────────
 
     def _action_reagendar(self, order, wizard_lines):
-        """Create a new outgoing picking with the same lots/qty so the material
-        stays reserved for this SO. Groups by product (one move per product,
-        multiple move lines for lots).
-        """
         warehouse = order.warehouse_id
         pick_type = warehouse.out_type_id
         if not pick_type:
@@ -197,13 +221,12 @@ class SaleReturnWizard(models.TransientModel):
             'sale_id': order.id,
         })
 
-        # ── Group wizard lines by (product_id, sale_line_id, uom) ──
         grouped = {}
         for wl in wizard_lines:
             key = (wl.product_id.id, wl.sale_line_id.id, wl.move_id.product_uom.id)
             grouped.setdefault(key, []).append(wl)
 
-        move_map = {}  # sale_line_id -> move, for doc lines later
+        move_map = {}
         for (product_id, sale_line_id, uom_id), wls in grouped.items():
             total_qty = sum(wl.qty_to_return for wl in wls)
 
@@ -219,7 +242,6 @@ class SaleReturnWizard(models.TransientModel):
             })
             move_map[sale_line_id] = move
 
-            # Create one move line per lot
             for wl in wls:
                 if wl.lot_id:
                     self.env['stock.move.line'].create({
@@ -232,7 +254,6 @@ class SaleReturnWizard(models.TransientModel):
                         'picking_id': new_picking.id,
                     })
 
-        # Confirm and assign
         new_picking.action_confirm()
         new_picking.action_assign()
 
@@ -240,7 +261,6 @@ class SaleReturnWizard(models.TransientModel):
             'Redelivery picking %s created for SO %s (state: %s)',
             new_picking.name, order.name, new_picking.state)
 
-        # Create redelivery document (prepared = pending confirmation)
         doc_lines = []
         for wl in wizard_lines:
             move = move_map.get(wl.sale_line_id.id)
@@ -282,7 +302,6 @@ class SaleReturnWizard(models.TransientModel):
     # ──────────────────────────────────────────────
 
     def _validate_return_picking(self, picking, wizard_lines):
-        """Assign and validate the return picking with the correct quantities."""
         if picking.state in ('draft', 'confirmed', 'waiting'):
             picking.action_assign()
 
@@ -358,9 +377,16 @@ class SaleReturnWizard(models.TransientModel):
 class SaleReturnWizardLine(models.TransientModel):
     _name = 'sale.return.wizard.line'
     _description = 'Línea de Wizard de Devolución'
+    _order = 'sequence, id'
 
     wizard_id = fields.Many2one(
         'sale.return.wizard', ondelete='cascade', required=True)
+    sequence = fields.Integer(default=10)
+    display_type = fields.Selection([
+        ('line_section', 'Section'),
+    ], string='Tipo de Fila')
+    section_name = fields.Char(string='Nombre de Sección')
+
     is_selected = fields.Boolean(string='Sel.', default=False)
     move_id = fields.Many2one('stock.move', string='Move')
     move_line_id = fields.Many2one('stock.move.line', string='Move Line')
@@ -374,8 +400,9 @@ class SaleReturnWizardLine(models.TransientModel):
 
     @api.model_create_multi
     def create(self, vals_list):
-        """Ensure product_id and lot_id are filled from move/move_line."""
         for vals in vals_list:
+            if vals.get('display_type') == 'line_section':
+                continue
             if not vals.get('product_id') and vals.get('move_id'):
                 move = self.env['stock.move'].browse(vals['move_id'])
                 vals['product_id'] = move.product_id.id
@@ -388,7 +415,8 @@ class SaleReturnWizardLine(models.TransientModel):
         return super().create(vals_list)
 
     def _refresh_qty_delivered(self):
-        """Re-read qty_delivered from move_line if lost by transient save."""
+        if self.display_type == 'line_section':
+            return
         if self.qty_delivered <= 0 and self.move_line_id:
             self.qty_delivered = (
                 self.move_line_id.quantity
@@ -397,6 +425,8 @@ class SaleReturnWizardLine(models.TransientModel):
 
     @api.onchange('is_selected')
     def _onchange_is_selected(self):
+        if self.display_type == 'line_section':
+            return
         if self.is_selected:
             self._refresh_qty_delivered()
             if self.qty_to_return <= 0:
@@ -406,6 +436,8 @@ class SaleReturnWizardLine(models.TransientModel):
 
     @api.onchange('qty_to_return')
     def _onchange_qty_to_return(self):
+        if self.display_type == 'line_section':
+            return
         if self.qty_to_return > 0:
             self.is_selected = True
         self._refresh_qty_delivered()
