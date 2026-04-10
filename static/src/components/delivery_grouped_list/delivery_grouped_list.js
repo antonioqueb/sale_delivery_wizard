@@ -9,9 +9,8 @@ export class DeliveryGroupedList extends Component {
     static props = { ...standardFieldProps };
 
     /**
-     * CRITICAL: Declare field dependencies so that Odoo 19's RelationalModel
-     * actually loads these fields into the one2many sub-records.
-     * Without this, record.data is an empty proxy.
+     * Declare field dependencies so Odoo 19 loads them into sub-records.
+     * This is the preferred fix — if the framework respects it, .data will be populated.
      */
     static fieldDependencies = [
         { name: "display_type", type: "selection" },
@@ -31,7 +30,6 @@ export class DeliveryGroupedList extends Component {
         { name: "move_line_id", type: "many2one", relation: "stock.move.line" },
         { name: "sale_line_id", type: "many2one", relation: "sale.order.line" },
         { name: "sequence", type: "integer" },
-        // Swap fields
         { name: "origin_lot_id", type: "many2one", relation: "stock.lot" },
         { name: "target_lot_id", type: "many2one", relation: "stock.lot" },
         { name: "origin_bloque", type: "char" },
@@ -52,6 +50,9 @@ export class DeliveryGroupedList extends Component {
             mode: "delivery",
         });
 
+        this._wizardId = null;
+        this._lineModel = "";
+
         onWillStart(async () => {
             this._detectMode();
             await this._buildGroups();
@@ -66,10 +67,13 @@ export class DeliveryGroupedList extends Component {
         const model = this.props.record?.model?.config?.resModel || "";
         if (model.includes("return")) {
             this.state.mode = "return";
+            this._lineModel = "sale.return.wizard.line";
         } else if (model.includes("swap")) {
             this.state.mode = "swap";
+            this._lineModel = "sale.swap.wizard.line";
         } else {
             this.state.mode = "delivery";
+            this._lineModel = "sale.delivery.wizard.line";
         }
     }
 
@@ -78,21 +82,24 @@ export class DeliveryGroupedList extends Component {
         try {
             const lines = this._getLines();
 
-            // Check if data is loaded — if not, fall back to ORM read
-            let useOrm = false;
+            // Check if OWL records have data loaded
+            let dataLoaded = false;
             if (lines.length > 0) {
-                const firstData = lines[0].data;
-                const keys = firstData ? Object.keys(firstData) : [];
-                if (keys.length === 0 || firstData.product_id === undefined) {
-                    console.log("[DGL] Data not loaded in records, falling back to ORM read");
-                    useOrm = true;
-                }
+                const d = lines[0].data;
+                const keys = d ? Object.keys(d) : [];
+                dataLoaded = keys.length > 0 && d.product_id !== undefined;
             }
 
-            if (useOrm) {
-                await this._buildGroupsFromOrm();
-            } else {
+            if (dataLoaded) {
                 this._buildGroupsFromRecords(lines);
+            } else {
+                // OWL records are empty — need to get data from DB
+                await this._ensureWizardSaved();
+                if (this._wizardId) {
+                    await this._buildGroupsFromOrm(lines);
+                } else {
+                    this.state.groups = [];
+                }
             }
 
             if (Object.keys(this.state.collapsed).length === 0) {
@@ -106,31 +113,38 @@ export class DeliveryGroupedList extends Component {
     }
 
     /**
-     * Fallback: read line data directly from the database via ORM.
-     * This is used when the RelationalModel doesn't hydrate the sub-records.
+     * Save the wizard to the database so we can read its lines via ORM.
+     * Transient wizards opened via default_get don't have a resId until saved.
      */
-    async _buildGroupsFromOrm() {
-        const parentRecord = this.props.record;
-        const wizardId = parentRecord.resId;
+    async _ensureWizardSaved() {
+        const root = this.props.record.model?.root || this.props.record;
+        if (root.resId) {
+            this._wizardId = root.resId;
+            return;
+        }
 
-        if (!wizardId) {
-            console.warn("[DGL] No wizard resId, cannot ORM read");
+        // Try saving the wizard
+        try {
+            await root.save({ noReload: true, stayInEdition: true });
+            this._wizardId = root.resId;
+            console.log("[DGL] Wizard saved, resId:", this._wizardId);
+        } catch (e) {
+            console.warn("[DGL] Could not save wizard:", e.message);
+            // Last resort: try to get from context
+            const ctx = this.props.record.context || {};
+            this._wizardId = ctx.active_id || null;
+        }
+    }
+
+    /**
+     * Read line data from DB via ORM after wizard is saved.
+     */
+    async _buildGroupsFromOrm(owlRecords) {
+        if (!this._wizardId) {
             this.state.groups = [];
             return;
         }
 
-        // Determine the line model from the parent model
-        const parentModel = parentRecord.model?.config?.resModel || "";
-        let lineModel = "";
-        if (parentModel.includes("return")) {
-            lineModel = "sale.return.wizard.line";
-        } else if (parentModel.includes("swap")) {
-            lineModel = "sale.swap.wizard.line";
-        } else {
-            lineModel = "sale.delivery.wizard.line";
-        }
-
-        // Fields to read depending on mode
         let fields;
         if (this.state.mode === "delivery") {
             fields = [
@@ -160,8 +174,8 @@ export class DeliveryGroupedList extends Component {
         let lineData;
         try {
             lineData = await this.orm.searchRead(
-                lineModel,
-                [["wizard_id", "=", wizardId]],
+                this._lineModel,
+                [["wizard_id", "=", this._wizardId]],
                 fields,
                 { order: "sequence, id" }
             );
@@ -171,19 +185,9 @@ export class DeliveryGroupedList extends Component {
             return;
         }
 
-        // Also get the OWL records for .update() support
-        const owlRecords = this._getLines();
-        const owlMap = new Map();
-        for (const r of owlRecords) {
-            owlMap.set(r.id, r);
-        }
-
         const grouped = new Map();
         let currentSectionName = "";
         let currentSectionProductId = 0;
-
-        // Build a mapping: DB line index → OWL record
-        // OWL records are in the same order as DB records (both ordered by sequence, id)
         let owlIdx = 0;
 
         for (const d of lineData) {
@@ -214,22 +218,19 @@ export class DeliveryGroupedList extends Component {
             }
 
             const group = grouped.get(groupKey);
-
-            // Find the corresponding OWL record for this line
             const owlRecord = owlIdx < owlRecords.length ? owlRecords[owlIdx] : null;
             owlIdx++;
 
-            const lotId = d.lot_id ? d.lot_id[0] : 0;
-            const lotName = d.lot_id ? d.lot_id[1] : (d.lot_name || "");
-
             const ld = {
                 _record: owlRecord,
+                _dbId: d.id,
+                _lineModel: this._lineModel,
                 id: d.id,
                 owlId: owlRecord ? owlRecord.id : `db_${d.id}`,
                 product_id: productId,
                 product_name: productName,
-                lot_id: lotId,
-                lot_name: lotName,
+                lot_id: d.lot_id ? d.lot_id[0] : 0,
+                lot_name: d.lot_id ? d.lot_id[1] : (d.lot_name || ""),
                 is_selected: d.is_selected || false,
                 qty_available: d.qty_available || 0,
                 qty_to_deliver: d.qty_to_deliver || 0,
@@ -246,8 +247,6 @@ export class DeliveryGroupedList extends Component {
                 target_lot_name: d.target_lot_id ? d.target_lot_id[1] : "",
                 target_bloque: d.target_bloque || "",
                 target_qty: d.target_qty || 0,
-                _dbId: d.id,
-                _lineModel: lineModel,
             };
 
             group.lines.push(ld);
@@ -267,9 +266,6 @@ export class DeliveryGroupedList extends Component {
         this.state.groups = Array.from(grouped.values());
     }
 
-    /**
-     * Standard path: build groups from already-loaded OWL records.
-     */
     _buildGroupsFromRecords(lines) {
         const grouped = new Map();
         let currentSectionProductId = 0;
@@ -357,16 +353,16 @@ export class DeliveryGroupedList extends Component {
 
     _extractLineData(lineRecord, sectionName) {
         const d = lineRecord.data;
-
         let productName = this._m2oName(d.product_id);
         if (!productName && d.product_name) productName = d.product_name;
         if (!productName && sectionName) productName = sectionName;
-
         let lotName = this._m2oName(d.lot_id);
         if (!lotName && d.lot_name) lotName = d.lot_name;
 
         return {
             _record: lineRecord,
+            _dbId: lineRecord.resId || null,
+            _lineModel: this._lineModel,
             id: lineRecord.resId || d.id,
             owlId: lineRecord.id,
             product_id: this._m2oId(d.product_id),
@@ -410,6 +406,22 @@ export class DeliveryGroupedList extends Component {
         for (const g of this.state.groups) this.state.collapsed[g.productId] = true;
     }
 
+    async _updateLine(lineData, updates) {
+        // Try OWL record update first
+        if (lineData._record) {
+            try {
+                await lineData._record.update(updates);
+                return;
+            } catch (e) {
+                console.warn("[DGL] record.update failed, falling back to ORM:", e.message);
+            }
+        }
+        // Fallback: direct DB write
+        if (lineData._dbId && lineData._lineModel) {
+            await this.orm.write(lineData._lineModel, [lineData._dbId], updates);
+        }
+    }
+
     async toggleLineSelected(lineData) {
         const newVal = !lineData.is_selected;
         const updates = { is_selected: newVal };
@@ -418,12 +430,7 @@ export class DeliveryGroupedList extends Component {
         } else if (this.state.mode === "return") {
             updates.qty_to_return = newVal ? (lineData.qty_delivered || 0) : 0;
         }
-
-        if (lineData._record) {
-            await lineData._record.update(updates);
-        } else if (lineData._dbId && lineData._lineModel) {
-            await this.orm.write(lineData._lineModel, [lineData._dbId], updates);
-        }
+        await this._updateLine(lineData, updates);
         await this._buildGroups();
     }
 
@@ -437,12 +444,7 @@ export class DeliveryGroupedList extends Component {
             updates.qty_to_return = val;
             updates.is_selected = val > 0;
         }
-
-        if (lineData._record) {
-            await lineData._record.update(updates);
-        } else if (lineData._dbId && lineData._lineModel) {
-            await this.orm.write(lineData._lineModel, [lineData._dbId], updates);
-        }
+        await this._updateLine(lineData, updates);
         await this._buildGroups();
     }
 
@@ -451,12 +453,7 @@ export class DeliveryGroupedList extends Component {
             const u = { is_selected: true };
             if (this.state.mode === "delivery") u.qty_to_deliver = ld.qty_available || 0;
             else if (this.state.mode === "return") u.qty_to_return = ld.qty_delivered || 0;
-
-            if (ld._record) {
-                await ld._record.update(u);
-            } else if (ld._dbId && ld._lineModel) {
-                await this.orm.write(ld._lineModel, [ld._dbId], u);
-            }
+            await this._updateLine(ld, u);
         }
         await this._buildGroups();
     }
@@ -466,12 +463,7 @@ export class DeliveryGroupedList extends Component {
             const u = { is_selected: false };
             if (this.state.mode === "delivery") u.qty_to_deliver = 0;
             else if (this.state.mode === "return") u.qty_to_return = 0;
-
-            if (ld._record) {
-                await ld._record.update(u);
-            } else if (ld._dbId && ld._lineModel) {
-                await this.orm.write(ld._lineModel, [ld._dbId], u);
-            }
+            await this._updateLine(ld, u);
         }
         await this._buildGroups();
     }
@@ -584,13 +576,13 @@ export class DeliveryGroupedList extends Component {
             if (!st.selectedLotId) return;
             cleanup();
             if (lineData._record) {
-                await lineData._record.update({ target_lot_id: st.selectedLotId });
+                try { await lineData._record.update({ target_lot_id: st.selectedLotId }); } catch (e) {}
             }
             if (lineData._dbId) {
                 try {
                     await self.orm.write(lineData._lineModel || "sale.swap.wizard.line",
                         [lineData._dbId], { target_lot_id: st.selectedLotId });
-                } catch (e) { console.warn("[DGL SWAP] write failed:", e); }
+                } catch (e) {}
             }
             await self._buildGroups();
         };
@@ -636,7 +628,7 @@ export class DeliveryGroupedList extends Component {
 
     async clearSwapTarget(lineData) {
         if (lineData._record) {
-            await lineData._record.update({ target_lot_id: false });
+            try { await lineData._record.update({ target_lot_id: false }); } catch (e) {}
         }
         if (lineData._dbId) {
             try {
