@@ -123,12 +123,56 @@ class SaleOrder(models.Model):
         self.ensure_one()
 
         if mode == 'delivery':
-            return self._build_delivery_groups()
+            groups = self._build_delivery_groups()
+            return self._apply_pick_ticket_selection(groups)
         if mode == 'return':
             return self._build_return_groups()
         if mode == 'swap':
             return self._build_swap_groups()
         return []
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Pick Ticket selection overlay
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _apply_pick_ticket_selection(self, groups):
+        """If a prepared Pick Ticket exists, override isSelected/qtyToDeliver
+        so only the PT lines appear selected."""
+        self.ensure_one()
+        pending_pt = self.env['sale.delivery.document'].search([
+            ('sale_order_id', '=', self.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ], order='create_date desc', limit=1)
+
+        if not pending_pt or not pending_pt.line_ids:
+            return groups
+
+        # Build lookup (product_id, lot_id) → qty from PT
+        pt_keys = {}
+        for pt_line in pending_pt.line_ids:
+            key = (
+                pt_line.product_id.id,
+                pt_line.lot_id.id if pt_line.lot_id else 0,
+            )
+            pt_keys[key] = pt_keys.get(key, 0.0) + pt_line.qty_selected
+
+        for group in groups:
+            for line in group.get('lines', []):
+                key = (
+                    line.get('productId', 0),
+                    line.get('lotId', 0),
+                )
+                if key in pt_keys:
+                    line['isSelected'] = True
+                    line['qtyToDeliver'] = pt_keys[key]
+                else:
+                    line['isSelected'] = False
+                    line['qtyToDeliver'] = 0
+
+        return groups
+
+    # ═══════════════════════════════════════════════════════════════════
 
     def _safe_quant_available(self, quant):
         if hasattr(quant, 'available_quantity'):
