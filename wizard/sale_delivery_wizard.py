@@ -35,7 +35,6 @@ class SaleDeliveryWizard(models.TransientModel):
     pick_ticket_id = fields.Many2one(
         'sale.delivery.document', string='Pick Ticket')
 
-    # JSON que escribe el widget OWL
     widget_selections = fields.Text(
         string='Selecciones del Widget', default='[]')
 
@@ -63,7 +62,6 @@ class SaleDeliveryWizard(models.TransientModel):
             except (json.JSONDecodeError, TypeError, ValueError):
                 sels = []
 
-            # Fallback para compatibilidad
             if not total_selected and data_lines:
                 selected_lines = data_lines.filtered(lambda l: l.is_selected)
                 total_selected = sum(selected_lines.mapped('qty_to_deliver'))
@@ -77,6 +75,7 @@ class SaleDeliveryWizard(models.TransientModel):
         so_id = res.get('sale_order_id') or self.env.context.get('active_id')
         if not so_id:
             return res
+
         order = self.env['sale.order'].browse(so_id)
         res.update(self._prepare_default_wizard_vals(order))
         return res
@@ -140,7 +139,6 @@ class SaleDeliveryWizard(models.TransientModel):
     def get_grouped_lines_data(self):
         self.ensure_one()
 
-        # Si hay JSON del widget, usar el estado actual persistido
         try:
             selections = json.loads(self.widget_selections or '[]')
         except (json.JSONDecodeError, TypeError):
@@ -225,148 +223,8 @@ class SaleDeliveryWizard(models.TransientModel):
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
-    def _get_selection_payload(self):
+    def _refresh(self):
         self.ensure_one()
-        try:
-            selections = json.loads(self.widget_selections or '[]')
-            if isinstance(selections, list):
-                return selections
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        payload = []
-        for line in self.line_ids.filtered(
-            lambda l: l.display_type != 'line_section' and l.is_selected and l.qty_to_deliver > 0
-        ):
-            payload.append({
-                'dbId': line.id,
-                'lotId': line.lot_id.id if line.lot_id else 0,
-                'productId': line.product_id.id if line.product_id else 0,
-                'pickingId': line.picking_id.id if line.picking_id else 0,
-                'moveId': line.move_id.id if line.move_id else 0,
-                'moveLineId': line.move_line_id.id if line.move_line_id else 0,
-                'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
-                'sourceLocationId': line.source_location_id.id if line.source_location_id else 0,
-                'qty': line.qty_to_deliver or 0.0,
-                'qtyAvailable': line.qty_available or 0.0,
-            })
-        return payload
-
-    def _validate_selection_payload(self, payload):
-        if not payload:
-            raise UserError(_('Debes seleccionar al menos un lote para continuar.'))
-
-        invalid = [p for p in payload if float(p.get('qty', 0) or 0) <= 0]
-        if invalid:
-            raise UserError(_('Todas las líneas seleccionadas deben tener cantidad mayor a cero.'))
-
-    def _build_document_line_commands_from_payload(self, payload):
-        self.ensure_one()
-        commands = []
-        seq = 10
-
-        move_line_ids = [int(p.get('moveLineId') or 0) for p in payload if p.get('moveLineId')]
-        lot_ids = [int(p.get('lotId') or 0) for p in payload if p.get('lotId')]
-        move_ids = [int(p.get('moveId') or 0) for p in payload if p.get('moveId')]
-        sale_line_ids = [int(p.get('saleLineId') or 0) for p in payload if p.get('saleLineId')]
-        location_ids = [int(p.get('sourceLocationId') or 0) for p in payload if p.get('sourceLocationId')]
-
-        move_line_map = {ml.id: ml for ml in self.env['stock.move.line'].browse(move_line_ids)}
-        lot_map = {lot.id: lot for lot in self.env['stock.lot'].browse(lot_ids)}
-        move_map = {mv.id: mv for mv in self.env['stock.move'].browse(move_ids)}
-        sale_line_map = {sl.id: sl for sl in self.env['sale.order.line'].browse(sale_line_ids)}
-        location_map = {loc.id: loc for loc in self.env['stock.location'].browse(location_ids)}
-
-        for item in payload:
-            move_line = move_line_map.get(int(item.get('moveLineId') or 0))
-            lot = lot_map.get(int(item.get('lotId') or 0))
-            move = move_map.get(int(item.get('moveId') or 0))
-            sale_line = sale_line_map.get(int(item.get('saleLineId') or 0))
-            source_location = location_map.get(int(item.get('sourceLocationId') or 0))
-
-            product = False
-            picking = False
-
-            if move_line:
-                product = move_line.product_id
-                picking = move_line.picking_id
-                if not source_location:
-                    source_location = move_line.location_id
-                if not move:
-                    move = move_line.move_id
-            elif move:
-                product = move.product_id
-                picking = move.picking_id
-                if not source_location:
-                    source_location = move.location_id
-            elif sale_line:
-                product = sale_line.product_id
-
-            if not product:
-                continue
-
-            commands.append((0, 0, {
-                'sequence': seq,
-                'sale_line_id': sale_line.id if sale_line else False,
-                'move_id': move.id if move else False,
-                'move_line_id': move_line.id if move_line else False,
-                'product_id': product.id,
-                'lot_id': lot.id if lot else False,
-                'qty_selected': float(item.get('qty', 0) or 0.0),
-                'source_location_id': source_location.id if source_location else False,
-            }))
-            seq += 10
-
-        return commands
-
-    def _get_primary_picking_from_payload(self, payload):
-        self.ensure_one()
-
-        picking_ids = [int(p.get('pickingId') or 0) for p in payload if p.get('pickingId')]
-        if picking_ids:
-            return self.env['stock.picking'].browse(picking_ids[0])
-
-        move_line_ids = [int(p.get('moveLineId') or 0) for p in payload if p.get('moveLineId')]
-        if move_line_ids:
-            ml = self.env['stock.move.line'].browse(move_line_ids[0])
-            if ml and ml.picking_id:
-                return ml.picking_id
-
-        move_ids = [int(p.get('moveId') or 0) for p in payload if p.get('moveId')]
-        if move_ids:
-            mv = self.env['stock.move'].browse(move_ids[0])
-            if mv and mv.picking_id:
-                return mv.picking_id
-
-        return self.sale_order_id.picking_ids.filtered(
-            lambda p: p.state in ('assigned', 'confirmed', 'waiting')
-        )[:1]
-
-    def action_generate_pick_ticket(self):
-        self.ensure_one()
-
-        payload = self._get_selection_payload()
-        self._validate_selection_payload(payload)
-
-        line_commands = self._build_document_line_commands_from_payload(payload)
-        if not line_commands:
-            raise UserError(_('No fue posible construir líneas válidas para el pick ticket.'))
-
-        picking = self._get_primary_picking_from_payload(payload)
-
-        doc = self.env['sale.delivery.document'].create({
-            'document_type': 'pick_ticket',
-            'state': 'prepared',
-            'sale_order_id': self.sale_order_id.id,
-            'picking_id': picking.id if picking else False,
-            'delivery_address': self.delivery_address or '',
-            'special_instructions': self.special_instructions or '',
-            'line_ids': line_commands,
-        })
-
-        self.pick_ticket_id = doc.id
-        self.wizard_state = 'pick_ticket'
-
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.wizard',
@@ -375,38 +233,230 @@ class SaleDeliveryWizard(models.TransientModel):
             'target': 'new',
         }
 
-    def action_confirm_remission(self):
+    def _get_selected_lines(self):
         self.ensure_one()
+        selected = self.line_ids.filtered(
+            lambda l: l.display_type != 'line_section'
+            and l.is_selected
+            and l.qty_to_deliver > 0
+        )
+        if not selected:
+            raise UserError(_('Seleccione al menos una línea.'))
+        return selected
 
-        payload = self._get_selection_payload()
-        self._validate_selection_payload(payload)
+    def action_select_all(self):
+        self.ensure_one()
+        for line in self.line_ids.filtered(
+                lambda l: l.display_type != 'line_section'):
+            line.is_selected = True
+            line.qty_to_deliver = line.qty_available or 0.0
+        return self._refresh()
 
-        line_commands = self._build_document_line_commands_from_payload(payload)
-        if not line_commands:
-            raise UserError(_('No fue posible construir líneas válidas para la remisión.'))
+    def action_deselect_all(self):
+        self.ensure_one()
+        for line in self.line_ids.filtered(
+                lambda l: l.display_type != 'line_section'):
+            line.is_selected = False
+            line.qty_to_deliver = 0.0
+        return self._refresh()
 
-        picking = self._get_primary_picking_from_payload(payload)
+    def action_generate_pick_ticket(self):
+        self.ensure_one()
+        try:
+            sels = json.loads(self.widget_selections or '[]')
+        except (json.JSONDecodeError, TypeError):
+            sels = []
+
+        if sels:
+            return self._generate_pick_ticket_from_selections(sels)
+        return self._generate_pick_ticket_from_lines()
+
+    def _generate_pick_ticket_from_selections(self, sels):
+        doc_lines = []
+        for sel in sels:
+            if sel.get('qty', 0) <= 0:
+                continue
+            doc_lines.append((0, 0, {
+                'sale_line_id': sel.get('saleLineId') or False,
+                'move_id': sel.get('moveId') or False,
+                'move_line_id': sel.get('moveLineId') or False,
+                'product_id': sel.get('productId'),
+                'lot_id': sel.get('lotId') or False,
+                'qty_selected': sel.get('qty', 0),
+                'source_location_id': sel.get('sourceLocationId') or False,
+            }))
+
+        if not doc_lines:
+            raise UserError(_('Seleccione al menos una línea.'))
 
         doc = self.env['sale.delivery.document'].create({
-            'document_type': 'remission',
-            'state': 'draft',
+            'document_type': 'pick_ticket',
             'sale_order_id': self.sale_order_id.id,
-            'picking_id': picking.id if picking else False,
-            'delivery_address': self.delivery_address or '',
-            'special_instructions': self.special_instructions or '',
-            'line_ids': line_commands,
+            'delivery_address': self.delivery_address,
+            'special_instructions': self.special_instructions,
+            'line_ids': doc_lines,
         })
+        doc.action_prepare()
+        self.pick_ticket_id = doc.id
+        self.wizard_state = 'pick_ticket'
+        return self.env.ref(
+            'sale_delivery_wizard.action_report_pick_ticket'
+        ).report_action(doc)
 
-        doc.action_confirm()
+    def _generate_pick_ticket_from_lines(self):
+        selected = self._get_selected_lines()
+        doc = self.env['sale.delivery.document'].create({
+            'document_type': 'pick_ticket',
+            'sale_order_id': self.sale_order_id.id,
+            'delivery_address': self.delivery_address,
+            'special_instructions': self.special_instructions,
+            'line_ids': [(0, 0, {
+                'sale_line_id': line.sale_line_id.id,
+                'move_id': line.move_id.id,
+                'move_line_id': line.move_line_id.id,
+                'product_id': line.product_id.id,
+                'lot_id': line.lot_id.id,
+                'qty_selected': line.qty_to_deliver,
+                'source_location_id': line.source_location_id.id,
+            }) for line in selected],
+        })
+        doc.action_prepare()
+        self.pick_ticket_id = doc.id
+        self.wizard_state = 'pick_ticket'
+        return self.env.ref(
+            'sale_delivery_wizard.action_report_pick_ticket'
+        ).report_action(doc)
 
-        return {
+    def action_print_pick_ticket(self):
+        self.ensure_one()
+        if not self.pick_ticket_id:
+            raise UserError(_('No hay Pick Ticket para imprimir.'))
+        return self.env.ref(
+            'sale_delivery_wizard.action_report_pick_ticket'
+        ).report_action(self.pick_ticket_id)
+
+    def action_generate_remission(self):
+        self.ensure_one()
+        try:
+            sels = json.loads(self.widget_selections or '[]')
+        except (json.JSONDecodeError, TypeError):
+            sels = []
+
+        if sels:
+            return self._generate_remission_from_selections(sels)
+        return self._generate_remission_from_lines()
+
+    def _generate_remission_from_selections(self, sels):
+        order = self.sale_order_id
+
+        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
+            if not self.env.user.has_group(
+                    'sale_delivery_wizard.group_delivery_authorizer'):
+                raise UserError(_(
+                    'Entrega bloqueada: pedido sin autorización de pago.'))
+
+        picking_sels = {}
+        for sel in sels:
+            if sel.get('qty', 0) <= 0:
+                continue
+            picking_id = sel.get('pickingId', 0)
+            picking_sels.setdefault(picking_id, []).append(sel)
+
+        if not picking_sels:
+            raise UserError(_('Seleccione al menos una línea.'))
+
+        docs = self.env['sale.delivery.document']
+        for picking_id, sel_lines in picking_sels.items():
+            picking = self.env['stock.picking'].browse(picking_id) if picking_id else False
+            doc = self.env['sale.delivery.document'].create({
+                'document_type': 'remission',
+                'sale_order_id': order.id,
+                'picking_id': picking.id if picking else False,
+                'delivery_address': self.delivery_address,
+                'special_instructions': self.special_instructions,
+                'line_ids': [(0, 0, {
+                    'sale_line_id': sel.get('saleLineId') or False,
+                    'move_id': sel.get('moveId') or False,
+                    'move_line_id': sel.get('moveLineId') or False,
+                    'product_id': sel.get('productId'),
+                    'lot_id': sel.get('lotId') or False,
+                    'qty_selected': sel.get('qty', 0),
+                    'qty_done': sel.get('qty', 0),
+                    'source_location_id': sel.get('sourceLocationId') or False,
+                }) for sel in sel_lines if sel.get('qty', 0) > 0],
+            })
+            doc.action_confirm()
+            docs |= doc
+
+        action = {
             'type': 'ir.actions.act_window',
-            'name': _('Remisión'),
+            'name': _('Remisiones'),
             'res_model': 'sale.delivery.document',
-            'res_id': doc.id,
-            'view_mode': 'form',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', docs.ids)],
             'target': 'current',
         }
+        if len(docs) == 1:
+            action.update({
+                'view_mode': 'form',
+                'res_id': docs.id,
+            })
+        return action
+
+    def _generate_remission_from_lines(self):
+        order = self.sale_order_id
+
+        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
+            if not self.env.user.has_group(
+                    'sale_delivery_wizard.group_delivery_authorizer'):
+                raise UserError(_(
+                    'Entrega bloqueada: pedido sin autorización de pago.'))
+
+        selected = self._get_selected_lines()
+
+        picking_lines = {}
+        for line in selected:
+            picking_id = line.picking_id.id if line.picking_id else 0
+            picking_lines.setdefault(picking_id, self.env['sale.delivery.wizard.line'])
+            picking_lines[picking_id] |= line
+
+        docs = self.env['sale.delivery.document']
+        for picking_id, lines in picking_lines.items():
+            picking = self.env['stock.picking'].browse(picking_id) if picking_id else False
+            doc = self.env['sale.delivery.document'].create({
+                'document_type': 'remission',
+                'sale_order_id': order.id,
+                'picking_id': picking.id if picking else False,
+                'delivery_address': self.delivery_address,
+                'special_instructions': self.special_instructions,
+                'line_ids': [(0, 0, {
+                    'sale_line_id': line.sale_line_id.id,
+                    'move_id': line.move_id.id,
+                    'move_line_id': line.move_line_id.id,
+                    'product_id': line.product_id.id,
+                    'lot_id': line.lot_id.id,
+                    'qty_selected': line.qty_to_deliver,
+                    'qty_done': line.qty_to_deliver,
+                    'source_location_id': line.source_location_id.id,
+                }) for line in lines],
+            })
+            doc.action_confirm()
+            docs |= doc
+
+        action = {
+            'type': 'ir.actions.act_window',
+            'name': _('Remisiones'),
+            'res_model': 'sale.delivery.document',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', docs.ids)],
+            'target': 'current',
+        }
+        if len(docs) == 1:
+            action.update({
+                'view_mode': 'form',
+                'res_id': docs.id,
+            })
+        return action
 
 
 class SaleDeliveryWizardLine(models.TransientModel):
