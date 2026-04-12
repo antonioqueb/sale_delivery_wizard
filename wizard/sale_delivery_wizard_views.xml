@@ -7,9 +7,9 @@
             <form string="Entregar Material" class="sale_delivery_wizard_form">
                 <div class="alert alert-info p-2 mb-2 text-center"
                      invisible="wizard_state != 'pick_ticket'">
-                    <strong>Pick Ticket generado:</strong>
+                    <strong>Pick Ticket activo:</strong>
                     <field name="pick_ticket_id" readonly="1" class="d-inline"/>
-                    — Puede hacer swaps, ajustar selección, y luego generar la remisión.
+                    — La remisión se generará con base en este Pick Ticket.
                 </div>
 
                 <field name="wizard_state" invisible="1"/>
@@ -37,14 +37,22 @@
                 </group>
 
                 <footer>
+                    <!-- Generar Pick Ticket: siempre disponible -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
                             invisible="wizard_state != 'select'"/>
+                    <button name="action_generate_pick_ticket"
+                            string="Regenerar Pick Ticket"
+                            type="object" class="btn-secondary"
+                            invisible="wizard_state == 'select'"
+                            confirm="Se cancelará el Pick Ticket actual y se generará uno nuevo con la selección actual. ¿Continuar?"/>
+                    <!-- Imprimir: solo si hay PT -->
                     <button name="action_print_pick_ticket"
                             string="Imprimir Pick Ticket"
                             type="object" class="btn-secondary"
                             invisible="wizard_state == 'select'"/>
+                    <!-- Remisión: siempre disponible -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
                             type="object" class="btn-primary"/>

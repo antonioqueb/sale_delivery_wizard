@@ -96,12 +96,57 @@ class SaleDeliveryWizard(models.TransientModel):
         }
 
         grouped = order.get_delivery_grouped_data(mode='delivery') or []
-        vals['line_ids'] = self._groups_to_line_commands(grouped)
 
-        if pending_pt:
+        if pending_pt and pending_pt.line_ids:
+            # ── Restore selection from existing Pick Ticket ──
+            # Build lookup: (product_id, lot_id) → qty from PT
+            pt_line_map = {}
+            for pt_line in pending_pt.line_ids:
+                key = (
+                    pt_line.product_id.id,
+                    pt_line.lot_id.id if pt_line.lot_id else 0,
+                )
+                pt_line_map[key] = {
+                    'qty': pt_line.qty_selected,
+                    'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else 0,
+                    'moveId': pt_line.move_id.id if pt_line.move_id else 0,
+                    'moveLineId': pt_line.move_line_id.id if pt_line.move_line_id else 0,
+                    'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else 0,
+                }
+
+            # Apply PT selection to grouped lines
+            widget_sels = []
+            for group in grouped:
+                for line in group.get('lines', []):
+                    key = (
+                        line.get('productId', 0),
+                        line.get('lotId', 0),
+                    )
+                    pt_info = pt_line_map.get(key)
+                    if pt_info:
+                        line['isSelected'] = True
+                        line['qtyToDeliver'] = pt_info['qty']
+                        widget_sels.append({
+                            'dbId': 0,
+                            'lotId': line.get('lotId', 0),
+                            'productId': line.get('productId', 0),
+                            'pickingId': line.get('pickingId', 0),
+                            'moveId': line.get('moveId', 0) or pt_info.get('moveId', 0),
+                            'moveLineId': line.get('moveLineId', 0) or pt_info.get('moveLineId', 0),
+                            'saleLineId': line.get('saleLineId', 0) or pt_info.get('saleLineId', 0),
+                            'sourceLocationId': line.get('sourceLocationId', 0) or pt_info.get('sourceLocationId', 0),
+                            'qty': pt_info['qty'],
+                            'qtyAvailable': line.get('qtyAvailable', 0),
+                        })
+                    else:
+                        line['isSelected'] = False
+                        line['qtyToDeliver'] = 0
+
+            vals['widget_selections'] = json.dumps(widget_sels)
             vals['wizard_state'] = 'pick_ticket'
             vals['pick_ticket_id'] = pending_pt.id
 
+        vals['line_ids'] = self._groups_to_line_commands(grouped)
         return vals
 
     def _groups_to_line_commands(self, groups):
@@ -260,8 +305,30 @@ class SaleDeliveryWizard(models.TransientModel):
             line.qty_to_deliver = 0.0
         return self._refresh()
 
+    # ═══════════════════════════════════════════════════════════════════
+    # PICK TICKET
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _cancel_previous_pick_tickets(self):
+        """Cancel ALL previous prepared Pick Tickets for this order."""
+        old_pts = self.env['sale.delivery.document'].search([
+            ('sale_order_id', '=', self.sale_order_id.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ])
+        if old_pts:
+            old_pts.write({'state': 'cancelled'})
+            _logger.info(
+                'Cancelled %d old pick ticket(s) for SO %s: %s',
+                len(old_pts), self.sale_order_id.name,
+                ', '.join(old_pts.mapped('name')))
+
     def action_generate_pick_ticket(self):
         self.ensure_one()
+
+        # Always cancel previous prepared PTs
+        self._cancel_previous_pick_tickets()
+
         try:
             sels = json.loads(self.widget_selections or '[]')
         except (json.JSONDecodeError, TypeError):
@@ -335,8 +402,20 @@ class SaleDeliveryWizard(models.TransientModel):
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(self.pick_ticket_id)
 
+    # ═══════════════════════════════════════════════════════════════════
+    # REMISIÓN
+    # ═══════════════════════════════════════════════════════════════════
+
     def action_generate_remission(self):
         self.ensure_one()
+
+        # Si hay Pick Ticket preparado, usar sus líneas (última verdad)
+        if (self.pick_ticket_id
+                and self.pick_ticket_id.state == 'prepared'
+                and self.pick_ticket_id.line_ids):
+            return self._generate_remission_from_pick_ticket()
+
+        # Fallback: widget_selections o líneas del wizard
         try:
             sels = json.loads(self.widget_selections or '[]')
         except (json.JSONDecodeError, TypeError):
@@ -345,6 +424,50 @@ class SaleDeliveryWizard(models.TransientModel):
         if sels:
             return self._generate_remission_from_selections(sels)
         return self._generate_remission_from_lines()
+
+    def _generate_remission_from_pick_ticket(self):
+        """Generate remission based on Pick Ticket lines (source of truth)."""
+        pt = self.pick_ticket_id
+        order = self.sale_order_id
+
+        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
+            if not self.env.user.has_group(
+                    'sale_delivery_wizard.group_delivery_authorizer'):
+                raise UserError(_(
+                    'Entrega bloqueada: pedido sin autorización de pago.'))
+
+        # Build selections from PT lines
+        sels = []
+        for pt_line in pt.line_ids:
+            if pt_line.qty_selected <= 0:
+                continue
+
+            # Resolve picking from move
+            picking_id = 0
+            if pt_line.move_id and pt_line.move_id.picking_id:
+                picking_id = pt_line.move_id.picking_id.id
+            elif pt_line.move_line_id and pt_line.move_line_id.picking_id:
+                picking_id = pt_line.move_line_id.picking_id.id
+
+            sels.append({
+                'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else False,
+                'moveId': pt_line.move_id.id if pt_line.move_id else False,
+                'moveLineId': pt_line.move_line_id.id if pt_line.move_line_id else False,
+                'productId': pt_line.product_id.id,
+                'lotId': pt_line.lot_id.id if pt_line.lot_id else False,
+                'qty': pt_line.qty_selected,
+                'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else False,
+                'pickingId': picking_id,
+            })
+
+        if not sels:
+            raise UserError(_('El Pick Ticket no tiene líneas válidas.'))
+
+        _logger.info(
+            'Generating remission from Pick Ticket %s with %d lines',
+            pt.name, len(sels))
+
+        return self._generate_remission_from_selections(sels)
 
     def _generate_remission_from_selections(self, sels):
         order = self.sale_order_id
@@ -387,6 +510,10 @@ class SaleDeliveryWizard(models.TransientModel):
             })
             doc.action_confirm()
             docs |= doc
+
+        # Mark PT as confirmed if remission was generated from it
+        if self.pick_ticket_id and self.pick_ticket_id.state == 'prepared':
+            self.pick_ticket_id.write({'state': 'confirmed'})
 
         action = {
             'type': 'ir.actions.act_window',

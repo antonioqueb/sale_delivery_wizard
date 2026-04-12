@@ -52,6 +52,7 @@ export class DeliveryGroupedList extends Component {
 
     async _loadGroups() {
         this.state.isLoading = true;
+        let loadedFromWizard = false;
         try {
             const wizardId = this._getWizardId();
             if (wizardId) {
@@ -61,6 +62,7 @@ export class DeliveryGroupedList extends Component {
                     [[wizardId]]
                 );
                 this.state.groups = groups || [];
+                loadedFromWizard = true;
             } else {
                 const soId = this._getSaleOrderId();
                 if (soId) {
@@ -77,11 +79,65 @@ export class DeliveryGroupedList extends Component {
             }
             this._syncCollapsedState();
             this._recalcAllGroups();
+
+            // When loaded from SO (no wizard ID yet), apply stored
+            // selections from widget_selections (e.g. from a pending PT)
+            if (!loadedFromWizard) {
+                this._applyStoredSelections();
+            }
         } catch (e) {
             console.error("[DGL] Load groups failed:", e);
             this.state.groups = [];
         } finally {
             this.state.isLoading = false;
+        }
+    }
+
+    /**
+     * Apply pre-existing selections from widget_selections field.
+     * This restores the Pick Ticket selection when reopening the wizard.
+     */
+    _applyStoredSelections() {
+        if (this.state.mode !== "delivery") return;
+
+        const root = this.props.record?.model?.root || this.props.record;
+        const wsRaw = root?.data?.widget_selections;
+        if (!wsRaw || wsRaw === "[]") return;
+
+        try {
+            const sels = JSON.parse(wsRaw);
+            if (!Array.isArray(sels) || sels.length === 0) return;
+
+            // Build lookup by (productId, lotId)
+            const selMap = new Map();
+            for (const s of sels) {
+                const key = `${s.productId || 0}-${s.lotId || 0}`;
+                selMap.set(key, s);
+            }
+
+            let hasAnyMatch = false;
+            for (const group of this.state.groups) {
+                for (const line of group.lines) {
+                    const key = `${line.productId || 0}-${line.lotId || 0}`;
+                    const sel = selMap.get(key);
+                    if (sel) {
+                        line.isSelected = true;
+                        line.qtyToDeliver = sel.qty || 0;
+                        hasAnyMatch = true;
+                    } else {
+                        line.isSelected = false;
+                        line.qtyToDeliver = 0;
+                    }
+                }
+            }
+
+            if (hasAnyMatch) {
+                this._recalcAllGroups();
+                this.state.groups = [...this.state.groups];
+                console.log("[DGL] Applied stored selections from Pick Ticket (%d items)", sels.length);
+            }
+        } catch (e) {
+            console.warn("[DGL] Error applying stored selections:", e);
         }
     }
 
