@@ -99,7 +99,6 @@ class SaleDeliveryWizard(models.TransientModel):
 
         if pending_pt and pending_pt.line_ids:
             # ── Restore selection from existing Pick Ticket ──
-            # Build lookup: (product_id, lot_id) → qty from PT
             pt_line_map = {}
             for pt_line in pending_pt.line_ids:
                 key = (
@@ -114,7 +113,6 @@ class SaleDeliveryWizard(models.TransientModel):
                     'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else 0,
                 }
 
-            # Apply PT selection to grouped lines
             widget_sels = []
             for group in grouped:
                 for line in group.get('lines', []):
@@ -325,8 +323,6 @@ class SaleDeliveryWizard(models.TransientModel):
 
     def action_generate_pick_ticket(self):
         self.ensure_one()
-
-        # Always cancel previous prepared PTs
         self._cancel_previous_pick_tickets()
 
         try:
@@ -425,8 +421,42 @@ class SaleDeliveryWizard(models.TransientModel):
             return self._generate_remission_from_selections(sels)
         return self._generate_remission_from_lines()
 
+    def _resolve_current_picking_for_lot(self, order, product_id, lot_id):
+        """
+        Find the current active picking, move, and move_line for a
+        given (product, lot) pair by scanning the SO's live pickings.
+
+        Pickings/moves may have changed since the PT was created
+        (backorders, reassignments, state transitions), so we always
+        resolve from the current state of the SO's picking chain.
+        """
+        active_pickings = order.picking_ids.filtered(
+            lambda p: p.state in ('assigned', 'confirmed', 'waiting')
+            and p.picking_type_code in ('internal', 'outgoing')
+        )
+
+        for picking in active_pickings:
+            for move in picking.move_ids.filtered(
+                lambda m: m.product_id.id == product_id
+                and m.state not in ('done', 'cancel')
+            ):
+                if lot_id:
+                    for ml in move.move_line_ids:
+                        if ml.lot_id.id == lot_id:
+                            return picking.id, move.id, ml.id
+                else:
+                    ml = move.move_line_ids[:1]
+                    return picking.id, move.id, (ml.id if ml else 0)
+
+        return 0, 0, 0
+
     def _generate_remission_from_pick_ticket(self):
-        """Generate remission based on Pick Ticket lines (source of truth)."""
+        """Generate remission based on Pick Ticket lines (source of truth).
+
+        Critical: we resolve pickings/moves dynamically because the PT
+        may have been created hours/days ago and pickings change
+        (backorders, reassignments, etc.).
+        """
         pt = self.pick_ticket_id
         order = self.sale_order_id
 
@@ -436,25 +466,38 @@ class SaleDeliveryWizard(models.TransientModel):
                 raise UserError(_(
                     'Entrega bloqueada: pedido sin autorización de pago.'))
 
-        # Build selections from PT lines
         sels = []
         for pt_line in pt.line_ids:
             if pt_line.qty_selected <= 0:
                 continue
 
-            # Resolve picking from move
-            picking_id = 0
-            if pt_line.move_id and pt_line.move_id.picking_id:
-                picking_id = pt_line.move_id.picking_id.id
-            elif pt_line.move_line_id and pt_line.move_line_id.picking_id:
-                picking_id = pt_line.move_line_id.picking_id.id
+            product_id = pt_line.product_id.id
+            lot_id = pt_line.lot_id.id if pt_line.lot_id else 0
+
+            # ── Resolve CURRENT picking/move/ml for this lot ──
+            picking_id, move_id, move_line_id = \
+                self._resolve_current_picking_for_lot(order, product_id, lot_id)
+
+            # Fallback to PT stored values if live resolution failed
+            if not picking_id:
+                _logger.warning(
+                    '[REMISSION-PT] Could not resolve live picking for '
+                    'product=%s lot=%s — falling back to PT stored refs',
+                    pt_line.product_id.display_name,
+                    pt_line.lot_id.name if pt_line.lot_id else 'N/A')
+                if pt_line.move_id and pt_line.move_id.picking_id:
+                    picking_id = pt_line.move_id.picking_id.id
+                elif pt_line.move_line_id and pt_line.move_line_id.picking_id:
+                    picking_id = pt_line.move_line_id.picking_id.id
+                move_id = pt_line.move_id.id if pt_line.move_id else 0
+                move_line_id = pt_line.move_line_id.id if pt_line.move_line_id else 0
 
             sels.append({
                 'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else False,
-                'moveId': pt_line.move_id.id if pt_line.move_id else False,
-                'moveLineId': pt_line.move_line_id.id if pt_line.move_line_id else False,
-                'productId': pt_line.product_id.id,
-                'lotId': pt_line.lot_id.id if pt_line.lot_id else False,
+                'moveId': move_id or False,
+                'moveLineId': move_line_id or False,
+                'productId': product_id,
+                'lotId': lot_id or False,
                 'qty': pt_line.qty_selected,
                 'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else False,
                 'pickingId': picking_id,
@@ -464,7 +507,8 @@ class SaleDeliveryWizard(models.TransientModel):
             raise UserError(_('El Pick Ticket no tiene líneas válidas.'))
 
         _logger.info(
-            'Generating remission from Pick Ticket %s with %d lines',
+            'Generating remission from Pick Ticket %s with %d lines '
+            '(resolved live pickings)',
             pt.name, len(sels))
 
         return self._generate_remission_from_selections(sels)
