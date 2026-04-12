@@ -38,18 +38,15 @@ class SaleDeliveryDocument(models.Model):
     return_picking_id = fields.Many2one(
         'stock.picking', string='Picking de Devolución')
 
-    # Delivery info
     remission_number = fields.Char(
         string='Número de Remisión', readonly=True, copy=False)
     delivery_address = fields.Text(string='Dirección de Entrega')
     special_instructions = fields.Text(string='Instrucciones Especiales')
     delivery_date = fields.Datetime(string='Fecha de Entrega')
 
-    # Signature
     signed_by = fields.Char(string='Firmado por')
     signature_image = fields.Binary(string='Firma', attachment=True)
 
-    # Return specific
     return_reason_id = fields.Many2one(
         'sale.return.reason', string='Motivo de Devolución')
     return_action = fields.Selection([
@@ -58,17 +55,14 @@ class SaleDeliveryDocument(models.Model):
         ('finiquitar', 'Finiquitar'),
     ], string='Acción de Devolución')
 
-    # Photos
     attachment_ids = fields.Many2many(
         'ir.attachment', string='Evidencia Fotográfica')
     photo_count = fields.Integer(
         compute='_compute_photo_count', string='Fotos')
 
-    # Lines
     line_ids = fields.One2many(
         'sale.delivery.document.line', 'document_id', string='Líneas')
 
-    # Computed
     total_qty = fields.Float(
         compute='_compute_totals', string='Cantidad Total')
 
@@ -131,6 +125,13 @@ class SaleDeliveryDocument(models.Model):
                 'El picking %s no está en estado válido (estado: %s).',
                 picking.name, picking.state))
 
+        has_positive_qty = any((doc_ml_qty.get(ml_id, 0.0) or 0.0) > 0 for ml_id in doc_ml_ids)
+        if not has_positive_qty:
+            raise UserError(_(
+                'No puedes validar una transferencia con cantidad cero. '
+                'Establece cantidades primero.'
+            ))
+
         for move in picking.move_ids:
             for ml in move.move_line_ids:
                 if ml.id in doc_ml_ids:
@@ -172,6 +173,101 @@ class SaleDeliveryDocument(models.Model):
 
         return picking.state == 'done'
 
+    def _resolve_doc_move_lines_for_picking(self, picking):
+        """
+        Resuelve las move lines reales a validar para una remisión.
+
+        Problema que corrige:
+        - Cuando el wizard viene de sale_line.lot_ids, el documento puede traer
+          lot_id y qty_selected pero move_line_id vacío.
+        - Si validamos solo por move_line_id, Odoo termina con todas las qty en 0.
+
+        Estrategia:
+        1. Usar move_line_id directo si existe.
+        2. Si no existe, resolver por (product_id, lot_id) dentro del picking.
+        3. Si hay varias move lines para el mismo lote, repartir la cantidad.
+        """
+        self.ensure_one()
+
+        doc_ml_ids = set()
+        doc_ml_qty = {}
+        doc_lot_ids = set()
+        doc_lot_qty = {}
+
+        for doc_line in self.line_ids.filtered(lambda l: l.qty_selected > 0):
+            requested_qty = doc_line.qty_selected or 0.0
+            if requested_qty <= 0:
+                continue
+
+            if doc_line.lot_id:
+                doc_lot_ids.add(doc_line.lot_id.id)
+                doc_lot_qty[doc_line.lot_id.id] = doc_lot_qty.get(doc_line.lot_id.id, 0.0) + requested_qty
+
+            # Caso ideal: viene move_line_id directo
+            if doc_line.move_line_id and doc_line.move_line_id.picking_id == picking:
+                ml = doc_line.move_line_id
+                doc_ml_ids.add(ml.id)
+                doc_ml_qty[ml.id] = doc_ml_qty.get(ml.id, 0.0) + requested_qty
+                continue
+
+            # Fallback robusto: resolver por lote + producto dentro del picking
+            candidate_mls = picking.move_ids.move_line_ids.filtered(
+                lambda ml: ml.product_id == doc_line.product_id
+                and ml.lot_id == doc_line.lot_id
+                and ml.move_id.state not in ('done', 'cancel')
+            )
+
+            # Si no encontró por lot_id, último fallback por move_id
+            if not candidate_mls and doc_line.move_id:
+                candidate_mls = doc_line.move_id.move_line_ids.filtered(
+                    lambda ml: ml.picking_id == picking and ml.move_id.state not in ('done', 'cancel')
+                )
+
+            if not candidate_mls:
+                _logger.warning(
+                    '[REMISSION] No se encontró move line para doc_line=%s, product=%s, lot=%s, qty=%s en picking %s',
+                    doc_line.id,
+                    doc_line.product_id.display_name if doc_line.product_id else 'N/A',
+                    doc_line.lot_id.name if doc_line.lot_id else 'N/A',
+                    requested_qty,
+                    picking.name,
+                )
+                continue
+
+            remaining = requested_qty
+            for ml in candidate_mls.sorted(lambda m: (m.id,)):
+                if remaining <= 0:
+                    break
+
+                # Cantidad "base" sobre la que podemos asignar
+                base_qty = (
+                    ml.quantity
+                    or getattr(ml, 'reserved_uom_qty', 0.0)
+                    or ml.move_id.product_uom_qty
+                    or 0.0
+                )
+
+                assign_qty = min(remaining, base_qty) if base_qty > 0 else remaining
+                if assign_qty <= 0:
+                    continue
+
+                doc_ml_ids.add(ml.id)
+                doc_ml_qty[ml.id] = doc_ml_qty.get(ml.id, 0.0) + assign_qty
+                remaining -= assign_qty
+
+            # Si quedó remanente, lo cargamos al primer ML como fallback
+            if remaining > 0 and candidate_mls:
+                first_ml = candidate_mls[0]
+                doc_ml_ids.add(first_ml.id)
+                doc_ml_qty[first_ml.id] = doc_ml_qty.get(first_ml.id, 0.0) + remaining
+                _logger.info(
+                    '[REMISSION] Remanente %s asignado al primer move line %s para lote %s',
+                    remaining, first_ml.id,
+                    doc_line.lot_id.name if doc_line.lot_id else 'N/A',
+                )
+
+        return doc_ml_ids, doc_ml_qty, doc_lot_ids, doc_lot_qty
+
     def _action_confirm_remission(self):
         """Validate ONLY the selected lots/qty in the picking chain."""
         self.ensure_one()
@@ -181,17 +277,16 @@ class SaleDeliveryDocument(models.Model):
 
         picking = self.picking_id
 
-        doc_ml_ids = set()
-        doc_ml_qty = {}
-        doc_lot_ids = set()
-        doc_lot_qty = {}
-        for doc_line in self.line_ids:
-            if doc_line.move_line_id and doc_line.qty_selected > 0:
-                doc_ml_ids.add(doc_line.move_line_id.id)
-                doc_ml_qty[doc_line.move_line_id.id] = doc_line.qty_selected
-            if doc_line.lot_id and doc_line.qty_selected > 0:
-                doc_lot_ids.add(doc_line.lot_id.id)
-                doc_lot_qty[doc_line.lot_id.id] = doc_line.qty_selected
+        if picking.state in ('confirmed', 'waiting'):
+            picking.action_assign()
+
+        doc_ml_ids, doc_ml_qty, doc_lot_ids, doc_lot_qty = self._resolve_doc_move_lines_for_picking(picking)
+
+        if not doc_ml_ids:
+            raise UserError(_(
+                'No se pudieron resolver las líneas de movimiento a partir de los lotes seleccionados. '
+                'Verifica que los lotes estén realmente asignados en el picking antes de remisionar.'
+            ))
 
         self._validate_picking_partial(picking, doc_ml_ids, doc_ml_qty)
 
@@ -208,16 +303,19 @@ class SaleDeliveryDocument(models.Model):
             if out_picking.state == 'assigned':
                 out_doc_ml_ids = set()
                 out_doc_ml_qty = {}
+
                 for move in out_picking.move_ids:
                     for ml in move.move_line_ids:
                         lot_id = ml.lot_id.id if ml.lot_id else False
                         if lot_id and lot_id in doc_lot_ids:
                             out_doc_ml_ids.add(ml.id)
                             out_doc_ml_qty[ml.id] = doc_lot_qty.get(
-                                lot_id, ml.quantity)
+                                lot_id, ml.quantity
+                            )
 
-                self._validate_picking_partial(
-                    out_picking, out_doc_ml_ids, out_doc_ml_qty)
+                if out_doc_ml_ids:
+                    self._validate_picking_partial(
+                        out_picking, out_doc_ml_ids, out_doc_ml_qty)
             else:
                 _logger.warning(
                     'OUT %s not assignable (state: %s).',
@@ -321,22 +419,18 @@ class SaleDeliveryDocument(models.Model):
 
         picking = self.picking_id
 
-        # Generate remission number for the redelivery
         seq = self.env['ir.sequence'].next_by_code(
             'sale.delivery.remission') or '/'
         self.remission_number = seq
 
-        # Assign if needed
         if picking.state in ('confirmed', 'waiting'):
             picking.action_assign()
 
         if picking.state == 'assigned':
-            # Build ml lookup from document lines
             doc_ml_ids = set()
             doc_ml_qty = {}
             for doc_line in self.line_ids:
                 if doc_line.qty_selected > 0:
-                    # Find matching move line by lot
                     for move in picking.move_ids:
                         for ml in move.move_line_ids:
                             if doc_line.lot_id and ml.lot_id == doc_line.lot_id:
@@ -351,7 +445,6 @@ class SaleDeliveryDocument(models.Model):
                 self._validate_picking_partial(
                     picking, doc_ml_ids, doc_ml_qty)
             else:
-                # Fallback: validate all move lines
                 all_ml_ids = set()
                 all_ml_qty = {}
                 for move in picking.move_ids:
@@ -361,7 +454,6 @@ class SaleDeliveryDocument(models.Model):
                 self._validate_picking_partial(
                     picking, all_ml_ids, all_ml_qty)
         else:
-            # Force quantities and validate
             for move in picking.move_ids:
                 qty = sum(
                     dl.qty_selected for dl in self.line_ids
@@ -388,7 +480,6 @@ class SaleDeliveryDocument(models.Model):
                     ).create({'pick_ids': [(4, picking.id)]})
                     immediate_wiz.process()
 
-        # Update document lines with qty_done
         for doc_line in self.line_ids:
             doc_line.qty_done = doc_line.qty_selected
 
