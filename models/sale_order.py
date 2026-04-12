@@ -5,14 +5,12 @@ from odoo import api, fields, models, _
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
-    # ── Delivery documents ──
     delivery_document_ids = fields.One2many(
         'sale.delivery.document',
         'sale_order_id',
         string='Documentos de Entrega',
     )
 
-    # ── Computed summary ──
     x_total_assigned_qty = fields.Float(
         compute='_compute_delivery_summary',
         string='Total Asignado',
@@ -42,7 +40,6 @@ class SaleOrder(models.Model):
         string='Fulfillment Neto %',
     )
 
-    # ── Counts ──
     x_delivery_document_count = fields.Integer(
         compute='_compute_document_counts',
         string='Documentos',
@@ -122,7 +119,6 @@ class SaleOrder(models.Model):
                 )
             )
 
-    # ─── RPC for grouped list widget (before wizard is saved) ────────
     def get_delivery_grouped_data(self, mode='delivery'):
         self.ensure_one()
 
@@ -139,7 +135,57 @@ class SaleOrder(models.Model):
             return quant.available_quantity or 0.0
         return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
 
+    def _ml_pending_qty(self, ml):
+        """
+        Cantidad pendiente utilizable para el wizard.
+        Prioriza reservado/cantidad actual de la move line.
+        """
+        return (
+            ml.quantity
+            or getattr(ml, 'reserved_uom_qty', 0.0)
+            or 0.0
+        )
+
+    def _move_pending_qty(self, move):
+        """
+        Cantidad pendiente del move a partir de lo ya entregado.
+        """
+        demanded = move.product_uom_qty or 0.0
+        done = 0.0
+        for ml in move.move_line_ids:
+            if ml.move_id.state == 'done' or ml.picking_id.state == 'done':
+                done += (ml.quantity or getattr(ml, 'qty_done', 0.0) or 0.0)
+        pending = demanded - done
+        return max(pending, 0.0)
+
+    def _append_group_line(self, groups_map, pid, pname, line_dict):
+        if pid not in groups_map:
+            groups_map[pid] = {
+                'productId': pid,
+                'productName': pname,
+                'lines': [],
+                'totalQty': 0.0,
+                'selectedCount': 0,
+                'lineCount': 0,
+            }
+
+        group = groups_map[pid]
+        group['lines'].append(line_dict)
+        group['lineCount'] += 1
+        group['totalQty'] += line_dict.get('qtyToDeliver', 0.0) or 0.0
+        if line_dict.get('isSelected'):
+            group['selectedCount'] += 1
+
     def _build_delivery_groups(self):
+        """
+        Build delivery groups ONLY from pending/open pickings.
+
+        Regla clave:
+        - No volver a usar toda la selección histórica de sale_line.lot_ids
+          si el picking ya avanzó.
+        - Mostrar solo lo pendiente de entregar.
+        """
+        self.ensure_one()
         groups_map = OrderedDict()
         Quant = self.env['stock.quant']
 
@@ -154,25 +200,68 @@ class SaleOrder(models.Model):
             ):
                 pid = move.product_id.id
                 pname = move.product_id.display_name
-
-                if pid not in groups_map:
-                    groups_map[pid] = {
-                        'productId': pid,
-                        'productName': pname,
-                        'lines': [],
-                        'totalQty': 0.0,
-                        'selectedCount': 0,
-                        'lineCount': 0,
-                    }
-                group = groups_map[pid]
-
                 sale_line = move.sale_line_id
-                lots_used = False
+
+                # 1) PRIMERO: usar move_line_ids reales del picking abierto
+                pending_mls = move.move_line_ids.filtered(
+                    lambda ml: (
+                        (ml.lot_id or ml.product_id)
+                        and ml.picking_id == picking
+                        and ml.move_id.state not in ('done', 'cancel')
+                        and self._ml_pending_qty(ml) > 0
+                    )
+                )
+
+                if pending_mls:
+                    seen = set()
+                    for ml in pending_mls:
+                        key = (
+                            picking.id,
+                            move.id,
+                            ml.id,
+                            ml.lot_id.id if ml.lot_id else 0,
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        qty_pending = self._ml_pending_qty(ml)
+                        if qty_pending <= 0:
+                            continue
+
+                        ld = {
+                            'dbId': 0,
+                            'lotId': ml.lot_id.id if ml.lot_id else 0,
+                            'lotName': ml.lot_id.name if ml.lot_id else '',
+                            'productId': pid,
+                            'productName': pname,
+                            'pickingId': picking.id,
+                            'moveId': move.id,
+                            'moveLineId': ml.id,
+                            'saleLineId': sale_line.id if sale_line else 0,
+                            'isSelected': qty_pending > 0,
+                            'qtyAvailable': qty_pending,
+                            'qtyToDeliver': qty_pending,
+                            'sourceLocation': ml.location_id.display_name if ml.location_id else '',
+                            'sourceLocationId': ml.location_id.id if ml.location_id else 0,
+                        }
+                        self._append_group_line(groups_map, pid, pname, ld)
+                    continue
+
+                # 2) FALLBACK: si todavía no hay move lines, usar sale_line.lot_ids
+                # pero SOLO si el move sigue teniendo pendiente
+                move_pending = self._move_pending_qty(move)
+                if move_pending <= 0:
+                    continue
 
                 if sale_line and hasattr(sale_line, 'lot_ids') and sale_line.lot_ids:
                     seen = set()
+                    remaining_to_allocate = move_pending
 
                     for lot in sale_line.lot_ids:
+                        if remaining_to_allocate <= 0:
+                            break
+
                         quants = Quant.search(
                             [
                                 ('product_id', '=', pid),
@@ -183,26 +272,6 @@ class SaleOrder(models.Model):
                             order='location_id',
                         )
 
-                        if not quants:
-                            group['lines'].append({
-                                'dbId': 0,
-                                'lotId': lot.id,
-                                'lotName': lot.name or '',
-                                'productId': pid,
-                                'productName': pname,
-                                'pickingId': picking.id,
-                                'moveId': move.id,
-                                'moveLineId': 0,
-                                'saleLineId': sale_line.id if sale_line else 0,
-                                'isSelected': False,
-                                'qtyAvailable': 0.0,
-                                'qtyToDeliver': 0.0,
-                                'sourceLocation': '',
-                                'sourceLocationId': 0,
-                            })
-                            group['lineCount'] += 1
-                            continue
-
                         for quant in quants:
                             key = (move.id, lot.id, quant.location_id.id)
                             if key in seen:
@@ -210,6 +279,13 @@ class SaleOrder(models.Model):
                             seen.add(key)
 
                             qty_avail = self._safe_quant_available(quant)
+                            if qty_avail <= 0:
+                                continue
+
+                            qty_pending = min(qty_avail, remaining_to_allocate)
+                            if qty_pending <= 0:
+                                continue
+
                             ld = {
                                 'dbId': 0,
                                 'lotId': lot.id,
@@ -220,51 +296,19 @@ class SaleOrder(models.Model):
                                 'moveId': move.id,
                                 'moveLineId': 0,
                                 'saleLineId': sale_line.id if sale_line else 0,
-                                'isSelected': qty_avail > 0,
-                                'qtyAvailable': qty_avail,
-                                'qtyToDeliver': qty_avail if qty_avail > 0 else 0.0,
+                                'isSelected': qty_pending > 0,
+                                'qtyAvailable': qty_pending,
+                                'qtyToDeliver': qty_pending,
                                 'sourceLocation': quant.location_id.display_name or '',
                                 'sourceLocationId': quant.location_id.id or 0,
                             }
-                            group['lines'].append(ld)
-                            group['lineCount'] += 1
-                            group['totalQty'] += ld['qtyToDeliver']
-                            if ld['isSelected']:
-                                group['selectedCount'] += 1
-                            lots_used = True
+                            self._append_group_line(groups_map, pid, pname, ld)
+                            remaining_to_allocate -= qty_pending
 
-                if not lots_used:
-                    for ml in move.move_line_ids:
-                        lot_id = ml.lot_id.id if ml.lot_id else 0
-                        qty = ml.quantity or getattr(ml, 'reserved_uom_qty', 0.0) or 0.0
-                        if not lot_id and not qty:
-                            continue
+                    continue
 
-                        ld = {
-                            'dbId': 0,
-                            'lotId': lot_id,
-                            'lotName': ml.lot_id.name if ml.lot_id else '',
-                            'productId': pid,
-                            'productName': pname,
-                            'pickingId': picking.id,
-                            'moveId': move.id,
-                            'moveLineId': ml.id,
-                            'saleLineId': sale_line.id if sale_line else 0,
-                            'isSelected': qty > 0,
-                            'qtyAvailable': qty,
-                            'qtyToDeliver': qty if qty > 0 else 0.0,
-                            'sourceLocation': ml.location_id.display_name if ml.location_id else '',
-                            'sourceLocationId': ml.location_id.id if ml.location_id else 0,
-                        }
-                        group['lines'].append(ld)
-                        group['lineCount'] += 1
-                        group['totalQty'] += ld['qtyToDeliver']
-                        if ld['isSelected']:
-                            group['selectedCount'] += 1
-                        lots_used = True
-
-                if not lots_used:
-                    qty = move.product_uom_qty or 0.0
+                # 3) Último fallback: sin lotes, solo producto pendiente
+                if move_pending > 0:
                     ld = {
                         'dbId': 0,
                         'lotId': 0,
@@ -275,18 +319,15 @@ class SaleOrder(models.Model):
                         'moveId': move.id,
                         'moveLineId': 0,
                         'saleLineId': sale_line.id if sale_line else 0,
-                        'isSelected': qty > 0,
-                        'qtyAvailable': qty,
-                        'qtyToDeliver': qty,
+                        'isSelected': True,
+                        'qtyAvailable': move_pending,
+                        'qtyToDeliver': move_pending,
                         'sourceLocation': move.location_id.display_name if move.location_id else '',
                         'sourceLocationId': move.location_id.id if move.location_id else 0,
                     }
-                    group['lines'].append(ld)
-                    group['lineCount'] += 1
-                    group['totalQty'] += qty
-                    if qty > 0:
-                        group['selectedCount'] += 1
+                    self._append_group_line(groups_map, pid, pname, ld)
 
+        # Solo grupos con líneas efectivamente pendientes
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     def _build_return_groups(self):
@@ -390,8 +431,6 @@ class SaleOrder(models.Model):
                     group['totalQty'] += ld['qty']
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
-
-    # ── Action buttons ──
 
     def action_open_delivery_wizard(self):
         self.ensure_one()
