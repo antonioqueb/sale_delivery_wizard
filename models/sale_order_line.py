@@ -36,6 +36,8 @@ class SaleOrder(models.Model):
         compute='_compute_document_counts', string='Reentregas')
     x_redelivery_pending_count = fields.Integer(
         compute='_compute_document_counts', string='Reentregas Pendientes')
+    x_returned_qty = fields.Float(string="Cantidad Devuelta", default=0.0)
+
 
     @api.depends(
         'order_line.product_uom_qty',
