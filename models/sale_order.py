@@ -7,38 +7,66 @@ class SaleOrder(models.Model):
 
     # ── Delivery documents ──
     delivery_document_ids = fields.One2many(
-        'sale.delivery.document', 'sale_order_id',
-        string='Documentos de Entrega')
+        'sale.delivery.document',
+        'sale_order_id',
+        string='Documentos de Entrega',
+    )
 
     # ── Computed summary ──
     x_total_assigned_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Total Asignado')
+        compute='_compute_delivery_summary',
+        string='Total Asignado',
+    )
     x_total_delivered_gross_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Entregado Bruto')
+        compute='_compute_delivery_summary',
+        string='Entregado Bruto',
+    )
     x_total_returned_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Devuelto')
+        compute='_compute_delivery_summary',
+        string='Devuelto',
+    )
     x_total_delivered_net_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Entregado Neto')
+        compute='_compute_delivery_summary',
+        string='Entregado Neto',
+    )
     x_total_pending_delivery_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Pendiente Entrega')
+        compute='_compute_delivery_summary',
+        string='Pendiente Entrega',
+    )
     x_total_demand_qty = fields.Float(
-        compute='_compute_delivery_summary', string='Demanda Total')
+        compute='_compute_delivery_summary',
+        string='Demanda Total',
+    )
     x_fulfillment_net_pct = fields.Float(
-        compute='_compute_delivery_summary', string='Fulfillment Neto %')
+        compute='_compute_delivery_summary',
+        string='Fulfillment Neto %',
+    )
 
     # ── Counts ──
     x_delivery_document_count = fields.Integer(
-        compute='_compute_document_counts', string='Documentos')
+        compute='_compute_document_counts',
+        string='Documentos',
+    )
     x_remission_count = fields.Integer(
-        compute='_compute_document_counts', string='Remisiones')
+        compute='_compute_document_counts',
+        string='Remisiones',
+    )
     x_return_count = fields.Integer(
-        compute='_compute_document_counts', string='Devoluciones')
+        compute='_compute_document_counts',
+        string='Devoluciones',
+    )
     x_pick_ticket_count = fields.Integer(
-        compute='_compute_document_counts', string='Pick Tickets')
+        compute='_compute_document_counts',
+        string='Pick Tickets',
+    )
     x_redelivery_count = fields.Integer(
-        compute='_compute_document_counts', string='Reentregas')
+        compute='_compute_document_counts',
+        string='Reentregas',
+    )
     x_redelivery_pending_count = fields.Integer(
-        compute='_compute_document_counts', string='Reentregas Pendientes')
+        compute='_compute_document_counts',
+        string='Reentregas Pendientes',
+    )
 
     @api.depends(
         'order_line.product_uom_qty',
@@ -48,7 +76,8 @@ class SaleOrder(models.Model):
     def _compute_delivery_summary(self):
         for order in self:
             lines = order.order_line.filtered(
-                lambda l: l.product_id.type != 'service')
+                lambda l: l.product_id.type != 'service'
+            )
             demand = sum(lines.mapped('product_uom_qty'))
             assigned = sum(lines.mapped('product_uom_qty'))
             delivered_net = sum(lines.mapped('qty_delivered'))
@@ -59,44 +88,49 @@ class SaleOrder(models.Model):
             order.x_total_assigned_qty = assigned
             order.x_total_delivered_gross_qty = delivered_net + returned
             order.x_total_returned_qty = returned
-            order.x_total_delivered_net_qty = max(delivered_net, 0)
-            order.x_total_pending_delivery_qty = max(pending, 0)
+            order.x_total_delivered_net_qty = max(delivered_net, 0.0)
+            order.x_total_pending_delivery_qty = max(pending, 0.0)
             order.x_fulfillment_net_pct = (
-                (delivered_net / demand * 100) if demand else 0.0)
+                (delivered_net / demand * 100.0) if demand else 0.0
+            )
 
-    @api.depends('delivery_document_ids',
-                 'delivery_document_ids.document_type',
-                 'delivery_document_ids.state')
+    @api.depends(
+        'delivery_document_ids',
+        'delivery_document_ids.document_type',
+        'delivery_document_ids.state',
+    )
     def _compute_document_counts(self):
         for order in self:
             docs = order.delivery_document_ids
             order.x_delivery_document_count = len(docs)
             order.x_remission_count = len(
-                docs.filtered(lambda d: d.document_type == 'remission'))
+                docs.filtered(lambda d: d.document_type == 'remission')
+            )
             order.x_return_count = len(
-                docs.filtered(lambda d: d.document_type == 'return'))
+                docs.filtered(lambda d: d.document_type == 'return')
+            )
             order.x_pick_ticket_count = len(
-                docs.filtered(lambda d: d.document_type == 'pick_ticket'))
+                docs.filtered(lambda d: d.document_type == 'pick_ticket')
+            )
             order.x_redelivery_count = len(
-                docs.filtered(lambda d: d.document_type == 'redelivery'))
+                docs.filtered(lambda d: d.document_type == 'redelivery')
+            )
             order.x_redelivery_pending_count = len(
                 docs.filtered(
                     lambda d: d.document_type == 'redelivery'
-                    and d.state in ('draft', 'prepared')))
+                    and d.state in ('draft', 'prepared')
+                )
+            )
 
     # ─── RPC for grouped list widget (before wizard is saved) ────────
     def get_delivery_grouped_data(self, mode='delivery'):
-        """Build grouped line data directly from the sale order,
-        without needing a persisted wizard. Called by the JS widget
-        when the wizard hasn't been saved yet.
-        """
         self.ensure_one()
 
         if mode == 'delivery':
             return self._build_delivery_groups()
-        elif mode == 'return':
+        if mode == 'return':
             return self._build_return_groups()
-        elif mode == 'swap':
+        if mode == 'swap':
             return self._build_swap_groups()
         return []
 
@@ -106,7 +140,6 @@ class SaleOrder(models.Model):
         return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
 
     def _build_delivery_groups(self):
-        """Build delivery groups from pending pickings."""
         groups_map = OrderedDict()
         Quant = self.env['stock.quant']
 
@@ -117,7 +150,8 @@ class SaleOrder(models.Model):
 
         for picking in pickings:
             for move in picking.move_ids.filtered(
-                    lambda m: m.state not in ('done', 'cancel')):
+                lambda m: m.state not in ('done', 'cancel')
+            ):
                 pid = move.product_id.id
                 pname = move.product_id.display_name
 
@@ -126,24 +160,28 @@ class SaleOrder(models.Model):
                         'productId': pid,
                         'productName': pname,
                         'lines': [],
-                        'totalQty': 0,
+                        'totalQty': 0.0,
                         'selectedCount': 0,
                         'lineCount': 0,
                     }
                 group = groups_map[pid]
 
-                # Try sale_line lots first
                 sale_line = move.sale_line_id
                 lots_used = False
+
                 if sale_line and hasattr(sale_line, 'lot_ids') and sale_line.lot_ids:
                     seen = set()
+
                     for lot in sale_line.lot_ids:
-                        quants = Quant.search([
-                            ('product_id', '=', pid),
-                            ('lot_id', '=', lot.id),
-                            ('location_id.usage', '=', 'internal'),
-                            ('quantity', '>', 0),
-                        ], order='location_id')
+                        quants = Quant.search(
+                            [
+                                ('product_id', '=', pid),
+                                ('lot_id', '=', lot.id),
+                                ('location_id.usage', '=', 'internal'),
+                                ('quantity', '>', 0),
+                            ],
+                            order='location_id',
+                        )
 
                         if not quants:
                             group['lines'].append({
@@ -152,10 +190,15 @@ class SaleOrder(models.Model):
                                 'lotName': lot.name or '',
                                 'productId': pid,
                                 'productName': pname,
+                                'pickingId': picking.id,
+                                'moveId': move.id,
+                                'moveLineId': 0,
+                                'saleLineId': sale_line.id if sale_line else 0,
                                 'isSelected': False,
-                                'qtyAvailable': 0,
-                                'qtyToDeliver': 0,
+                                'qtyAvailable': 0.0,
+                                'qtyToDeliver': 0.0,
                                 'sourceLocation': '',
+                                'sourceLocationId': 0,
                             })
                             group['lineCount'] += 1
                             continue
@@ -165,6 +208,7 @@ class SaleOrder(models.Model):
                             if key in seen:
                                 continue
                             seen.add(key)
+
                             qty_avail = self._safe_quant_available(quant)
                             ld = {
                                 'dbId': 0,
@@ -172,10 +216,15 @@ class SaleOrder(models.Model):
                                 'lotName': lot.name or '',
                                 'productId': pid,
                                 'productName': pname,
+                                'pickingId': picking.id,
+                                'moveId': move.id,
+                                'moveLineId': 0,
+                                'saleLineId': sale_line.id if sale_line else 0,
                                 'isSelected': qty_avail > 0,
                                 'qtyAvailable': qty_avail,
-                                'qtyToDeliver': qty_avail if qty_avail > 0 else 0,
+                                'qtyToDeliver': qty_avail if qty_avail > 0 else 0.0,
                                 'sourceLocation': quant.location_id.display_name or '',
+                                'sourceLocationId': quant.location_id.id or 0,
                             }
                             group['lines'].append(ld)
                             group['lineCount'] += 1
@@ -185,22 +234,27 @@ class SaleOrder(models.Model):
                             lots_used = True
 
                 if not lots_used:
-                    # Fallback to move lines
                     for ml in move.move_line_ids:
                         lot_id = ml.lot_id.id if ml.lot_id else 0
-                        qty = ml.quantity or getattr(ml, 'reserved_uom_qty', 0) or 0
+                        qty = ml.quantity or getattr(ml, 'reserved_uom_qty', 0.0) or 0.0
                         if not lot_id and not qty:
                             continue
+
                         ld = {
                             'dbId': 0,
                             'lotId': lot_id,
                             'lotName': ml.lot_id.name if ml.lot_id else '',
                             'productId': pid,
                             'productName': pname,
+                            'pickingId': picking.id,
+                            'moveId': move.id,
+                            'moveLineId': ml.id,
+                            'saleLineId': sale_line.id if sale_line else 0,
                             'isSelected': qty > 0,
                             'qtyAvailable': qty,
-                            'qtyToDeliver': qty if qty > 0 else 0,
+                            'qtyToDeliver': qty if qty > 0 else 0.0,
                             'sourceLocation': ml.location_id.display_name if ml.location_id else '',
+                            'sourceLocationId': ml.location_id.id if ml.location_id else 0,
                         }
                         group['lines'].append(ld)
                         group['lineCount'] += 1
@@ -210,17 +264,22 @@ class SaleOrder(models.Model):
                         lots_used = True
 
                 if not lots_used:
-                    qty = move.product_uom_qty or 0
+                    qty = move.product_uom_qty or 0.0
                     ld = {
                         'dbId': 0,
                         'lotId': 0,
                         'lotName': '',
                         'productId': pid,
                         'productName': pname,
+                        'pickingId': picking.id,
+                        'moveId': move.id,
+                        'moveLineId': 0,
+                        'saleLineId': sale_line.id if sale_line else 0,
                         'isSelected': qty > 0,
                         'qtyAvailable': qty,
                         'qtyToDeliver': qty,
-                        'sourceLocation': '',
+                        'sourceLocation': move.location_id.display_name if move.location_id else '',
+                        'sourceLocationId': move.location_id.id if move.location_id else 0,
                     }
                     group['lines'].append(ld)
                     group['lineCount'] += 1
@@ -231,11 +290,11 @@ class SaleOrder(models.Model):
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     def _build_return_groups(self):
-        """Build return groups from done outgoing pickings."""
         groups_map = OrderedDict()
 
         for picking in self.picking_ids.filtered(
-                lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'):
+            lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'
+        ):
             for move in picking.move_ids.filtered(lambda m: m.state == 'done'):
                 pid = move.product_id.id
                 pname = move.product_id.display_name
@@ -245,22 +304,28 @@ class SaleOrder(models.Model):
                         'productId': pid,
                         'productName': pname,
                         'lines': [],
-                        'totalQty': 0,
+                        'totalQty': 0.0,
                         'selectedCount': 0,
                         'lineCount': 0,
                     }
                 group = groups_map[pid]
 
                 for ml in move.move_line_ids:
-                    qty = ml.quantity or ml.qty_done or 0
+                    qty = ml.quantity or ml.qty_done or 0.0
                     if qty <= 0:
                         continue
+
                     ld = {
                         'dbId': 0,
                         'lotId': ml.lot_id.id if ml.lot_id else 0,
                         'lotName': ml.lot_id.name if ml.lot_id else '',
                         'productId': pid,
                         'productName': pname,
+                        'pickingId': picking.id,
+                        'moveId': move.id,
+                        'moveLineId': ml.id,
+                        'saleLineId': move.sale_line_id.id if move.sale_line_id else 0,
+                        'sourceLocationId': ml.location_dest_id.id if ml.location_dest_id else 0,
                         'isSelected': True,
                         'qtyDelivered': qty,
                         'qtyToReturn': qty,
@@ -273,17 +338,19 @@ class SaleOrder(models.Model):
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     def _build_swap_groups(self):
-        """Build swap groups from assigned pickings with lots."""
         groups_map = OrderedDict()
 
         for picking in self.picking_ids.filtered(
-                lambda p: p.state in ('assigned', 'confirmed')
-                and p.picking_type_code in ('outgoing', 'internal')):
+            lambda p: p.state in ('assigned', 'confirmed')
+            and p.picking_type_code in ('outgoing', 'internal')
+        ):
             for move in picking.move_ids.filtered(
-                    lambda m: m.state in ('assigned', 'confirmed')):
+                lambda m: m.state in ('assigned', 'confirmed')
+            ):
                 for ml in move.move_line_ids:
                     if not ml.lot_id:
                         continue
+
                     pid = move.product_id.id
                     pname = move.product_id.display_name
                     lot = ml.lot_id
@@ -293,7 +360,7 @@ class SaleOrder(models.Model):
                             'productId': pid,
                             'productName': pname,
                             'lines': [],
-                            'totalQty': 0,
+                            'totalQty': 0.0,
                             'selectedCount': 0,
                             'lineCount': 0,
                         }
@@ -303,16 +370,20 @@ class SaleOrder(models.Model):
                         'dbId': 0,
                         'productId': pid,
                         'productName': pname,
+                        'pickingId': picking.id,
+                        'moveId': move.id,
+                        'moveLineId': ml.id,
+                        'saleLineId': move.sale_line_id.id if move.sale_line_id else 0,
                         'originLotId': lot.id,
                         'originLotName': lot.name or '',
                         'originBloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
                         'originAlto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
                         'originAncho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
-                        'qty': ml.quantity or move.product_uom_qty or 0,
+                        'qty': ml.quantity or move.product_uom_qty or 0.0,
                         'targetLotId': 0,
                         'targetLotName': '',
                         'targetBloque': '',
-                        'targetQty': 0,
+                        'targetQty': 0.0,
                     }
                     group['lines'].append(ld)
                     group['lineCount'] += 1
@@ -326,16 +397,16 @@ class SaleOrder(models.Model):
         self.ensure_one()
         if self.state not in ('sale', 'done'):
             from odoo.exceptions import UserError
-            raise UserError(_(
-                'Solo puede entregar pedidos confirmados.'))
+            raise UserError(_('Solo puede entregar pedidos confirmados.'))
         if hasattr(self, 'delivery_auth_state'):
             if self.delivery_auth_state == 'pending':
                 if not self.env.user.has_group(
-                        'sale_delivery_wizard.group_delivery_authorizer'):
+                    'sale_delivery_wizard.group_delivery_authorizer'
+                ):
                     from odoo.exceptions import UserError
-                    raise UserError(_(
-                        'Este pedido no tiene autorización de entrega. '
-                        'Contacte a un autorizador.'))
+                    raise UserError(
+                        _('Este pedido no tiene autorización de entrega. Contacte a un autorizador.')
+                    )
         return {
             'name': _('Entregar Material'),
             'type': 'ir.actions.act_window',
