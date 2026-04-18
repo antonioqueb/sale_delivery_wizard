@@ -333,6 +333,24 @@ class SaleReturnWizard(models.TransientModel):
                 ).create({'pick_ids': [(4, picking.id)]})
                 immediate_wiz.process()
 
+    def _resolve_source_location(self, lot_id, product_id, parent_location_id):
+        """Encuentra la sub-ubicacion real donde vive el quant del lote."""
+        Quant = self.env['stock.quant']
+        quant = Quant.search([
+            ('lot_id', '=', lot_id),
+            ('product_id', '=', product_id),
+            ('location_id', 'child_of', parent_location_id),
+            ('quantity', '>', 0),
+        ], limit=1)
+        if not quant:
+            quant = Quant.search([
+                ('lot_id', '=', lot_id),
+                ('product_id', '=', product_id),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '>', 0),
+            ], limit=1)
+        return quant.location_id.id if quant else parent_location_id
+
     def _action_reagendar_from_sels(self, order, sels):
         """Create redelivery picking from selections."""
         warehouse = order.warehouse_id
@@ -384,12 +402,15 @@ class SaleReturnWizard(models.TransientModel):
             move_map[sale_line_id] = move
             for s in sel_group:
                 if s.get('lotId'):
+                    source_loc_id = self._resolve_source_location(
+                        s['lotId'], product_id, new_picking.location_id.id
+                    )
                     self.env['stock.move.line'].create({
                         'move_id': move.id,
                         'product_id': product_id,
                         'lot_id': s['lotId'],
                         'quantity': s['qty'],
-                        'location_id': new_picking.location_id.id,
+                        'location_id': source_loc_id,
                         'location_dest_id': new_picking.location_dest_id.id,
                         'picking_id': new_picking.id,
                     })
@@ -575,12 +596,15 @@ class SaleReturnWizard(models.TransientModel):
             move_map[sale_line_id] = move
             for wl in wls:
                 if wl.lot_id:
+                    source_loc_id = self._resolve_source_location(
+                        wl.lot_id.id, product_id, new_picking.location_id.id
+                    )
                     self.env['stock.move.line'].create({
                         'move_id': move.id,
                         'product_id': product_id,
                         'lot_id': wl.lot_id.id,
                         'quantity': wl.qty_to_return,
-                        'location_id': new_picking.location_id.id,
+                        'location_id': source_loc_id,
                         'location_dest_id': new_picking.location_dest_id.id,
                         'picking_id': new_picking.id,
                     })
