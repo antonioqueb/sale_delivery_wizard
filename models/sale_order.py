@@ -228,6 +228,8 @@ class SaleOrder(models.Model):
         - No volver a usar toda la selección histórica de sale_line.lot_ids
           si el picking ya avanzó.
         - Mostrar solo lo pendiente de entregar.
+        - Las líneas se devuelven SIN seleccionar (isSelected=False, qtyToDeliver=0).
+          El usuario debe seleccionar manualmente lo que quiere entregar.
         """
         self.ensure_one()
         groups_map = OrderedDict()
@@ -283,9 +285,9 @@ class SaleOrder(models.Model):
                             'moveId': move.id,
                             'moveLineId': ml.id,
                             'saleLineId': sale_line.id if sale_line else 0,
-                            'isSelected': qty_pending > 0,
+                            'isSelected': False,
                             'qtyAvailable': qty_pending,
-                            'qtyToDeliver': qty_pending,
+                            'qtyToDeliver': 0,
                             'sourceLocation': ml.location_id.display_name if ml.location_id else '',
                             'sourceLocationId': ml.location_id.id if ml.location_id else 0,
                         }
@@ -340,9 +342,9 @@ class SaleOrder(models.Model):
                                 'moveId': move.id,
                                 'moveLineId': 0,
                                 'saleLineId': sale_line.id if sale_line else 0,
-                                'isSelected': qty_pending > 0,
+                                'isSelected': False,
                                 'qtyAvailable': qty_pending,
-                                'qtyToDeliver': qty_pending,
+                                'qtyToDeliver': 0,
                                 'sourceLocation': quant.location_id.display_name or '',
                                 'sourceLocationId': quant.location_id.id or 0,
                             }
@@ -363,9 +365,9 @@ class SaleOrder(models.Model):
                         'moveId': move.id,
                         'moveLineId': 0,
                         'saleLineId': sale_line.id if sale_line else 0,
-                        'isSelected': True,
+                        'isSelected': False,
                         'qtyAvailable': move_pending,
-                        'qtyToDeliver': move_pending,
+                        'qtyToDeliver': 0,
                         'sourceLocation': move.location_id.display_name if move.location_id else '',
                         'sourceLocationId': move.location_id.id if move.location_id else 0,
                     }
@@ -375,6 +377,10 @@ class SaleOrder(models.Model):
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     def _build_return_groups(self):
+        """
+        Las líneas de devolución se devuelven SIN seleccionar.
+        El usuario marca manualmente qué lotes quiere devolver.
+        """
         groups_map = OrderedDict()
 
         for picking in self.picking_ids.filtered(
@@ -411,14 +417,12 @@ class SaleOrder(models.Model):
                         'moveLineId': ml.id,
                         'saleLineId': move.sale_line_id.id if move.sale_line_id else 0,
                         'sourceLocationId': ml.location_dest_id.id if ml.location_dest_id else 0,
-                        'isSelected': True,
+                        'isSelected': False,
                         'qtyDelivered': qty,
-                        'qtyToReturn': qty,
+                        'qtyToReturn': 0,
                     }
                     group['lines'].append(ld)
                     group['lineCount'] += 1
-                    group['totalQty'] += qty
-                    group['selectedCount'] += 1
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 

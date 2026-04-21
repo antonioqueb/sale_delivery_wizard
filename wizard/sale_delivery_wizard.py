@@ -81,6 +81,16 @@ class SaleDeliveryWizard(models.TransientModel):
         return res
 
     def _prepare_default_wizard_vals(self, order):
+        """
+        Build initial wizard values.
+
+        Behavior:
+        - With a prepared Pick Ticket: restore the PT selection so the
+          user sees what was previously chosen and can modify it.
+        - Without a Pick Ticket (fresh delivery): ALL lines arrive
+          deselected (isSelected=False, qtyToDeliver=0). The user must
+          explicitly pick what to deliver.
+        """
         delivery_address = order.partner_shipping_id.contact_address or ''
         pending_pt = self.env['sale.delivery.document'].search([
             ('sale_order_id', '=', order.id),
@@ -143,6 +153,16 @@ class SaleDeliveryWizard(models.TransientModel):
             vals['widget_selections'] = json.dumps(widget_sels)
             vals['wizard_state'] = 'pick_ticket'
             vals['pick_ticket_id'] = pending_pt.id
+        else:
+            # ── No Pick Ticket: force ALL lines deselected ──
+            # Defensive override: even if _build_delivery_groups returns
+            # them pre-selected (legacy code, cache, future regression),
+            # a fresh delivery wizard always starts empty so the user
+            # picks consciously what to deliver.
+            for group in grouped:
+                for line in group.get('lines', []):
+                    line['isSelected'] = False
+                    line['qtyToDeliver'] = 0
 
         vals['line_ids'] = self._groups_to_line_commands(grouped)
         return vals
