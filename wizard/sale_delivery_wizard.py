@@ -452,34 +452,67 @@ class SaleDeliveryWizard(models.TransientModel):
         return selected
 
     # ═══════════════════════════════════════════════════════════════════
-    # SELECTOR INTEGRADO DE PT — cambia el mismo wizard de estado
+    # SELECTOR INTEGRADO DE PT — llamado desde el componente OWL
     # ═══════════════════════════════════════════════════════════════════
 
-    def action_load_pt_by_id(self, pt_id):
+    @api.model
+    def action_load_pt_from_cards(self, sale_order_id, pt_id, current_wizard_id=0):
         """
-        Carga un PT específico por ID dentro del mismo wizard.
         Llamado desde el componente OWL `pt_selector_cards` al hacer click
-        en una tarjeta. NO abre un wizard nuevo — recarga el actual con las
-        líneas del PT seleccionado y cambia a estado 'pick_ticket'.
+        en una tarjeta. NO requiere que el wizard esté persistido en BD.
+
+        Si current_wizard_id se pasa y es válido, se reutiliza ese wizard.
+        Si no, se crea uno nuevo. En ambos casos se carga el PT en modo
+        edición y se retorna una act_window apuntando al wizard final.
         """
-        self.ensure_one()
-        if not pt_id:
-            raise UserError(_('Pick Ticket no válido.'))
+        if not sale_order_id or not pt_id:
+            raise UserError(_('Parámetros inválidos.'))
 
         pt = self.env['sale.delivery.document'].browse(pt_id)
         if not pt.exists() or pt.state != 'prepared':
             raise UserError(_(
                 'El Pick Ticket ya no está disponible para edición.'))
 
-        self.line_ids.unlink()
-        vals = self._prepare_default_wizard_vals(
-            self.sale_order_id, editing_pt_id=pt_id)
+        order = self.env['sale.order'].browse(sale_order_id)
+        if not order.exists():
+            raise UserError(_('Orden de venta no válida.'))
+
+        # Reutilizar el wizard si se pasó un ID válido, si no crear uno nuevo
+        wizard = False
+        if current_wizard_id:
+            candidate = self.browse(current_wizard_id)
+            if candidate.exists():
+                wizard = candidate
+
+        if not wizard:
+            wizard = self.create({'sale_order_id': sale_order_id})
+
+        # Cargar el PT en modo edición
+        wizard.line_ids.unlink()
+        vals = wizard._prepare_default_wizard_vals(order, editing_pt_id=pt_id)
         line_cmds = vals.pop('line_ids', [])
         vals.pop('sale_order_id', None)
-        self.write(vals)
+        wizard.write(vals)
         if line_cmds:
-            self.write({'line_ids': line_cmds})
-        return self._refresh()
+            wizard.write({'line_ids': line_cmds})
+
+        # Mantener open_pt_ids cargado por si el usuario regresa al selector
+        open_pts = order._get_open_pick_tickets()
+        wizard.write({'open_pt_ids': [(6, 0, open_pts.ids)]})
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.wizard',
+            'res_id': wizard.id,
+            'view_mode': 'form',
+            'target': 'new',
+        }
+
+    def action_load_pt_by_id(self, pt_id):
+        """Wrapper legacy — delega al método @api.model."""
+        self.ensure_one()
+        return self.action_load_pt_from_cards(
+            self.sale_order_id.id, pt_id, current_wizard_id=self.id)
 
     def action_start_new_pt(self):
         """Desde el selector, cambia el mismo wizard a modo 'nuevo PT'."""
