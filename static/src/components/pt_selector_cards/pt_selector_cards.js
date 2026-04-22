@@ -11,6 +11,7 @@ export class PtSelectorCards extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
+        this.notification = useService("notification");
         this.state = useState({
             pts: [],
             isLoading: true,
@@ -25,20 +26,7 @@ export class PtSelectorCards extends Component {
     async loadPts() {
         this.state.isLoading = true;
         try {
-            const record = this.props.record;
-            const field = record.data[this.props.name];
-            let ptIds = [];
-
-            if (field) {
-                if (Array.isArray(field.currentIds)) {
-                    ptIds = field.currentIds;
-                } else if (Array.isArray(field.records)) {
-                    ptIds = field.records.map((r) => r.resId);
-                } else if (field.resIds) {
-                    ptIds = field.resIds;
-                }
-            }
-
+            const ptIds = this._getPtIdsFromField();
             if (ptIds.length > 0) {
                 const pts = await this.orm.read(
                     "sale.delivery.document",
@@ -67,26 +55,95 @@ export class PtSelectorCards extends Component {
         }
     }
 
-    async onCardClick(pt) {
-        if (this.state.loadingPtId) return; // prevenir doble click
-        const wizardId = this._getWizardId();
-        if (!wizardId) {
-            console.error("[PT_SELECTOR_CARDS] No wizard ID encontrado");
-            return;
-        }
+    _getPtIdsFromField() {
+        const field = this.props.record.data[this.props.name];
+        if (!field) return [];
 
+        // Varias formas que puede venir un many2many en Odoo 19
+        if (Array.isArray(field.currentIds) && field.currentIds.length > 0) {
+            return field.currentIds.filter((id) => typeof id === "number" && id > 0);
+        }
+        if (Array.isArray(field.resIds) && field.resIds.length > 0) {
+            return field.resIds.filter((id) => typeof id === "number" && id > 0);
+        }
+        if (Array.isArray(field.records) && field.records.length > 0) {
+            return field.records
+                .map((r) => r.resId)
+                .filter((id) => typeof id === "number" && id > 0);
+        }
+        if (Array.isArray(field) && field.length > 0) {
+            return field.filter((id) => typeof id === "number" && id > 0);
+        }
+        return [];
+    }
+
+    async onCardClick(pt) {
+        if (this.state.loadingPtId) return;
         this.state.loadingPtId = pt.id;
+
         try {
+            // Los TransientModel no persisten hasta que se hace save().
+            // Si no tenemos resId, primero persistimos el wizard.
+            let wizardId = this._getWizardId();
+
+            if (!wizardId) {
+                console.log("[PT_SELECTOR_CARDS] Sin resId, forzando save del wizard...");
+                try {
+                    await this.props.record.save({ reload: false });
+                } catch (saveErr) {
+                    // Algunas versiones no aceptan opciones
+                    try {
+                        await this.props.record.save();
+                    } catch (e2) {
+                        console.warn("[PT_SELECTOR_CARDS] save() falló, intentando root.save()", e2);
+                        const root = this.props.record.model?.root;
+                        if (root && root.save) {
+                            await root.save();
+                        }
+                    }
+                }
+                wizardId = this._getWizardId();
+                console.log("[PT_SELECTOR_CARDS] Después de save, wizardId =", wizardId);
+            }
+
+            if (!wizardId) {
+                this.notification.add(
+                    "No se pudo persistir el wizard. Cierra y vuelve a abrir.",
+                    { type: "danger", sticky: false }
+                );
+                this.state.loadingPtId = null;
+                return;
+            }
+
+            console.log(
+                "[PT_SELECTOR_CARDS] Llamando action_load_pt_by_id con wizardId=%s pt=%s",
+                wizardId, pt.id
+            );
+
             const result = await this.orm.call(
                 "sale.delivery.wizard",
                 "action_load_pt_by_id",
                 [[wizardId], pt.id]
             );
+
+            console.log("[PT_SELECTOR_CARDS] Resultado:", result);
+
             if (result && typeof result === "object" && result.type) {
                 await this.action.doAction(result);
+            } else {
+                this.notification.add(
+                    "El servidor no retornó una acción. Revisa la consola.",
+                    { type: "warning" }
+                );
+                this.state.loadingPtId = null;
             }
         } catch (e) {
-            console.error("[PT_SELECTOR_CARDS] Error cargando PT:", e);
+            console.error("[PT_SELECTOR_CARDS] Error:", e);
+            const msg = (e && e.message) ? e.message : String(e);
+            this.notification.add("Error al abrir Pick Ticket: " + msg, {
+                type: "danger",
+                sticky: true,
+            });
             this.state.loadingPtId = null;
         }
     }
@@ -99,6 +156,10 @@ export class PtSelectorCards extends Component {
         const root = rec.model?.root;
         if (root?.resId && typeof root.resId === "number" && root.resId > 0) {
             return root.resId;
+        }
+        // Fallback: buscar en el modelo
+        if (rec._values && typeof rec._values.id === "number" && rec._values.id > 0) {
+            return rec._values.id;
         }
         return null;
     }
