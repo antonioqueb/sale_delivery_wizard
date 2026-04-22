@@ -36,27 +36,20 @@ class SaleDeliveryWizard(models.TransientModel):
     pick_ticket_id = fields.Many2one(
         'sale.delivery.document', string='Pick Ticket')
 
-    # ── Modo edición ────────────────────────────────────────────────
+    # ── Modo edición ─────────────────────────────────────────────────
     editing_pick_ticket_id = fields.Many2one(
         'sale.delivery.document', string='Pick Ticket a Editar')
     is_editing = fields.Boolean(
         compute='_compute_is_editing', string='Modo Edición')
 
-    # ── Selector integrado de PT ────────────────────────────────────
+    # ── Selector integrado de PT ─────────────────────────────────────
     open_pt_ids = fields.Many2many(
         'sale.delivery.document',
         'sale_delivery_wizard_open_pt_rel',
         'wizard_id', 'pt_id',
         string='PTs Abiertos')
-    selected_pt_id = fields.Many2one(
-        'sale.delivery.document',
-        string='Pick Ticket a Editar',
-        domain="[('id', 'in', open_pt_ids)]")
     pt_count = fields.Integer(
         compute='_compute_pt_count', string='PTs Abiertos')
-    pt_summary_html = fields.Html(
-        compute='_compute_pt_summary_html',
-        string='Resumen', sanitize=False)
 
     widget_selections = fields.Text(
         string='Selecciones del Widget', default='[]')
@@ -70,46 +63,6 @@ class SaleDeliveryWizard(models.TransientModel):
     def _compute_pt_count(self):
         for wiz in self:
             wiz.pt_count = len(wiz.open_pt_ids)
-
-    @api.depends('open_pt_ids')
-    def _compute_pt_summary_html(self):
-        for wiz in self:
-            if not wiz.open_pt_ids:
-                wiz.pt_summary_html = ''
-                continue
-            rows = []
-            for pt in wiz.open_pt_ids:
-                fecha = pt.create_date.strftime('%d/%m/%Y %H:%M') \
-                    if pt.create_date else '—'
-                user = pt.create_uid.name or '—'
-                instr = (pt.special_instructions or '').strip() or '—'
-                rows.append(
-                    '<tr>'
-                    '<td><strong style="color:#2563eb;font-family:monospace;">{name}</strong></td>'
-                    '<td>{fecha}</td>'
-                    '<td>{user}</td>'
-                    '<td class="text-end"><strong>{lotes}</strong></td>'
-                    '<td class="text-end"><strong>{qty:.2f}</strong></td>'
-                    '<td style="font-size:11px;color:#64748b;">{instr}</td>'
-                    '</tr>'.format(
-                        name=pt.name, fecha=fecha, user=user,
-                        lotes=len(pt.line_ids),
-                        qty=pt.total_qty or 0.0,
-                        instr=instr[:60] + ('…' if len(instr) > 60 else ''),
-                    )
-                )
-            wiz.pt_summary_html = (
-                '<table class="table table-sm table-hover" '
-                'style="margin-bottom:0;font-size:12.5px;">'
-                '<thead style="background:#f1f5f9;">'
-                '<tr>'
-                '<th>Pick Ticket</th><th>Creado</th><th>Por</th>'
-                '<th class="text-end">Lotes</th>'
-                '<th class="text-end">Total m²</th>'
-                '<th>Instrucciones</th>'
-                '</tr></thead>'
-                '<tbody>' + ''.join(rows) + '</tbody></table>'
-            )
 
     @api.depends(
         'widget_selections',
@@ -502,24 +455,26 @@ class SaleDeliveryWizard(models.TransientModel):
     # SELECTOR INTEGRADO DE PT — cambia el mismo wizard de estado
     # ═══════════════════════════════════════════════════════════════════
 
-    def action_load_selected_pt(self):
-        """Carga el PT seleccionado DENTRO del mismo wizard (no abre otro)."""
+    def action_load_pt_by_id(self, pt_id):
+        """
+        Carga un PT específico por ID dentro del mismo wizard.
+        Llamado desde el componente OWL `pt_selector_cards` al hacer click
+        en una tarjeta. NO abre un wizard nuevo — recarga el actual con las
+        líneas del PT seleccionado y cambia a estado 'pick_ticket'.
+        """
         self.ensure_one()
-        if not self.selected_pt_id:
-            raise UserError(_(
-                'Seleccione un Pick Ticket de la lista antes de continuar.'))
-        if self.selected_pt_id.state != 'prepared':
-            raise UserError(_(
-                'El Pick Ticket seleccionado ya no está abierto.'))
+        if not pt_id:
+            raise UserError(_('Pick Ticket no válido.'))
 
-        pt_id = self.selected_pt_id.id
-        # Limpiar líneas actuales
+        pt = self.env['sale.delivery.document'].browse(pt_id)
+        if not pt.exists() or pt.state != 'prepared':
+            raise UserError(_(
+                'El Pick Ticket ya no está disponible para edición.'))
+
         self.line_ids.unlink()
-        # Preparar nuevos vals en modo edición
         vals = self._prepare_default_wizard_vals(
             self.sale_order_id, editing_pt_id=pt_id)
         line_cmds = vals.pop('line_ids', [])
-        # Nunca sobrescribir sale_order_id
         vals.pop('sale_order_id', None)
         self.write(vals)
         if line_cmds:
@@ -534,7 +489,6 @@ class SaleDeliveryWizard(models.TransientModel):
             self.sale_order_id, editing_pt_id=None)
         line_cmds = vals.pop('line_ids', [])
         vals.pop('sale_order_id', None)
-        # Asegurar que salimos del estado select_pt
         vals['wizard_state'] = 'select'
         vals['editing_pick_ticket_id'] = False
         vals['pick_ticket_id'] = False
@@ -554,7 +508,6 @@ class SaleDeliveryWizard(models.TransientModel):
         self.write({
             'wizard_state': 'select_pt',
             'open_pt_ids': [(6, 0, open_pts.ids)],
-            'selected_pt_id': False,
             'editing_pick_ticket_id': False,
             'pick_ticket_id': False,
             'widget_selections': '[]',

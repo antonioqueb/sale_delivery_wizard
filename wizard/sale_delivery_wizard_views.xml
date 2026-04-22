@@ -11,7 +11,6 @@
                 <field name="widget_selections" invisible="1"/>
                 <field name="editing_pick_ticket_id" invisible="1"/>
                 <field name="is_editing" invisible="1"/>
-                <field name="open_pt_ids" invisible="1"/>
                 <field name="pt_count" invisible="1"/>
 
                 <!-- ══════════════════════════════════════════════════════
@@ -23,7 +22,7 @@
                         <strong>
                             Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s).
                         </strong>
-                        Seleccione uno para editar — o cree un Pick Ticket nuevo.
+                        Haga click sobre el que desea editar, o cree uno nuevo.
                     </div>
 
                     <group>
@@ -35,22 +34,15 @@
 
                     <separator string="Pick Tickets Abiertos"/>
 
-                    <field name="pt_summary_html" widget="html" nolabel="1" readonly="1"/>
-
-                    <separator string="Seleccione el Pick Ticket a Editar"/>
-
-                    <field name="selected_pt_id"
-                           widget="radio"
-                           nolabel="1"
-                           options="{'no_create': True, 'no_open': True, 'no_quick_create': True}"
-                           domain="[('id', 'in', open_pt_ids)]"/>
+                    <field name="open_pt_ids"
+                           widget="pt_selector_cards"
+                           nolabel="1"/>
                 </div>
 
                 <!-- ══════════════════════════════════════════════════════
                      MODO B: ENTREGA (selección de placas / edición de PT)
                      ══════════════════════════════════════════════════════ -->
                 <div invisible="wizard_state == 'select_pt'">
-                    <!-- Banner: modo edición de PT existente -->
                     <div class="alert alert-warning p-2 mb-2 text-center"
                          invisible="not is_editing">
                         <i class="fa fa-pencil me-1"/>
@@ -63,7 +55,6 @@
                                 invisible="pt_count &lt; 2"/>
                     </div>
 
-                    <!-- Banner: PT recién generado en este wizard -->
                     <div class="alert alert-info p-2 mb-2 text-center"
                          invisible="is_editing or wizard_state != 'pick_ticket'">
                         <strong>Pick Ticket activo:</strong>
@@ -94,20 +85,16 @@
                 </div>
 
                 <!-- ══════════════════════════════════════════════════════
-                     FOOTER — botones cambian según el estado
+                     FOOTER
                      ══════════════════════════════════════════════════════ -->
                 <footer>
-                    <!-- ─── Botones para MODO SELECTOR ─────────────── -->
-                    <button name="action_load_selected_pt"
-                            string="📝 Editar Pick Ticket Seleccionado"
-                            type="object" class="btn-primary"
-                            invisible="wizard_state != 'select_pt' or not selected_pt_id"/>
+                    <!-- MODO SELECTOR: solo crear nuevo (el click en card abre) -->
                     <button name="action_start_new_pt"
                             string="➕ Crear Pick Ticket Nuevo"
-                            type="object" class="btn-secondary"
+                            type="object" class="btn-primary"
                             invisible="wizard_state != 'select_pt'"/>
 
-                    <!-- ─── Botones para MODO ENTREGA ──────────────── -->
+                    <!-- MODO ENTREGA: botones de PT / remisión -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"

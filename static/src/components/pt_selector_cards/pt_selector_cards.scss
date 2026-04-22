@@ -1,0 +1,226 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// PT SELECTOR CARDS — Tarjetas clicables para selección de Pick Ticket
+// ═══════════════════════════════════════════════════════════════════════════
+
+$ptsc-primary: #2563eb;
+$ptsc-primary-light: #3b82f6;
+$ptsc-primary-soft: #dbeafe;
+$ptsc-primary-glow: rgba(37, 99, 235, 0.12);
+$ptsc-success: #059669;
+$ptsc-success-soft: #d1fae5;
+$ptsc-ink: #0f172a;
+$ptsc-ink-soft: #334155;
+$ptsc-ink-muted: #64748b;
+$ptsc-ink-faint: #94a3b8;
+$ptsc-surface: #ffffff;
+$ptsc-surface-raised: #f8fafc;
+$ptsc-surface-sunken: #f1f5f9;
+$ptsc-border: #e2e8f0;
+$ptsc-border-strong: #cbd5e1;
+$ptsc-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+$ptsc-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+
+.sale_delivery_wizard_form {
+    .o_field_widget:has(.ptsc-root) {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 100% !important;
+        padding: 0 !important;
+    }
+}
+
+.ptsc-root {
+    width: 100%;
+    min-width: 0;
+}
+
+.ptsc-loading,
+.ptsc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: $ptsc-ink-faint;
+}
+
+.ptsc-hint {
+    background: $ptsc-primary-soft;
+    color: $ptsc-primary;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    border-left: 3px solid $ptsc-primary;
+
+    strong { font-weight: 700; }
+    i { font-size: 13px; }
+}
+
+.ptsc-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ptsc-card {
+    position: relative;
+    background: $ptsc-surface;
+    border: 2px solid $ptsc-border;
+    border-radius: 10px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: all $ptsc-transition;
+    user-select: none;
+
+    &:hover {
+        border-color: $ptsc-primary;
+        background: linear-gradient(to right, $ptsc-primary-soft 0%, $ptsc-surface-raised 100%);
+        transform: translateY(-2px);
+        box-shadow:
+            0 6px 16px rgba(37, 99, 235, 0.18),
+            0 0 0 1px $ptsc-primary-light;
+
+        .ptsc-card-action {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .ptsc-card-name {
+            color: $ptsc-primary;
+        }
+    }
+
+    &:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+    }
+
+    &--loading {
+        pointer-events: none;
+        opacity: 0.7;
+    }
+}
+
+.ptsc-card-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(2px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 10px;
+    color: $ptsc-primary;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 10;
+}
+
+.ptsc-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 12px;
+}
+
+.ptsc-card-title {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+
+    i {
+        color: $ptsc-ink-muted;
+        font-size: 14px;
+    }
+}
+
+.ptsc-card-name {
+    font-family: $ptsc-mono;
+    font-size: 16px;
+    font-weight: 800;
+    color: $ptsc-ink;
+    letter-spacing: -0.01em;
+    transition: color $ptsc-transition;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ptsc-card-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    background: $ptsc-primary;
+    color: white;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0;
+    transform: translateX(6px);
+    transition: all $ptsc-transition;
+    white-space: nowrap;
+    flex-shrink: 0;
+
+    i { font-size: 10px; }
+}
+
+.ptsc-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 20px;
+    margin-bottom: 4px;
+}
+
+.ptsc-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: $ptsc-ink-soft;
+    white-space: nowrap;
+
+    i {
+        color: $ptsc-ink-faint;
+        font-size: 12px;
+        width: 14px;
+        text-align: center;
+    }
+
+    strong {
+        color: $ptsc-ink;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &--primary {
+        i { color: $ptsc-primary; }
+        strong { color: $ptsc-primary; }
+    }
+
+    &--qty {
+        i { color: $ptsc-success; }
+        strong { color: $ptsc-success; }
+    }
+}
+
+.ptsc-card-instructions {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: $ptsc-surface-sunken;
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: $ptsc-ink-muted;
+    border-left: 3px solid $ptsc-border-strong;
+
+    i { color: $ptsc-ink-faint; }
+    em { font-style: italic; }
+}

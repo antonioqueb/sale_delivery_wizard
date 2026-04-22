@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="sale_delivery_wizard.PtSelectorCards" owl="1">
+        <div class="ptsc-root">
+            <t t-if="state.isLoading">
+                <div class="ptsc-loading">
+                    <i class="fa fa-circle-o-notch fa-spin fa-2x text-muted"/>
+                    <div class="mt-2 text-muted">Cargando Pick Tickets...</div>
+                </div>
+            </t>
+            <t t-elif="state.pts.length === 0">
+                <div class="ptsc-empty">
+                    <i class="fa fa-inbox fa-3x text-muted"/>
+                    <div class="mt-2 text-muted">No hay Pick Tickets abiertos</div>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="ptsc-hint">
+                    <i class="fa fa-hand-pointer-o me-2"/>
+                    Haga <strong>click</strong> sobre un Pick Ticket para abrirlo y editarlo.
+                </div>
+                <div class="ptsc-cards">
+                    <t t-foreach="state.pts" t-as="pt" t-key="pt.id">
+                        <div class="ptsc-card"
+                             t-att-class="state.loadingPtId === pt.id ? 'ptsc-card--loading' : ''"
+                             t-on-click="() => this.onCardClick(pt)">
+                            <div class="ptsc-card-loading-overlay" t-if="state.loadingPtId === pt.id">
+                                <i class="fa fa-circle-o-notch fa-spin fa-2x"/>
+                                <span>Abriendo...</span>
+                            </div>
+                            <div class="ptsc-card-header">
+                                <div class="ptsc-card-title">
+                                    <i class="fa fa-file-text-o me-2"/>
+                                    <span class="ptsc-card-name">
+                                        <t t-esc="pt.name"/>
+                                    </span>
+                                </div>
+                                <div class="ptsc-card-action">
+                                    <i class="fa fa-pencil me-1"/>
+                                    Editar
+                                    <i class="fa fa-arrow-right ms-1"/>
+                                </div>
+                            </div>
+                            <div class="ptsc-card-meta">
+                                <div class="ptsc-meta-item">
+                                    <i class="fa fa-calendar-o"/>
+                                    <span><t t-esc="formatDate(pt.create_date)"/></span>
+                                </div>
+                                <div class="ptsc-meta-item">
+                                    <i class="fa fa-user-o"/>
+                                    <span><t t-esc="getUserName(pt.create_uid)"/></span>
+                                </div>
+                                <div class="ptsc-meta-item ptsc-meta-item--primary">
+                                    <i class="fa fa-cube"/>
+                                    <span><strong><t t-esc="getLotCount(pt.line_ids)"/></strong> lote(s)</span>
+                                </div>
+                                <div class="ptsc-meta-item ptsc-meta-item--qty">
+                                    <i class="fa fa-bar-chart"/>
+                                    <span><strong><t t-esc="fmtQty(pt.total_qty)"/></strong> m²</span>
+                                </div>
+                            </div>
+                            <div class="ptsc-card-instructions" t-if="pt.special_instructions">
+                                <i class="fa fa-info-circle me-1"/>
+                                <em><t t-esc="truncate(pt.special_instructions, 120)"/></em>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

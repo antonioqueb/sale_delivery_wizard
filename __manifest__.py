@@ -1,12 +1,11 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.6.0',
+    'version': '19.0.1.7.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
         Módulo orquestador de entregas desde sale.order para Recubrimientos STO.
-        - Wizard UNIFICADO de entrega: selección de placas, edición de PT y
-          selector de PT cuando hay múltiples abiertos — todo en la misma ventana.
+        - Wizard UNIFICADO de entrega con tarjetas clicables para selección de PT
         - Pick Ticket sin impacto de inventario (editable, multi-abierto)
         - Remisión con impacto de inventario y secuencia propia
         - Swap de lotes previo a remisión
@@ -46,6 +45,9 @@
             'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.js',
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.xml',
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.js',
+            'sale_delivery_wizard/static/src/components/pt_selector_cards/pt_selector_cards.scss',
+            'sale_delivery_wizard/static/src/components/pt_selector_cards/pt_selector_cards.xml',
+            'sale_delivery_wizard/static/src/components/pt_selector_cards/pt_selector_cards.js',
         ],
     },
     'installable': True,
