@@ -135,11 +135,6 @@ class SaleOrder(models.Model):
     # ═══════════════════════════════════════════════════════════════════
 
     def _get_locked_lot_ids(self, exclude_pt_id=None):
-        """
-        Retorna el set de lot_ids ya tomados por Pick Tickets en estado
-        'prepared' de esta SO. Excluye opcionalmente el PT que se está
-        editando para que sus propios lotes sí aparezcan.
-        """
         self.ensure_one()
         domain = [
             ('sale_order_id', '=', self.id),
@@ -152,10 +147,6 @@ class SaleOrder(models.Model):
         return set(pts.mapped('line_ids.lot_id').ids)
 
     def _get_lot_to_pt_map(self, exclude_pt_id=None):
-        """
-        Mapa {lot_id: [nombres de PTs]} usado para construir mensajes
-        de error legibles cuando hay colisión de lotes.
-        """
         self.ensure_one()
         domain = [
             ('sale_order_id', '=', self.id),
@@ -177,13 +168,6 @@ class SaleOrder(models.Model):
     # ═══════════════════════════════════════════════════════════════════
 
     def get_delivery_grouped_data(self, mode='delivery', editing_pt_id=None):
-        """
-        editing_pt_id: id del Pick Ticket que se está editando.
-            - Sus lotes SÍ aparecen aunque ya estén apartados por sí mismo
-            - Lotes de OTROS PTs abiertos quedan ocultos
-            - Sin editing_pt_id: se ocultan TODOS los lotes ya tomados
-              por cualquier PT abierto
-        """
         self.ensure_one()
 
         if mode == 'delivery':
@@ -197,12 +181,6 @@ class SaleOrder(models.Model):
         return []
 
     def _apply_pick_ticket_selection(self, groups, editing_pt_id=None):
-        """
-        Aplica overlay de selección SOLO si se indicó editing_pt_id.
-        Sin editing_pt_id se devuelve todo deseleccionado: el wizard
-        empieza limpio porque pueden coexistir varios PTs abiertos
-        y NO debe asumirse cuál cargar.
-        """
         self.ensure_one()
         if not editing_pt_id:
             return groups
@@ -233,8 +211,6 @@ class SaleOrder(models.Model):
                     line['qtyToDeliver'] = 0
 
         return groups
-
-    # ═══════════════════════════════════════════════════════════════════
 
     def _safe_quant_available(self, quant):
         if hasattr(quant, 'available_quantity'):
@@ -276,13 +252,6 @@ class SaleOrder(models.Model):
             group['selectedCount'] += 1
 
     def _build_delivery_groups(self, editing_pt_id=None):
-        """
-        Construye grupos de entrega excluyendo lotes ya tomados por
-        OTROS Pick Tickets abiertos (estado 'prepared') de esta SO.
-
-        Si editing_pt_id está presente, los lotes de ese PT NO se
-        excluyen para que el usuario pueda verlos y modificarlos.
-        """
         self.ensure_one()
         groups_map = OrderedDict()
         Quant = self.env['stock.quant']
@@ -302,7 +271,6 @@ class SaleOrder(models.Model):
                 pname = move.product_id.display_name
                 sale_line = move.sale_line_id
 
-                # 1) move_lines reales del picking — filtrar lotes bloqueados
                 pending_mls = move.move_line_ids.filtered(
                     lambda ml: (
                         (ml.lot_id or ml.product_id)
@@ -349,7 +317,6 @@ class SaleOrder(models.Model):
                         self._append_group_line(groups_map, pid, pname, ld)
                     continue
 
-                # 2) Fallback sale_line.lot_ids — filtrar lotes bloqueados
                 move_pending = self._move_pending_qty(move)
                 if move_pending <= 0:
                     continue
@@ -409,7 +376,6 @@ class SaleOrder(models.Model):
 
                     continue
 
-                # 3) Último fallback: sin lote, solo producto
                 if move_pending > 0:
                     ld = {
                         'dbId': 0,
@@ -536,7 +502,7 @@ class SaleOrder(models.Model):
     # ═══════════════════════════════════════════════════════════════════
 
     def _get_open_pick_tickets(self):
-        """Pick Tickets en estado 'prepared' para esta SO, ordenados por fecha desc."""
+        """Pick Tickets en estado 'prepared' para esta SO."""
         self.ensure_one()
         return self.env['sale.delivery.document'].search([
             ('sale_order_id', '=', self.id),
@@ -545,7 +511,6 @@ class SaleOrder(models.Model):
         ], order='create_date desc')
 
     def _check_delivery_authorization(self):
-        """Verifica que el pedido tenga autorización de entrega si aplica."""
         self.ensure_one()
         if self.state not in ('sale', 'done'):
             raise UserError(_('Solo puede entregar pedidos confirmados.'))
@@ -558,74 +523,34 @@ class SaleOrder(models.Model):
                         'Este pedido no tiene autorización de entrega. '
                         'Contacte a un autorizador.'))
 
-    def _open_delivery_wizard_new(self):
-        """Abre el wizard de entrega limpio (nuevo PT)."""
-        self.ensure_one()
-        return {
-            'name': _('Entregar Material — Nuevo Pick Ticket'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'sale.delivery.wizard',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {
-                'default_sale_order_id': self.id,
-                'active_id': self.id,
-            },
-        }
-
-    def _open_delivery_wizard_editing(self, pt_id):
-        """Abre el wizard de entrega en modo edición de un PT existente."""
-        self.ensure_one()
-        pt = self.env['sale.delivery.document'].browse(pt_id)
-        if not pt.exists() or pt.state != 'prepared':
-            raise UserError(_(
-                'El Pick Ticket ya no está disponible para edición.'))
-        return {
-            'name': _('Editar Pick Ticket %s', pt.name),
-            'type': 'ir.actions.act_window',
-            'res_model': 'sale.delivery.wizard',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {
-                'default_sale_order_id': self.id,
-                'default_editing_pick_ticket_id': pt_id,
-                'active_id': self.id,
-            },
-        }
-
-    def _open_pt_selector(self):
-        """Abre el selector de Pick Tickets cuando hay 2+ abiertos."""
-        self.ensure_one()
-        return {
-            'name': _('Seleccionar Pick Ticket'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'sale.delivery.pt.selector',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {
-                'default_sale_order_id': self.id,
-                'active_id': self.id,
-            },
-        }
-
     def action_open_delivery_wizard(self):
         """
-        Flujo inteligente:
-        - 0 PTs abiertos → wizard limpio
-        - 1 PT abierto → edición directa
-        - 2+ PTs abiertos → selector
+        SIEMPRE abre el mismo wizard de entrega. El propio wizard se encarga
+        de detectar cuántos PTs abiertos hay y mostrar la sección adecuada:
+        - 0 PTs → selección de placas (nuevo PT)
+        - 1 PT → carga ese PT automáticamente para editar
+        - 2+ PTs → muestra dentro del wizard la selección de PT
         """
         self.ensure_one()
         self._check_delivery_authorization()
 
         open_pts = self._get_open_pick_tickets()
-        count = len(open_pts)
+        ctx = {
+            'default_sale_order_id': self.id,
+            'active_id': self.id,
+        }
 
-        if count == 0:
-            return self._open_delivery_wizard_new()
-        if count == 1:
-            return self._open_delivery_wizard_editing(open_pts.id)
-        return self._open_pt_selector()
+        if len(open_pts) == 1:
+            ctx['default_editing_pick_ticket_id'] = open_pts.id
+
+        return {
+            'name': _('Entregar Material'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': ctx,
+        }
 
     def action_open_return_wizard(self):
         self.ensure_one()

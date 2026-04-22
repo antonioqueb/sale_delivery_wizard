@@ -4,80 +4,135 @@
         <field name="name">sale.delivery.wizard.form</field>
         <field name="model">sale.delivery.wizard</field>
         <field name="arch" type="xml">
-            <form string="Entregar Material" class="sale_delivery_wizard_form">
-                <!-- Banner: modo edición de PT existente -->
-                <div class="alert alert-warning p-2 mb-2 text-center"
-                     invisible="not is_editing">
-                    <i class="fa fa-pencil me-1"/>
-                    <strong>Editando Pick Ticket:</strong>
-                    <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
-                    — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
-                </div>
-
-                <!-- Banner: PT recién generado en este wizard -->
-                <div class="alert alert-info p-2 mb-2 text-center"
-                     invisible="is_editing or wizard_state != 'pick_ticket'">
-                    <strong>Pick Ticket activo:</strong>
-                    <field name="pick_ticket_id" readonly="1" class="d-inline"/>
-                    — La remisión se generará con base en este Pick Ticket.
-                </div>
+            <form string="Entregar Material" class="sale_delivery_wizard_form"
+                  create="false" edit="false" delete="false">
 
                 <field name="wizard_state" invisible="1"/>
                 <field name="widget_selections" invisible="1"/>
                 <field name="editing_pick_ticket_id" invisible="1"/>
                 <field name="is_editing" invisible="1"/>
+                <field name="open_pt_ids" invisible="1"/>
+                <field name="pt_count" invisible="1"/>
 
-                <group>
+                <!-- ══════════════════════════════════════════════════════
+                     MODO A: SELECCIÓN DE PICK TICKET (2+ PTs abiertos)
+                     ══════════════════════════════════════════════════════ -->
+                <div invisible="wizard_state != 'select_pt'">
+                    <div class="alert alert-info mb-3" role="alert">
+                        <i class="fa fa-info-circle me-2"/>
+                        <strong>
+                            Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s).
+                        </strong>
+                        Seleccione uno para editar — o cree un Pick Ticket nuevo.
+                    </div>
+
                     <group>
-                        <field name="sale_order_id" readonly="1"/>
-                        <field name="partner_id" readonly="1"/>
+                        <group>
+                            <field name="sale_order_id" readonly="1"/>
+                            <field name="partner_id" readonly="1"/>
+                        </group>
                     </group>
+
+                    <separator string="Pick Tickets Abiertos"/>
+
+                    <field name="pt_summary_html" widget="html" nolabel="1" readonly="1"/>
+
+                    <separator string="Seleccione el Pick Ticket a Editar"/>
+
+                    <field name="selected_pt_id"
+                           widget="radio"
+                           nolabel="1"
+                           options="{'no_create': True, 'no_open': True, 'no_quick_create': True}"
+                           domain="[('id', 'in', open_pt_ids)]"/>
+                </div>
+
+                <!-- ══════════════════════════════════════════════════════
+                     MODO B: ENTREGA (selección de placas / edición de PT)
+                     ══════════════════════════════════════════════════════ -->
+                <div invisible="wizard_state == 'select_pt'">
+                    <!-- Banner: modo edición de PT existente -->
+                    <div class="alert alert-warning p-2 mb-2 text-center"
+                         invisible="not is_editing">
+                        <i class="fa fa-pencil me-1"/>
+                        <strong>Editando Pick Ticket:</strong>
+                        <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
+                        — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
+                        <button name="action_back_to_pt_selector"
+                                type="object" string="← Regresar al selector"
+                                class="btn btn-link btn-sm ms-2"
+                                invisible="pt_count &lt; 2"/>
+                    </div>
+
+                    <!-- Banner: PT recién generado en este wizard -->
+                    <div class="alert alert-info p-2 mb-2 text-center"
+                         invisible="is_editing or wizard_state != 'pick_ticket'">
+                        <strong>Pick Ticket activo:</strong>
+                        <field name="pick_ticket_id" readonly="1" class="d-inline"/>
+                        — La remisión se generará con base en este Pick Ticket.
+                    </div>
+
                     <group>
-                        <field name="delivery_address"/>
-                        <field name="special_instructions"
-                               placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
+                        <group>
+                            <field name="sale_order_id" readonly="1"/>
+                            <field name="partner_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="delivery_address"/>
+                            <field name="special_instructions"
+                                   placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
+                        </group>
                     </group>
-                </group>
 
-                <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
+                    <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
-                <group>
                     <group>
-                        <field name="total_selected" string="Total a Entregar"/>
-                        <field name="total_available" string="Total Disponible"/>
+                        <group>
+                            <field name="total_selected" string="Total a Entregar"/>
+                            <field name="total_available" string="Total Disponible"/>
+                        </group>
                     </group>
-                </group>
+                </div>
 
+                <!-- ══════════════════════════════════════════════════════
+                     FOOTER — botones cambian según el estado
+                     ══════════════════════════════════════════════════════ -->
                 <footer>
-                    <!-- Generar Pick Ticket nuevo: solo si no estamos editando ni hay PT activo -->
+                    <!-- ─── Botones para MODO SELECTOR ─────────────── -->
+                    <button name="action_load_selected_pt"
+                            string="📝 Editar Pick Ticket Seleccionado"
+                            type="object" class="btn-primary"
+                            invisible="wizard_state != 'select_pt' or not selected_pt_id"/>
+                    <button name="action_start_new_pt"
+                            string="➕ Crear Pick Ticket Nuevo"
+                            type="object" class="btn-secondary"
+                            invisible="wizard_state != 'select_pt'"/>
+
+                    <!-- ─── Botones para MODO ENTREGA ──────────────── -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
                             invisible="wizard_state != 'select' or is_editing"/>
 
-                    <!-- Guardar cambios: SOLO en modo edición -->
                     <button name="action_generate_pick_ticket"
                             string="Guardar Cambios"
                             type="object" class="btn-primary"
-                            invisible="not is_editing"/>
+                            invisible="wizard_state == 'select_pt' or not is_editing"/>
 
-                    <!-- Regenerar (sobrescribir) PT recién creado en este mismo wizard -->
                     <button name="action_generate_pick_ticket"
                             string="Actualizar Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select' or is_editing"
+                            invisible="wizard_state != 'pick_ticket' or is_editing"
                             confirm="Se actualizará el Pick Ticket actual con la selección actual. ¿Continuar?"/>
 
-                    <!-- Imprimir: si hay PT (cualquiera) -->
                     <button name="action_print_pick_ticket"
                             string="Imprimir Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select' and not is_editing"/>
+                            invisible="wizard_state == 'select_pt' or (wizard_state == 'select' and not is_editing)"/>
 
-                    <!-- Generar Remisión: siempre disponible -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
-                            type="object" class="btn-primary"/>
+                            type="object" class="btn-primary"
+                            invisible="wizard_state == 'select_pt'"/>
 
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
