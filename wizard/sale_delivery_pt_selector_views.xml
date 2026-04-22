@@ -4,11 +4,11 @@
         <field name="name">sale.delivery.pt.selector.form</field>
         <field name="model">sale.delivery.pt.selector</field>
         <field name="arch" type="xml">
-            <form string="Seleccionar Pick Ticket" class="sale_delivery_pt_selector_form">
+            <form string="Seleccionar Pick Ticket" class="sale_delivery_pt_selector_form" create="false" edit="false">
                 <div class="alert alert-info mb-3" role="alert">
                     <i class="fa fa-info-circle me-2"/>
                     <strong>Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s).</strong>
-                    Seleccione uno para editar, o cree uno nuevo.
+                    Seleccione uno para editar, imprimir o cancelar. También puede crear uno nuevo.
                 </div>
 
                 <group>
@@ -20,27 +20,27 @@
 
                 <separator string="Pick Tickets Abiertos"/>
 
-                <field name="line_ids" nolabel="1" readonly="1">
-                    <list create="false" delete="false" edit="false">
-                        <field name="pt_name" string="Pick Ticket"/>
-                        <field name="pt_create_date" string="Creado"/>
-                        <field name="pt_created_by" string="Por"/>
-                        <field name="pt_line_count" string="Lotes"/>
+                <field name="line_ids" nolabel="1">
+                    <list create="false" delete="false" edit="false" open="false">
+                        <field name="pt_name" string="Pick Ticket" readonly="1"/>
+                        <field name="pt_create_date" string="Creado" readonly="1"/>
+                        <field name="pt_created_by" string="Por" readonly="1"/>
+                        <field name="pt_line_count" string="Lotes" readonly="1"/>
                         <field name="pt_total_qty" string="Total m²"
-                               sum="Total m²"/>
+                               sum="Total m²" readonly="1"/>
                         <field name="pt_special_instructions"
-                               string="Instrucciones" optional="hide"/>
+                               string="Instrucciones" optional="hide" readonly="1"/>
                         <button name="action_print_pt" type="object"
                                 string="Imprimir" icon="fa-print"
-                                class="btn btn-sm btn-secondary"
+                                class="btn-sm"
                                 title="Imprimir Pick Ticket"/>
                         <button name="action_edit_pt" type="object"
                                 string="Editar" icon="fa-pencil"
-                                class="btn btn-sm btn-primary"
+                                class="btn-sm btn-primary"
                                 title="Editar este Pick Ticket"/>
                         <button name="action_cancel_pt" type="object"
                                 string="Cancelar" icon="fa-times"
-                                class="btn btn-sm btn-warning"
+                                class="btn-sm"
                                 title="Cancelar este Pick Ticket (libera lotes)"
                                 confirm="¿Cancelar este Pick Ticket? Los lotes quedarán disponibles para otros Pick Tickets."/>
                     </list>
