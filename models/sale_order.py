@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from odoo import api, fields, models, _
+from odoo.exceptions import UserError
 
 
 class SaleOrder(models.Model):
@@ -534,22 +535,34 @@ class SaleOrder(models.Model):
     # Acciones
     # ═══════════════════════════════════════════════════════════════════
 
-    def action_open_delivery_wizard(self):
+    def _get_open_pick_tickets(self):
+        """Pick Tickets en estado 'prepared' para esta SO, ordenados por fecha desc."""
+        self.ensure_one()
+        return self.env['sale.delivery.document'].search([
+            ('sale_order_id', '=', self.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ], order='create_date desc')
+
+    def _check_delivery_authorization(self):
+        """Verifica que el pedido tenga autorización de entrega si aplica."""
         self.ensure_one()
         if self.state not in ('sale', 'done'):
-            from odoo.exceptions import UserError
             raise UserError(_('Solo puede entregar pedidos confirmados.'))
         if hasattr(self, 'delivery_auth_state'):
             if self.delivery_auth_state == 'pending':
                 if not self.env.user.has_group(
                     'sale_delivery_wizard.group_delivery_authorizer'
                 ):
-                    from odoo.exceptions import UserError
-                    raise UserError(
-                        _('Este pedido no tiene autorización de entrega. Contacte a un autorizador.')
-                    )
+                    raise UserError(_(
+                        'Este pedido no tiene autorización de entrega. '
+                        'Contacte a un autorizador.'))
+
+    def _open_delivery_wizard_new(self):
+        """Abre el wizard de entrega limpio (nuevo PT)."""
+        self.ensure_one()
         return {
-            'name': _('Entregar Material'),
+            'name': _('Entregar Material — Nuevo Pick Ticket'),
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.wizard',
             'view_mode': 'form',
@@ -559,6 +572,60 @@ class SaleOrder(models.Model):
                 'active_id': self.id,
             },
         }
+
+    def _open_delivery_wizard_editing(self, pt_id):
+        """Abre el wizard de entrega en modo edición de un PT existente."""
+        self.ensure_one()
+        pt = self.env['sale.delivery.document'].browse(pt_id)
+        if not pt.exists() or pt.state != 'prepared':
+            raise UserError(_(
+                'El Pick Ticket ya no está disponible para edición.'))
+        return {
+            'name': _('Editar Pick Ticket %s', pt.name),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_sale_order_id': self.id,
+                'default_editing_pick_ticket_id': pt_id,
+                'active_id': self.id,
+            },
+        }
+
+    def _open_pt_selector(self):
+        """Abre el selector de Pick Tickets cuando hay 2+ abiertos."""
+        self.ensure_one()
+        return {
+            'name': _('Seleccionar Pick Ticket'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.pt.selector',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_sale_order_id': self.id,
+                'active_id': self.id,
+            },
+        }
+
+    def action_open_delivery_wizard(self):
+        """
+        Flujo inteligente:
+        - 0 PTs abiertos → wizard limpio
+        - 1 PT abierto → edición directa
+        - 2+ PTs abiertos → selector
+        """
+        self.ensure_one()
+        self._check_delivery_authorization()
+
+        open_pts = self._get_open_pick_tickets()
+        count = len(open_pts)
+
+        if count == 0:
+            return self._open_delivery_wizard_new()
+        if count == 1:
+            return self._open_delivery_wizard_editing(open_pts.id)
+        return self._open_pt_selector()
 
     def action_open_return_wizard(self):
         self.ensure_one()

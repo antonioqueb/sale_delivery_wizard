@@ -104,6 +104,13 @@ class SaleDeliveryWizard(models.TransientModel):
         IMPORTANTE: NO se auto-restaura "el último PT preparado" porque
         ahora pueden coexistir múltiples PTs abiertos para la misma SO
         (varios choferes / vehículos en paralelo).
+
+        En modo edición el matching se hace en dos niveles:
+        1º por (productId, lotId) — match exacto
+        2º por lotId solo — match flexible si el producto cambió de variante
+        Y si el PT trae un lote que ya no aparece en el grouped, se agrega
+        un grupo "huérfano" para que el usuario vea qué pasó en vez de que
+        desaparezca silenciosamente.
         """
         delivery_address = order.partner_shipping_id.contact_address or ''
 
@@ -117,65 +124,161 @@ class SaleDeliveryWizard(models.TransientModel):
         grouped = order.get_delivery_grouped_data(
             mode='delivery', editing_pt_id=editing_pt_id) or []
 
-        if editing_pt_id:
-            pt = self.env['sale.delivery.document'].browse(editing_pt_id)
-            if pt.exists() and pt.state == 'prepared' and pt.line_ids:
-                pt_line_map = {}
-                for pt_line in pt.line_ids:
-                    key = (
-                        pt_line.product_id.id,
-                        pt_line.lot_id.id if pt_line.lot_id else 0,
-                    )
-                    pt_line_map[key] = {
-                        'qty': pt_line.qty_selected,
-                        'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else 0,
-                        'moveId': pt_line.move_id.id if pt_line.move_id else 0,
-                        'moveLineId': pt_line.move_line_id.id if pt_line.move_line_id else 0,
-                        'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else 0,
-                    }
-
-                widget_sels = []
-                for group in grouped:
-                    for line in group.get('lines', []):
-                        key = (
-                            line.get('productId', 0),
-                            line.get('lotId', 0),
-                        )
-                        pt_info = pt_line_map.get(key)
-                        if pt_info:
-                            line['isSelected'] = True
-                            line['qtyToDeliver'] = pt_info['qty']
-                            widget_sels.append({
-                                'dbId': 0,
-                                'lotId': line.get('lotId', 0),
-                                'productId': line.get('productId', 0),
-                                'pickingId': line.get('pickingId', 0),
-                                'moveId': line.get('moveId', 0) or pt_info.get('moveId', 0),
-                                'moveLineId': line.get('moveLineId', 0) or pt_info.get('moveLineId', 0),
-                                'saleLineId': line.get('saleLineId', 0) or pt_info.get('saleLineId', 0),
-                                'sourceLocationId': line.get('sourceLocationId', 0) or pt_info.get('sourceLocationId', 0),
-                                'qty': pt_info['qty'],
-                                'qtyAvailable': line.get('qtyAvailable', 0),
-                            })
-                        else:
-                            line['isSelected'] = False
-                            line['qtyToDeliver'] = 0
-
-                vals.update({
-                    'widget_selections': json.dumps(widget_sels),
-                    'wizard_state': 'pick_ticket',
-                    'editing_pick_ticket_id': pt.id,
-                    'pick_ticket_id': pt.id,
-                    'delivery_address': pt.delivery_address or delivery_address,
-                    'special_instructions': pt.special_instructions or '',
-                })
-        else:
+        if not editing_pt_id:
             for group in grouped:
                 for line in group.get('lines', []):
                     line['isSelected'] = False
                     line['qtyToDeliver'] = 0
+            vals['line_ids'] = self._groups_to_line_commands(grouped)
+            return vals
 
+        pt = self.env['sale.delivery.document'].browse(editing_pt_id)
+        if not pt.exists() or pt.state != 'prepared' or not pt.line_ids:
+            _logger.warning(
+                '[DELIVERY WIZARD EDIT] PT %s no existe / no es editable / vacío',
+                editing_pt_id)
+            for group in grouped:
+                for line in group.get('lines', []):
+                    line['isSelected'] = False
+                    line['qtyToDeliver'] = 0
+            vals['line_ids'] = self._groups_to_line_commands(grouped)
+            return vals
+
+        # Índices del PT: por (product, lot) y por lot solo
+        pt_line_map = {}
+        pt_lot_map = {}
+        pt_lots_unmatched = {}
+        for pt_line in pt.line_ids:
+            if pt_line.qty_selected <= 0:
+                continue
+            key_full = (
+                pt_line.product_id.id,
+                pt_line.lot_id.id if pt_line.lot_id else 0,
+            )
+            info = {
+                'qty': pt_line.qty_selected,
+                'productId': pt_line.product_id.id,
+                'productName': pt_line.product_id.display_name,
+                'lotId': pt_line.lot_id.id if pt_line.lot_id else 0,
+                'lotName': pt_line.lot_id.name if pt_line.lot_id else '',
+                'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else 0,
+                'moveId': pt_line.move_id.id if pt_line.move_id else 0,
+                'moveLineId': pt_line.move_line_id.id if pt_line.move_line_id else 0,
+                'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else 0,
+                'sourceLocation': pt_line.source_location_id.display_name if pt_line.source_location_id else '',
+            }
+            pt_line_map[key_full] = info
+            if pt_line.lot_id:
+                pt_lot_map[pt_line.lot_id.id] = info
+            pt_lots_unmatched[key_full] = info  # se irá removiendo al matchear
+
+        # Matching contra el grouped
+        widget_sels = []
+        matched_count = 0
+        for group in grouped:
+            for line in group.get('lines', []):
+                pid = line.get('productId', 0)
+                lid = line.get('lotId', 0)
+                key_full = (pid, lid)
+
+                pt_info = pt_line_map.get(key_full)
+                if not pt_info and lid:
+                    pt_info = pt_lot_map.get(lid)
+
+                if pt_info:
+                    line['isSelected'] = True
+                    line['qtyToDeliver'] = pt_info['qty']
+                    widget_sels.append({
+                        'dbId': 0,
+                        'lotId': line.get('lotId', 0),
+                        'productId': line.get('productId', 0),
+                        'pickingId': line.get('pickingId', 0),
+                        'moveId': line.get('moveId', 0) or pt_info.get('moveId', 0),
+                        'moveLineId': line.get('moveLineId', 0) or pt_info.get('moveLineId', 0),
+                        'saleLineId': line.get('saleLineId', 0) or pt_info.get('saleLineId', 0),
+                        'sourceLocationId': line.get('sourceLocationId', 0) or pt_info.get('sourceLocationId', 0),
+                        'qty': pt_info['qty'],
+                        'qtyAvailable': line.get('qtyAvailable', 0),
+                    })
+                    matched_key = (pt_info['productId'], pt_info['lotId'])
+                    pt_lots_unmatched.pop(matched_key, None)
+                    matched_count += 1
+                else:
+                    line['isSelected'] = False
+                    line['qtyToDeliver'] = 0
+
+        # Grupos "huérfanos" para lotes del PT que no aparecen en el grouped
+        # (el picking cambió, el lote se movió o ya se consumió en otro flujo)
+        if pt_lots_unmatched:
+            _logger.warning(
+                '[DELIVERY WIZARD EDIT] PT %s: %d línea(s) del PT no matchearon '
+                'con el inventario actual — se agregan como lotes huérfanos',
+                pt.name, len(pt_lots_unmatched))
+
+            orphan_groups = {}
+            for key, info in pt_lots_unmatched.items():
+                pid = info['productId']
+                if pid not in orphan_groups:
+                    orphan_groups[pid] = {
+                        'productId': pid,
+                        'productName': '⚠️ ' + info['productName'] + ' (lote desactualizado)',
+                        'lines': [],
+                        'totalQty': 0.0,
+                        'selectedCount': 0,
+                        'lineCount': 0,
+                    }
+                g = orphan_groups[pid]
+                line_dict = {
+                    'dbId': 0,
+                    'lotId': info['lotId'],
+                    'lotName': info['lotName'],
+                    'productId': pid,
+                    'productName': info['productName'],
+                    'pickingId': 0,
+                    'moveId': info['moveId'],
+                    'moveLineId': info['moveLineId'],
+                    'saleLineId': info['saleLineId'],
+                    'isSelected': True,
+                    'qtyAvailable': info['qty'],
+                    'qtyToDeliver': info['qty'],
+                    'sourceLocation': info['sourceLocation'],
+                    'sourceLocationId': info['sourceLocationId'],
+                }
+                g['lines'].append(line_dict)
+                g['lineCount'] += 1
+                g['totalQty'] += info['qty']
+                g['selectedCount'] += 1
+
+                widget_sels.append({
+                    'dbId': 0,
+                    'lotId': info['lotId'],
+                    'productId': pid,
+                    'pickingId': 0,
+                    'moveId': info['moveId'],
+                    'moveLineId': info['moveLineId'],
+                    'saleLineId': info['saleLineId'],
+                    'sourceLocationId': info['sourceLocationId'],
+                    'qty': info['qty'],
+                    'qtyAvailable': info['qty'],
+                })
+
+            grouped.extend(orphan_groups.values())
+
+        vals.update({
+            'widget_selections': json.dumps(widget_sels),
+            'wizard_state': 'pick_ticket',
+            'editing_pick_ticket_id': pt.id,
+            'pick_ticket_id': pt.id,
+            'delivery_address': pt.delivery_address or delivery_address,
+            'special_instructions': pt.special_instructions or '',
+        })
         vals['line_ids'] = self._groups_to_line_commands(grouped)
+
+        _logger.info(
+            '[DELIVERY WIZARD EDIT] PT %s cargado — %d matcheadas, '
+            '%d huérfanas, widget_sels=%d',
+            pt.name, matched_count, len(pt_lots_unmatched), len(widget_sels))
+
         return vals
 
     def _groups_to_line_commands(self, groups):
@@ -231,6 +334,17 @@ class SaleDeliveryWizard(models.TransientModel):
                 'sourceLocationId': int(s.get('sourceLocationId') or 0),
             }
 
+        # Índice auxiliar por lot_id para fallback cuando los IDs de move
+        # cambian pero el lote sigue siendo el mismo.
+        selected_by_lot = {}
+        for s in selections or []:
+            lid = int(s.get('lotId') or 0)
+            if lid:
+                selected_by_lot[lid] = {
+                    'qty': float(s.get('qty', 0) or 0.0),
+                    'sourceLocationId': int(s.get('sourceLocationId') or 0),
+                }
+
         groups_map = OrderedDict()
 
         for line in self.line_ids.sorted(key=lambda l: (l.sequence, l.id)):
@@ -261,10 +375,14 @@ class SaleDeliveryWizard(models.TransientModel):
                 line.picking_id.id if line.picking_id else 0,
             )
 
-            if key in selected_map:
-                is_selected = selected_map[key]['qty'] > 0
-                qty_to_deliver = selected_map[key]['qty']
-                source_location_id = selected_map[key]['sourceLocationId'] or (
+            sel_info = selected_map.get(key)
+            if not sel_info and line.lot_id:
+                sel_info = selected_by_lot.get(line.lot_id.id)
+
+            if sel_info:
+                is_selected = sel_info['qty'] > 0
+                qty_to_deliver = sel_info['qty']
+                source_location_id = sel_info['sourceLocationId'] or (
                     line.source_location_id.id if line.source_location_id else 0
                 )
             else:

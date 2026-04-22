@@ -1,12 +1,13 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.4.0',
+    'version': '19.0.1.5.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
         Módulo orquestador de entregas desde sale.order para Recubrimientos STO.
         - Wizard de entrega parcial con selección de lotes
         - Pick Ticket sin impacto de inventario (editable, multi-abierto)
+        - Selector de Pick Ticket cuando existen múltiples PTs abiertos
         - Remisión con impacto de inventario y secuencia propia
         - Swap de lotes previo a remisión
         - Devoluciones con motivo y resolución (Reagendar/Reponer/Finiquitar)
@@ -33,6 +34,7 @@
         'wizard/sale_delivery_wizard_views.xml',
         'wizard/sale_return_wizard_views.xml',
         'wizard/sale_swap_wizard_views.xml',
+        'wizard/sale_delivery_pt_selector_views.xml',
         'report/pick_ticket_report.xml',
         'report/remission_report.xml',
     ],
