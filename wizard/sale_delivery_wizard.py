@@ -432,11 +432,16 @@ class SaleDeliveryWizard(models.TransientModel):
 
     def _refresh(self):
         self.ensure_one()
+        view = self.env.ref(
+            'sale_delivery_wizard.sale_delivery_wizard_form',
+            raise_if_not_found=False,
+        )
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'sale.delivery.wizard',
             'res_id': self.id,
             'view_mode': 'form',
+            'views': [(view.id if view else False, 'form')],
             'target': 'new',
         }
 
@@ -500,12 +505,23 @@ class SaleDeliveryWizard(models.TransientModel):
         open_pts = order._get_open_pick_tickets()
         wizard.write({'open_pt_ids': [(6, 0, open_pts.ids)]})
 
+        view = self.env.ref(
+            'sale_delivery_wizard.sale_delivery_wizard_form',
+            raise_if_not_found=False,
+        )
         return {
             'type': 'ir.actions.act_window',
+            'name': _('Editar Pick Ticket %s', pt.name),
             'res_model': 'sale.delivery.wizard',
             'res_id': wizard.id,
             'view_mode': 'form',
+            'views': [(view.id if view else False, 'form')],
             'target': 'new',
+            'context': {
+                'default_sale_order_id': order.id,
+                'default_editing_pick_ticket_id': pt.id,
+                'active_id': order.id,
+            },
         }
 
     def action_load_pt_by_id(self, pt_id):
