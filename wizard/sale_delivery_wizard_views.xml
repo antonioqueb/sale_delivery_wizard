@@ -5,8 +5,18 @@
         <field name="model">sale.delivery.wizard</field>
         <field name="arch" type="xml">
             <form string="Entregar Material" class="sale_delivery_wizard_form">
+                <!-- Banner: modo edición de PT existente -->
+                <div class="alert alert-warning p-2 mb-2 text-center"
+                     invisible="not is_editing">
+                    <i class="fa fa-pencil me-1"/>
+                    <strong>Editando Pick Ticket:</strong>
+                    <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
+                    — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
+                </div>
+
+                <!-- Banner: PT recién generado en este wizard -->
                 <div class="alert alert-info p-2 mb-2 text-center"
-                     invisible="wizard_state != 'pick_ticket'">
+                     invisible="is_editing or wizard_state != 'pick_ticket'">
                     <strong>Pick Ticket activo:</strong>
                     <field name="pick_ticket_id" readonly="1" class="d-inline"/>
                     — La remisión se generará con base en este Pick Ticket.
@@ -14,6 +24,8 @@
 
                 <field name="wizard_state" invisible="1"/>
                 <field name="widget_selections" invisible="1"/>
+                <field name="editing_pick_ticket_id" invisible="1"/>
+                <field name="is_editing" invisible="1"/>
 
                 <group>
                     <group>
@@ -37,25 +49,36 @@
                 </group>
 
                 <footer>
-                    <!-- Generar Pick Ticket: siempre disponible -->
+                    <!-- Generar Pick Ticket nuevo: solo si no estamos editando ni hay PT activo -->
                     <button name="action_generate_pick_ticket"
                             string="Generar Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state != 'select'"/>
+                            invisible="wizard_state != 'select' or is_editing"/>
+
+                    <!-- Guardar cambios: SOLO en modo edición -->
                     <button name="action_generate_pick_ticket"
-                            string="Regenerar Pick Ticket"
+                            string="Guardar Cambios"
+                            type="object" class="btn-primary"
+                            invisible="not is_editing"/>
+
+                    <!-- Regenerar (sobrescribir) PT recién creado en este mismo wizard -->
+                    <button name="action_generate_pick_ticket"
+                            string="Actualizar Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select'"
-                            confirm="Se cancelará el Pick Ticket actual y se generará uno nuevo con la selección actual. ¿Continuar?"/>
-                    <!-- Imprimir: solo si hay PT -->
+                            invisible="wizard_state == 'select' or is_editing"
+                            confirm="Se actualizará el Pick Ticket actual con la selección actual. ¿Continuar?"/>
+
+                    <!-- Imprimir: si hay PT (cualquiera) -->
                     <button name="action_print_pick_ticket"
                             string="Imprimir Pick Ticket"
                             type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select'"/>
-                    <!-- Remisión: siempre disponible -->
+                            invisible="wizard_state == 'select' and not is_editing"/>
+
+                    <!-- Generar Remisión: siempre disponible -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
                             type="object" class="btn-primary"/>
+
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

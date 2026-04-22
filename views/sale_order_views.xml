@@ -7,7 +7,6 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="priority">99</field>
         <field name="arch" type="xml">
-            <!-- Buttons in header -->
             <xpath expr="//header" position="inside">
                 <button name="action_open_delivery_wizard"
                         string="Entregar"
@@ -28,16 +27,20 @@
                         groups="sale_delivery_wizard.group_delivery_user"/>
             </xpath>
 
-            <!-- Stat buttons -->
             <xpath expr="//div[@name='button_box']" position="inside">
                 <button name="action_view_pick_tickets"
                         type="object"
                         class="oe_stat_button"
                         icon="fa-clipboard"
                         invisible="x_pick_ticket_count == 0">
-                    <field name="x_pick_ticket_count"
-                           widget="statinfo"
-                           string="Pick Tickets"/>
+                    <div class="o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="x_pick_ticket_count"/>
+                            <span invisible="x_pick_ticket_open_count == 0"
+                                  class="text-warning"> (<field name="x_pick_ticket_open_count"/> abiertos)</span>
+                        </span>
+                        <span class="o_stat_text">Pick Tickets</span>
+                    </div>
                 </button>
                 <button name="action_view_remissions"
                         type="object"
@@ -68,7 +71,6 @@
                 </button>
             </xpath>
 
-            <!-- KPI strip — clean, no colored cards -->
             <xpath expr="//notebook" position="before">
                 <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
                     <div class="som_kpi">
@@ -98,7 +100,6 @@
                 </div>
             </xpath>
 
-            <!-- Delivery history page in notebook -->
             <xpath expr="//notebook" position="inside">
                 <page string="Historial de Entregas" name="delivery_history"
                       invisible="x_delivery_document_count == 0">
@@ -122,7 +123,6 @@
                 </page>
             </xpath>
 
-            <!-- Add delivery status to order lines -->
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
                 <field name="x_delivered_net_qty" string="Entregado Neto" optional="show"/>
                 <field name="x_returned_qty" string="Devuelto" optional="hide"/>
@@ -138,7 +138,6 @@
         </field>
     </record>
 
-    <!-- Hidden fields for counts -->
     <record id="sale_order_form_delivery_fields" model="ir.ui.view">
         <field name="name">sale.order.form.delivery.fields</field>
         <field name="model">sale.order</field>
@@ -147,6 +146,7 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="x_delivery_document_count" invisible="1"/>
+                <field name="x_pick_ticket_open_count" invisible="1"/>
                 <field name="x_total_delivered_gross_qty" invisible="1"/>
             </xpath>
         </field>

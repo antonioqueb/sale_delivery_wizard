@@ -115,6 +115,47 @@ class SaleDeliveryDocument(models.Model):
             lambda d: d.state != 'confirmed'
         ).write({'state': 'cancelled'})
 
+    # ═══════════════════════════════════════════════════════════════════
+    # Edición de Pick Tickets en el wizard
+    # ═══════════════════════════════════════════════════════════════════
+
+    def action_edit_in_wizard(self):
+        """Abre el wizard de entrega en modo edición de este Pick Ticket."""
+        self.ensure_one()
+        if self.document_type != 'pick_ticket':
+            raise UserError(_('Solo se pueden editar Pick Tickets.'))
+        if self.state != 'prepared':
+            raise UserError(_(
+                'Solo se pueden editar Pick Tickets en estado Preparado '
+                '(estado actual: %s).', self.state))
+        return {
+            'name': _('Editar Pick Ticket %s', self.name),
+            'type': 'ir.actions.act_window',
+            'res_model': 'sale.delivery.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_sale_order_id': self.sale_order_id.id,
+                'default_editing_pick_ticket_id': self.id,
+                'active_id': self.sale_order_id.id,
+            },
+        }
+
+    def action_cancel_pick_ticket(self):
+        """Cancela el Pick Ticket liberando sus lotes para otros PTs."""
+        self.ensure_one()
+        if self.document_type != 'pick_ticket':
+            raise UserError(_('Esta acción solo aplica a Pick Tickets.'))
+        if self.state == 'confirmed':
+            raise UserError(_(
+                'No se puede cancelar un Pick Ticket confirmado.'))
+        self.write({'state': 'cancelled'})
+        self.message_post(body=_(
+            'Pick Ticket cancelado por %s — lotes liberados.',
+            self.env.user.name))
+
+    # ═══════════════════════════════════════════════════════════════════
+
     def _validate_picking_partial(self, picking, doc_ml_ids, doc_ml_qty):
         """Validate a picking partially by setting qty only for selected move lines."""
         if picking.state == 'done':
@@ -239,7 +280,6 @@ class SaleDeliveryDocument(models.Model):
                 if remaining <= 0:
                     break
 
-                # Cantidad "base" sobre la que podemos asignar
                 base_qty = (
                     ml.quantity
                     or getattr(ml, 'reserved_uom_qty', 0.0)
@@ -255,7 +295,6 @@ class SaleDeliveryDocument(models.Model):
                 doc_ml_qty[ml.id] = doc_ml_qty.get(ml.id, 0.0) + assign_qty
                 remaining -= assign_qty
 
-            # Si quedó remanente, lo cargamos al primer ML como fallback
             if remaining > 0 and candidate_mls:
                 first_ml = candidate_mls[0]
                 doc_ml_ids.add(first_ml.id)

@@ -1,18 +1,19 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.1.3.0',
+    'version': '19.0.1.4.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
         Módulo orquestador de entregas desde sale.order para Recubrimientos STO.
         - Wizard de entrega parcial con selección de lotes
-        - Pick Ticket sin impacto de inventario
+        - Pick Ticket sin impacto de inventario (editable, multi-abierto)
         - Remisión con impacto de inventario y secuencia propia
         - Swap de lotes previo a remisión
         - Devoluciones con motivo y resolución (Reagendar/Reponer/Finiquitar)
         - Fulfillment neto (entregado - devuelto)
         - Cockpit operativo en el formulario de venta
         - Vista agrupada por producto con acordeones colapsables
+        - Validación de colisión de lotes entre Pick Tickets abiertos
     """,
     'author': 'Alphaqueb Consulting SAS',
     'website': 'https://alphaqueb.com',
@@ -39,11 +40,9 @@
         'web.assets_backend': [
             'sale_delivery_wizard/static/src/scss/delivery_wizard.scss',
             'sale_delivery_wizard/static/src/scss/swap_lot_selector.scss',
-            # Delivery Grouped List (collapsible accordion widget)
             'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.scss',
             'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.xml',
             'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.js',
-            # Swap Lot Selector (kept for backward compat, now also used inside grouped list)
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.xml',
             'sale_delivery_wizard/static/src/components/swap_lot_selector/swap_lot_selector.js',
         ],

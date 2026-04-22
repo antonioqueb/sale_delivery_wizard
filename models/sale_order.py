@@ -56,6 +56,10 @@ class SaleOrder(models.Model):
         compute='_compute_document_counts',
         string='Pick Tickets',
     )
+    x_pick_ticket_open_count = fields.Integer(
+        compute='_compute_document_counts',
+        string='Pick Tickets Abiertos',
+    )
     x_redelivery_count = fields.Integer(
         compute='_compute_document_counts',
         string='Reentregas',
@@ -109,6 +113,12 @@ class SaleOrder(models.Model):
             order.x_pick_ticket_count = len(
                 docs.filtered(lambda d: d.document_type == 'pick_ticket')
             )
+            order.x_pick_ticket_open_count = len(
+                docs.filtered(
+                    lambda d: d.document_type == 'pick_ticket'
+                    and d.state == 'prepared'
+                )
+            )
             order.x_redelivery_count = len(
                 docs.filtered(lambda d: d.document_type == 'redelivery')
             )
@@ -119,38 +129,89 @@ class SaleOrder(models.Model):
                 )
             )
 
-    def get_delivery_grouped_data(self, mode='delivery'):
+    # ═══════════════════════════════════════════════════════════════════
+    # Lotes bloqueados por OTROS Pick Tickets abiertos
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _get_locked_lot_ids(self, exclude_pt_id=None):
+        """
+        Retorna el set de lot_ids ya tomados por Pick Tickets en estado
+        'prepared' de esta SO. Excluye opcionalmente el PT que se está
+        editando para que sus propios lotes sí aparezcan.
+        """
+        self.ensure_one()
+        domain = [
+            ('sale_order_id', '=', self.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ]
+        if exclude_pt_id:
+            domain.append(('id', '!=', exclude_pt_id))
+        pts = self.env['sale.delivery.document'].search(domain)
+        return set(pts.mapped('line_ids.lot_id').ids)
+
+    def _get_lot_to_pt_map(self, exclude_pt_id=None):
+        """
+        Mapa {lot_id: [nombres de PTs]} usado para construir mensajes
+        de error legibles cuando hay colisión de lotes.
+        """
+        self.ensure_one()
+        domain = [
+            ('sale_order_id', '=', self.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ]
+        if exclude_pt_id:
+            domain.append(('id', '!=', exclude_pt_id))
+        pts = self.env['sale.delivery.document'].search(domain)
+        result = {}
+        for pt in pts:
+            for pl in pt.line_ids:
+                if pl.lot_id:
+                    result.setdefault(pl.lot_id.id, []).append(pt.name)
+        return result
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Build grouped data
+    # ═══════════════════════════════════════════════════════════════════
+
+    def get_delivery_grouped_data(self, mode='delivery', editing_pt_id=None):
+        """
+        editing_pt_id: id del Pick Ticket que se está editando.
+            - Sus lotes SÍ aparecen aunque ya estén apartados por sí mismo
+            - Lotes de OTROS PTs abiertos quedan ocultos
+            - Sin editing_pt_id: se ocultan TODOS los lotes ya tomados
+              por cualquier PT abierto
+        """
         self.ensure_one()
 
         if mode == 'delivery':
-            groups = self._build_delivery_groups()
-            return self._apply_pick_ticket_selection(groups)
+            groups = self._build_delivery_groups(editing_pt_id=editing_pt_id)
+            return self._apply_pick_ticket_selection(
+                groups, editing_pt_id=editing_pt_id)
         if mode == 'return':
             return self._build_return_groups()
         if mode == 'swap':
             return self._build_swap_groups()
         return []
 
-    # ═══════════════════════════════════════════════════════════════════
-    # Pick Ticket selection overlay
-    # ═══════════════════════════════════════════════════════════════════
-
-    def _apply_pick_ticket_selection(self, groups):
-        """If a prepared Pick Ticket exists, override isSelected/qtyToDeliver
-        so only the PT lines appear selected."""
+    def _apply_pick_ticket_selection(self, groups, editing_pt_id=None):
+        """
+        Aplica overlay de selección SOLO si se indicó editing_pt_id.
+        Sin editing_pt_id se devuelve todo deseleccionado: el wizard
+        empieza limpio porque pueden coexistir varios PTs abiertos
+        y NO debe asumirse cuál cargar.
+        """
         self.ensure_one()
-        pending_pt = self.env['sale.delivery.document'].search([
-            ('sale_order_id', '=', self.id),
-            ('document_type', '=', 'pick_ticket'),
-            ('state', '=', 'prepared'),
-        ], order='create_date desc', limit=1)
-
-        if not pending_pt or not pending_pt.line_ids:
+        if not editing_pt_id:
             return groups
 
-        # Build lookup (product_id, lot_id) → qty from PT
+        pt = self.env['sale.delivery.document'].browse(editing_pt_id)
+        if not pt.exists() or not pt.line_ids:
+            return groups
+
         pt_keys = {}
-        for pt_line in pending_pt.line_ids:
+        for pt_line in pt.line_ids:
             key = (
                 pt_line.product_id.id,
                 pt_line.lot_id.id if pt_line.lot_id else 0,
@@ -180,10 +241,6 @@ class SaleOrder(models.Model):
         return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
 
     def _ml_pending_qty(self, ml):
-        """
-        Cantidad pendiente utilizable para el wizard.
-        Prioriza reservado/cantidad actual de la move line.
-        """
         return (
             ml.quantity
             or getattr(ml, 'reserved_uom_qty', 0.0)
@@ -191,9 +248,6 @@ class SaleOrder(models.Model):
         )
 
     def _move_pending_qty(self, move):
-        """
-        Cantidad pendiente del move a partir de lo ya entregado.
-        """
         demanded = move.product_uom_qty or 0.0
         done = 0.0
         for ml in move.move_line_ids:
@@ -220,20 +274,19 @@ class SaleOrder(models.Model):
         if line_dict.get('isSelected'):
             group['selectedCount'] += 1
 
-    def _build_delivery_groups(self):
+    def _build_delivery_groups(self, editing_pt_id=None):
         """
-        Build delivery groups ONLY from pending/open pickings.
+        Construye grupos de entrega excluyendo lotes ya tomados por
+        OTROS Pick Tickets abiertos (estado 'prepared') de esta SO.
 
-        Regla clave:
-        - No volver a usar toda la selección histórica de sale_line.lot_ids
-          si el picking ya avanzó.
-        - Mostrar solo lo pendiente de entregar.
-        - Las líneas se devuelven SIN seleccionar (isSelected=False, qtyToDeliver=0).
-          El usuario debe seleccionar manualmente lo que quiere entregar.
+        Si editing_pt_id está presente, los lotes de ese PT NO se
+        excluyen para que el usuario pueda verlos y modificarlos.
         """
         self.ensure_one()
         groups_map = OrderedDict()
         Quant = self.env['stock.quant']
+
+        locked_lot_ids = self._get_locked_lot_ids(exclude_pt_id=editing_pt_id)
 
         pickings = self.picking_ids.filtered(
             lambda p: p.state in ('assigned', 'confirmed', 'waiting')
@@ -248,13 +301,14 @@ class SaleOrder(models.Model):
                 pname = move.product_id.display_name
                 sale_line = move.sale_line_id
 
-                # 1) PRIMERO: usar move_line_ids reales del picking abierto
+                # 1) move_lines reales del picking — filtrar lotes bloqueados
                 pending_mls = move.move_line_ids.filtered(
                     lambda ml: (
                         (ml.lot_id or ml.product_id)
                         and ml.picking_id == picking
                         and ml.move_id.state not in ('done', 'cancel')
                         and self._ml_pending_qty(ml) > 0
+                        and (not ml.lot_id or ml.lot_id.id not in locked_lot_ids)
                     )
                 )
 
@@ -294,8 +348,7 @@ class SaleOrder(models.Model):
                         self._append_group_line(groups_map, pid, pname, ld)
                     continue
 
-                # 2) FALLBACK: si todavía no hay move lines, usar sale_line.lot_ids
-                # pero SOLO si el move sigue teniendo pendiente
+                # 2) Fallback sale_line.lot_ids — filtrar lotes bloqueados
                 move_pending = self._move_pending_qty(move)
                 if move_pending <= 0:
                     continue
@@ -307,6 +360,8 @@ class SaleOrder(models.Model):
                     for lot in sale_line.lot_ids:
                         if remaining_to_allocate <= 0:
                             break
+                        if lot.id in locked_lot_ids:
+                            continue
 
                         quants = Quant.search(
                             [
@@ -353,7 +408,7 @@ class SaleOrder(models.Model):
 
                     continue
 
-                # 3) Último fallback: sin lotes, solo producto pendiente
+                # 3) Último fallback: sin lote, solo producto
                 if move_pending > 0:
                     ld = {
                         'dbId': 0,
@@ -373,14 +428,9 @@ class SaleOrder(models.Model):
                     }
                     self._append_group_line(groups_map, pid, pname, ld)
 
-        # Solo grupos con líneas efectivamente pendientes
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
     def _build_return_groups(self):
-        """
-        Las líneas de devolución se devuelven SIN seleccionar.
-        El usuario marca manualmente qué lotes quiere devolver.
-        """
         groups_map = OrderedDict()
 
         for picking in self.picking_ids.filtered(
@@ -479,6 +529,10 @@ class SaleOrder(models.Model):
                     group['totalQty'] += ld['qty']
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Acciones
+    # ═══════════════════════════════════════════════════════════════════
 
     def action_open_delivery_wizard(self):
         self.ensure_one()

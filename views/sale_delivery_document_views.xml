@@ -10,21 +10,49 @@
                     <button name="action_prepare" string="Preparar"
                             type="object" class="btn-primary"
                             invisible="state != 'draft'"/>
+
+                    <!-- Editar Pick Ticket en wizard -->
+                    <button name="action_edit_in_wizard" string="Editar en Wizard"
+                            type="object" class="btn-primary"
+                            invisible="document_type != 'pick_ticket' or state != 'prepared'"/>
+
+                    <!-- Cancelar Pick Ticket (libera lotes para otros PTs) -->
+                    <button name="action_cancel_pick_ticket"
+                            string="Cancelar Pick Ticket"
+                            type="object" class="btn-warning"
+                            invisible="document_type != 'pick_ticket' or state not in ('draft', 'prepared')"
+                            confirm="¿Cancelar este Pick Ticket? Los lotes incluidos quedarán disponibles para otros Pick Tickets."/>
+
+                    <!-- Confirmar reentrega -->
                     <button name="action_confirm" string="Confirmar Entrega"
                             type="object" class="btn-primary"
                             invisible="state not in ('draft', 'prepared') or document_type != 'redelivery'"
                             confirm="¿Confirmar la reentrega? Se validará el picking y se descontará inventario."/>
+
+                    <!-- Confirmar (otros tipos, NO pick_ticket NI redelivery) -->
                     <button name="action_confirm" string="Confirmar"
                             type="object" class="btn-primary"
-                            invisible="state not in ('draft', 'prepared') or document_type == 'redelivery'"/>
+                            invisible="state not in ('draft', 'prepared') or document_type in ('redelivery', 'pick_ticket')"/>
+
+                    <!-- Cancelar genérico (no aplica a pick_ticket porque tiene su propio botón) -->
                     <button name="action_cancel" string="Cancelar"
                             type="object"
-                            invisible="state in ('confirmed', 'cancelled')"/>
+                            invisible="state in ('confirmed', 'cancelled') or document_type == 'pick_ticket'"/>
+
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,prepared,confirmed"/>
                 </header>
                 <sheet>
-                    <!-- Redelivery banner -->
+                    <!-- Banner: PT abierto editable -->
+                    <div class="alert alert-info text-center p-3"
+                         invisible="document_type != 'pick_ticket' or state != 'prepared'">
+                        <strong>📝 Pick Ticket abierto</strong> —
+                        Puede editarlo presionando <em>"Editar en Wizard"</em>.
+                        Los lotes aquí incluidos están reservados y no aparecerán
+                        en otros Pick Tickets de este pedido.
+                    </div>
+
+                    <!-- Banner: Reentrega pendiente -->
                     <div class="alert alert-warning text-center p-3"
                          invisible="document_type != 'redelivery' or state != 'prepared'">
                         <strong>⏳ Reentrega Pendiente</strong> —

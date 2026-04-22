@@ -66,11 +66,16 @@ export class DeliveryGroupedList extends Component {
             } else {
                 const soId = this._getSaleOrderId();
                 if (soId) {
+                    const editingPtId = this._getEditingPtId();
+                    const kwargs = { mode: this.state.mode };
+                    if (editingPtId) {
+                        kwargs.editing_pt_id = editingPtId;
+                    }
                     const groups = await this.orm.call(
                         "sale.order",
                         "get_delivery_grouped_data",
                         [[soId]],
-                        { mode: this.state.mode }
+                        kwargs
                     );
                     this.state.groups = groups || [];
                 } else {
@@ -161,6 +166,26 @@ export class DeliveryGroupedList extends Component {
         }
         const ctx = this.props.record?.model?.config?.context || {};
         return ctx.default_sale_order_id || ctx.active_id || null;
+    }
+
+    /**
+     * Devuelve el ID del Pick Ticket que se está editando, si aplica.
+     * Solo relevante en mode === "delivery".
+     */
+    _getEditingPtId() {
+        if (this.state.mode !== "delivery") return null;
+        const root = this.props.record?.model?.root || this.props.record;
+        const val = root?.data?.editing_pick_ticket_id;
+        if (val) {
+            if (typeof val === "number" && val > 0) return val;
+            if (Array.isArray(val) && val[0] > 0) return val[0];
+            if (typeof val === "object" && val !== null) {
+                if (typeof val.resId === "number" && val.resId > 0) return val.resId;
+                if (typeof val.id === "number" && val.id > 0) return val.id;
+            }
+        }
+        const ctx = this.props.record?.model?.config?.context || {};
+        return ctx.default_editing_pick_ticket_id || null;
     }
 
     _syncCollapsedState() {
