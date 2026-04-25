@@ -16,11 +16,10 @@
                 <t t-call="web.external_layout">
                     <div class="page" style="font-size: 12px; color: #111827;">
 
-                        <!-- Header documental -->
                         <div style="border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px;">
                             <div class="row">
                                 <div class="col-7">
-                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em;">
+                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
                                         PICK TICKET
                                     </h2>
                                     <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
@@ -29,14 +28,13 @@
                                 </div>
                                 <div class="col-5 text-end">
                                     <div style="font-size: 11px; color: #6b7280;">No. Documento</div>
-                                    <div style="font-size: 18px; font-weight: 800;">
+                                    <div style="font-size: 18px; font-weight: 800; color: #111827;">
                                         <t t-esc="doc.name"/>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Datos principales -->
                         <div class="row mb-3">
                             <div class="col-6">
                                 <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 118px;">
@@ -89,7 +87,6 @@
                             </div>
                         </div>
 
-                        <!-- Instrucciones -->
                         <t t-if="doc.special_instructions">
                             <div style="border-left: 4px solid #f59e0b; background: #fffbeb; padding: 9px 12px; margin-bottom: 14px; border-radius: 4px;">
                                 <strong>Instrucciones especiales:</strong>
@@ -97,21 +94,20 @@
                             </div>
                         </t>
 
-                        <!-- Tabla de preparación -->
                         <div style="font-weight: 800; font-size: 12px; text-transform: uppercase; margin: 12px 0 6px; color: #111827;">
                             Detalle de material a preparar
                         </div>
 
                         <table class="table table-sm table-bordered" style="border-color: #9ca3af;">
                             <thead>
-                                <tr style="background: #111827; color: #ffffff;">
-                                    <th style="width: 5%; text-align: center;">#</th>
-                                    <th style="width: 36%;">Producto</th>
-                                    <th style="width: 18%;">Lote / Placa</th>
-                                    <th style="width: 17%;">Ubicación</th>
-                                    <th style="width: 10%;" class="text-end">Cantidad</th>
-                                    <th style="width: 8%;">UdM</th>
-                                    <th style="width: 6%; text-align: center;">OK</th>
+                                <tr style="background-color: #111827;">
+                                    <th style="width: 5%; text-align: center; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                    <th style="width: 36%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Producto</th>
+                                    <th style="width: 18%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Lote / Placa</th>
+                                    <th style="width: 17%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Ubicación</th>
+                                    <th style="width: 10%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;" class="text-end">Cantidad</th>
+                                    <th style="width: 8%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UdM</th>
+                                    <th style="width: 6%; text-align: center; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -156,7 +152,6 @@
                             </tfoot>
                         </table>
 
-                        <!-- Control interno -->
                         <div class="row mt-4">
                             <div class="col-4 text-center">
                                 <div style="border-top: 1px solid #111827; margin-top: 42px; padding-top: 6px; font-weight: 700;">

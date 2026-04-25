@@ -16,11 +16,10 @@
                 <t t-call="web.external_layout">
                     <div class="page" style="font-size: 12px; color: #111827;">
 
-                        <!-- Header documental -->
                         <div style="border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px;">
                             <div class="row">
                                 <div class="col-7">
-                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em;">
+                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
                                         REMISIÓN
                                     </h2>
                                     <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
@@ -29,14 +28,13 @@
                                 </div>
                                 <div class="col-5 text-end">
                                     <div style="font-size: 11px; color: #6b7280;">No. Remisión</div>
-                                    <div style="font-size: 18px; font-weight: 800;">
+                                    <div style="font-size: 18px; font-weight: 800; color: #111827;">
                                         <t t-esc="doc.remission_number or doc.name"/>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Datos principales -->
                         <div class="row mb-3">
                             <div class="col-6">
                                 <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 132px;">
@@ -97,7 +95,6 @@
                             </div>
                         </div>
 
-                        <!-- Instrucciones -->
                         <t t-if="doc.special_instructions">
                             <div style="border-left: 4px solid #2563eb; background: #eff6ff; padding: 9px 12px; margin-bottom: 14px; border-radius: 4px;">
                                 <strong>Instrucciones de entrega:</strong>
@@ -105,20 +102,19 @@
                             </div>
                         </t>
 
-                        <!-- Tabla de entrega -->
                         <div style="font-weight: 800; font-size: 12px; text-transform: uppercase; margin: 12px 0 6px; color: #111827;">
                             Detalle de material entregado
                         </div>
 
                         <table class="table table-sm table-bordered" style="border-color: #9ca3af;">
                             <thead>
-                                <tr style="background: #111827; color: #ffffff;">
-                                    <th style="width: 5%; text-align: center;">#</th>
-                                    <th style="width: 42%;">Producto / Material</th>
-                                    <th style="width: 23%;">Lote / Placa</th>
-                                    <th style="width: 13%;" class="text-end">Cantidad</th>
-                                    <th style="width: 9%;">UdM</th>
-                                    <th style="width: 8%;">Origen</th>
+                                <tr style="background-color: #111827;">
+                                    <th style="width: 5%; text-align: center; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                    <th style="width: 42%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Producto / Material</th>
+                                    <th style="width: 23%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Lote / Placa</th>
+                                    <th style="width: 13%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;" class="text-end">Cantidad</th>
+                                    <th style="width: 9%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UdM</th>
+                                    <th style="width: 8%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Origen</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -160,14 +156,12 @@
                             </tfoot>
                         </table>
 
-                        <!-- Condición documental -->
                         <div style="border: 1px solid #d1d5db; background: #f9fafb; border-radius: 6px; padding: 9px 12px; margin-top: 14px;">
                             <strong>Observación:</strong>
                             Este documento ampara únicamente la salida y entrega física del material relacionado.
                             No incluye precios, impuestos ni condiciones fiscales. Para información fiscal consulte la factura correspondiente.
                         </div>
 
-                        <!-- Firmas -->
                         <div class="row mt-5">
                             <div class="col-4 text-center">
                                 <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
