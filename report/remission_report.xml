@@ -14,59 +14,111 @@
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
                 <t t-call="web.external_layout">
-                    <div class="page">
-                        <h2 class="text-center mb-4">
-                            REMISIÓN
-                        </h2>
+                    <div class="page" style="font-size: 12px; color: #111827;">
 
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <table class="table table-sm table-borderless">
-                                    <tr>
-                                        <td class="fw-bold" style="width:45%;">No. Remisión:</td>
-                                        <td><t t-esc="doc.remission_number or doc.name"/></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="fw-bold">Pedido:</td>
-                                        <td><t t-esc="doc.sale_order_id.name"/></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="fw-bold">Cliente:</td>
-                                        <td><t t-esc="doc.partner_id.name"/></td>
-                                    </tr>
-                                </table>
-                            </div>
-                            <div class="col-6">
-                                <table class="table table-sm table-borderless">
-                                    <tr>
-                                        <td class="fw-bold" style="width:45%;">Fecha Salida:</td>
-                                        <td><t t-esc="doc.delivery_date or doc.create_date"
-                                               t-options="{'widget': 'datetime'}"/></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="fw-bold">Dirección Entrega:</td>
-                                        <td><t t-esc="doc.delivery_address or '-'"/></td>
-                                    </tr>
-                                </table>
+                        <!-- Header documental -->
+                        <div style="border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px;">
+                            <div class="row">
+                                <div class="col-7">
+                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em;">
+                                        REMISIÓN
+                                    </h2>
+                                    <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
+                                        Documento de entrega de material sin precios
+                                    </div>
+                                </div>
+                                <div class="col-5 text-end">
+                                    <div style="font-size: 11px; color: #6b7280;">No. Remisión</div>
+                                    <div style="font-size: 18px; font-weight: 800;">
+                                        <t t-esc="doc.remission_number or doc.name"/>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
+                        <!-- Datos principales -->
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 132px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-bottom: 7px;">
+                                        Información comercial
+                                    </div>
+                                    <table class="table table-sm table-borderless" style="margin: 0;">
+                                        <tr>
+                                            <td style="width: 38%; font-weight: 700; color: #374151;">Pedido:</td>
+                                            <td><t t-esc="doc.sale_order_id.name or '-'"/></td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Cliente:</td>
+                                            <td><t t-esc="doc.partner_id.name or '-'"/></td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Vendedor:</td>
+                                            <td><t t-esc="doc.sale_order_id.user_id.name or '-'"/></td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Almacén:</td>
+                                            <td><t t-esc="doc.sale_order_id.warehouse_id.name or '-'"/></td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="col-6">
+                                <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 132px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-bottom: 7px;">
+                                        Información de entrega
+                                    </div>
+                                    <table class="table table-sm table-borderless" style="margin: 0;">
+                                        <tr>
+                                            <td style="width: 38%; font-weight: 700; color: #374151;">Fecha salida:</td>
+                                            <td>
+                                                <t t-esc="doc.delivery_date or doc.create_date" t-options="{'widget': 'datetime'}"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Picking:</td>
+                                            <td><t t-esc="doc.picking_id.name or doc.out_picking_id.name or '-'"/></td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Estado:</td>
+                                            <td>
+                                                <span style="font-weight: 700; text-transform: uppercase;">
+                                                    <t t-esc="dict(doc._fields['state'].selection).get(doc.state) or doc.state"/>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="font-weight: 700; color: #374151;">Dirección:</td>
+                                            <td><t t-esc="doc.delivery_address or '-'"/></td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Instrucciones -->
                         <t t-if="doc.special_instructions">
-                            <div class="alert alert-info p-2 mb-3">
-                                <strong>Instrucciones:</strong>
-                                <t t-esc="doc.special_instructions"/>
+                            <div style="border-left: 4px solid #2563eb; background: #eff6ff; padding: 9px 12px; margin-bottom: 14px; border-radius: 4px;">
+                                <strong>Instrucciones de entrega:</strong>
+                                <span t-esc="doc.special_instructions"/>
                             </div>
                         </t>
 
-                        <!-- NO PRECIOS - Packing list -->
-                        <table class="table table-sm table-bordered">
+                        <!-- Tabla de entrega -->
+                        <div style="font-weight: 800; font-size: 12px; text-transform: uppercase; margin: 12px 0 6px; color: #111827;">
+                            Detalle de material entregado
+                        </div>
+
+                        <table class="table table-sm table-bordered" style="border-color: #9ca3af;">
                             <thead>
-                                <tr class="bg-dark text-white">
-                                    <th style="width:5%;">#</th>
-                                    <th style="width:40%;">Producto / Material</th>
-                                    <th style="width:25%;">Lote / Placa</th>
-                                    <th style="width:15%;" class="text-end">Cantidad</th>
-                                    <th style="width:15%;">UdM</th>
+                                <tr style="background: #111827; color: #ffffff;">
+                                    <th style="width: 5%; text-align: center;">#</th>
+                                    <th style="width: 42%;">Producto / Material</th>
+                                    <th style="width: 23%;">Lote / Placa</th>
+                                    <th style="width: 13%;" class="text-end">Cantidad</th>
+                                    <th style="width: 9%;">UdM</th>
+                                    <th style="width: 8%;">Origen</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -74,56 +126,86 @@
                                 <t t-foreach="doc.line_ids" t-as="line">
                                     <t t-set="idx" t-value="idx + 1"/>
                                     <tr>
-                                        <td><t t-esc="idx"/></td>
-                                        <td><t t-esc="line.product_id.display_name"/></td>
-                                        <td><t t-esc="line.lot_id.name or '-'"/></td>
+                                        <td class="text-center">
+                                            <t t-esc="idx"/>
+                                        </td>
+                                        <td>
+                                            <strong><t t-esc="line.product_id.display_name or '-'"/></strong>
+                                        </td>
+                                        <td>
+                                            <span style="font-family: monospace; font-weight: 700;">
+                                                <t t-esc="line.lot_id.name or '-'"/>
+                                            </span>
+                                        </td>
                                         <td class="text-end">
-                                            <t t-esc="'%.2f' % line.qty_done"/>
+                                            <t t-esc="'%.2f' % ((line.qty_done or line.qty_selected) or 0.0)"/>
                                         </td>
                                         <td>
                                             <t t-esc="line.product_id.uom_id.name or ''"/>
+                                        </td>
+                                        <td>
+                                            <t t-esc="line.source_location_id.name or '-'"/>
                                         </td>
                                     </tr>
                                 </t>
                             </tbody>
                             <tfoot>
-                                <tr class="fw-bold">
-                                    <td colspan="3" class="text-end">Total:</td>
+                                <tr style="background: #f3f4f6; font-weight: 800;">
+                                    <td colspan="3" class="text-end">Total entregado:</td>
                                     <td class="text-end">
                                         <t t-esc="'%.2f' % sum(doc.line_ids.mapped('qty_done'))"/>
                                     </td>
-                                    <td/>
+                                    <td colspan="2"/>
                                 </tr>
                             </tfoot>
                         </table>
 
-                        <!-- Firma -->
+                        <!-- Condición documental -->
+                        <div style="border: 1px solid #d1d5db; background: #f9fafb; border-radius: 6px; padding: 9px 12px; margin-top: 14px;">
+                            <strong>Observación:</strong>
+                            Este documento ampara únicamente la salida y entrega física del material relacionado.
+                            No incluye precios, impuestos ni condiciones fiscales. Para información fiscal consulte la factura correspondiente.
+                        </div>
+
+                        <!-- Firmas -->
                         <div class="row mt-5">
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
+                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
                                     Entregó
                                 </div>
-                            </div>
-                            <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
-                                    Transportó
+                                <div style="font-size: 10px; color: #6b7280;">
+                                    Nombre y firma
                                 </div>
                             </div>
+
+                            <div class="col-4 text-center">
+                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
+                                    Transportó
+                                </div>
+                                <div style="font-size: 10px; color: #6b7280;">
+                                    Nombre y firma
+                                </div>
+                            </div>
+
                             <div class="col-4 text-center">
                                 <t t-if="doc.signature_image">
                                     <img t-att-src="image_data_uri(doc.signature_image)"
-                                         style="max-height: 50px;"/>
+                                         style="max-height: 48px; max-width: 180px; margin-bottom: 4px;"/>
                                     <br/>
                                 </t>
-                                <div style="border-top: 1px solid #000; margin-top: 50px; padding-top: 5px;">
-                                    Recibió: <t t-esc="doc.signed_by or '________________'"/>
+                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
+                                    Recibió
+                                </div>
+                                <div style="font-size: 10px; color: #6b7280;">
+                                    <t t-esc="doc.signed_by or 'Nombre y firma'"/>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="text-center mt-3" style="font-size: 10px; color: #999;">
-                            Este documento NO incluye precios. Para información fiscal consulte su factura.
+                        <div style="margin-top: 18px; font-size: 10px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 8px;">
+                            Remisión generada desde Odoo. Documento sin precios. Para información fiscal consulte su factura.
                         </div>
+
                     </div>
                 </t>
             </t>
