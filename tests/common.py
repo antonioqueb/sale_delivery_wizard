@@ -1,13 +1,19 @@
 from odoo.tests.common import TransactionCase
-from odoo.exceptions import UserError
 import json
 
 
 class SaleDeliveryWizardTestCommon(TransactionCase):
     """Factories and assertions for sale_delivery_wizard tests.
 
-    These helpers avoid relying on demo data. They create a minimal sale order,
-    lot-tracked product, stock lots, quants, a pending picking, and move lines.
+    Estos helpers evitan depender de datos demo.
+    Crean:
+    - cliente
+    - producto tipo Bienes / Consumible
+    - lotes
+    - quants
+    - orden de venta
+    - picking pendiente
+    - move lines
     """
 
     @classmethod
@@ -49,8 +55,35 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
     def _field_exists(self, model_name, field_name):
         return field_name in self.env[model_name]._fields
 
+    def _selection_values(self, model_name, field_name):
+        """Devuelve los valores técnicos disponibles de un campo selection."""
+        field = self.env[model_name]._fields.get(field_name)
+        if not field:
+            return []
+
+        selection = field.selection
+
+        if callable(selection):
+            try:
+                selection = selection(self.env[model_name])
+            except TypeError:
+                selection = selection()
+
+        return [value for value, _label in (selection or [])]
+
+    def _first_valid_selection(self, model_name, field_name, preferred_values):
+        """Elige el primer valor válido para el campo selection."""
+        values = self._selection_values(model_name, field_name)
+
+        for value in preferred_values:
+            if value in values:
+                return value
+
+        return values[0] if values else False
+
     def _product_vals(self, name):
         ProductTemplate = self.env["product.template"]
+        fields_map = ProductTemplate._fields
 
         vals = {
             "name": name,
@@ -58,14 +91,54 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             "list_price": 100.0,
         }
 
-        # Odoo versions differ here. Prefer detailed_type when present.
-        if "detailed_type" in ProductTemplate._fields:
-            vals["detailed_type"] = "product"
-        elif "type" in ProductTemplate._fields:
-            vals["type"] = "product"
+        # Odoo 19 usa type='consu' para Bienes / Consumible.
+        # Versiones anteriores podían usar detailed_type='product'.
+        # Por eso se resuelve dinámicamente contra las opciones reales del campo.
+        preferred_product_types = (
+            "consu",      # Odoo 18/19: Bienes / Consumible
+            "product",    # Odoo anteriores: Producto almacenable
+            "storable",   # Compatibilidad con variantes/custom
+            "goods",      # Compatibilidad con variantes/custom
+            "service",
+        )
 
-        if "tracking" in ProductTemplate._fields:
-            vals["tracking"] = "lot"
+        if "detailed_type" in fields_map:
+            detailed_type = self._first_valid_selection(
+                "product.template",
+                "detailed_type",
+                preferred_product_types,
+            )
+            if detailed_type:
+                vals["detailed_type"] = detailed_type
+        elif "type" in fields_map:
+            product_type = self._first_valid_selection(
+                "product.template",
+                "type",
+                preferred_product_types,
+            )
+            if product_type:
+                vals["type"] = product_type
+
+        # En algunas bases Odoo 18/19 separa "Bienes" de "Rastrear stock".
+        # Solo se escribe si existe y es escribible en esa instalación.
+        if "is_storable" in fields_map:
+            field = fields_map["is_storable"]
+            if not getattr(field, "readonly", False):
+                vals["is_storable"] = True
+
+        if "tracking" in fields_map:
+            tracking = self._first_valid_selection(
+                "product.template",
+                "tracking",
+                ("lot", "serial", "none"),
+            )
+            if tracking == "lot":
+                vals["tracking"] = "lot"
+
+        # Compatibilidad: en algunas versiones existe uom_po_id, en Odoo 19
+        # puede no existir. Solo se manda si realmente está en el modelo.
+        if "uom_po_id" in fields_map:
+            vals["uom_po_id"] = self.uom.id
 
         return vals
 
@@ -138,8 +211,6 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             quant = Quant.create(vals)
 
         if quant.quantity < qty:
-            # Some databases keep the quant but do not update quantity when
-            # direct creation/update is restricted. Tests need deterministic stock.
             quant.sudo().write({"quantity": qty})
 
         return quant
@@ -153,6 +224,7 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
         order_vals = {
             "partner_id": self.partner.id,
         }
+
         if "warehouse_id" in self.env["sale.order"]._fields and self.warehouse:
             order_vals["warehouse_id"] = self.warehouse.id
 
@@ -171,8 +243,8 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             line.write({"lot_ids": [(6, 0, [lot.id for lot in lots])]})
 
         if state:
-            # The tests focus on delivery/swap logic. Writing the state directly
-            # avoids sale_stock auto-generation noise.
+            # Las pruebas se enfocan en la lógica de entrega/swap.
+            # Escribir el estado directo evita ruido de confirmación estándar.
             order.write({"state": state})
 
         return order, line
@@ -236,6 +308,7 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             "location_id": source.id,
             "location_dest_id": dest.id,
         }
+
         if "sale_id" in self.env["stock.picking"]._fields:
             picking_vals["sale_id"] = order.id
         if "company_id" in self.env["stock.picking"]._fields:
@@ -253,6 +326,7 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             "location_dest_id": dest.id,
             "origin": order.name,
         }
+
         if "sale_line_id" in self.env["stock.move"]._fields:
             move_vals["sale_line_id"] = sale_line.id
         if "company_id" in self.env["stock.move"]._fields:
@@ -260,8 +334,7 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
 
         move = self.env["stock.move"].create(move_vals)
 
-        # Confirmed is enough for the custom swap logic and avoids over-coupling
-        # tests to stock reservation internals.
+        # confirmed basta para la lógica custom del swap.
         picking.action_confirm()
 
         move_line = self._create_move_line(
@@ -282,7 +355,12 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
         lot_target = self._create_lot(product, "SDW-TARGET-001", bloque="BT")
 
         self._set_lot_stock(product, lot_origin, qty, self.stock_location)
-        target_quant = self._set_lot_stock(product, lot_target, qty + 1.0, self.stock_location)
+        target_quant = self._set_lot_stock(
+            product,
+            lot_target,
+            qty + 1.0,
+            self.stock_location,
+        )
 
         order, sale_line = self._create_sale_order(
             product=product,
@@ -344,7 +422,16 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
             default_sale_order_id=order.id,
         ).create({})
 
-    def _create_prepared_pick_ticket(self, order, sale_line, product, lot, qty=1.0, move=None, move_line=None):
+    def _create_prepared_pick_ticket(
+        self,
+        order,
+        sale_line,
+        product,
+        lot,
+        qty=1.0,
+        move=None,
+        move_line=None,
+    ):
         doc = self.env["sale.delivery.document"].create({
             "document_type": "pick_ticket",
             "sale_order_id": order.id,
