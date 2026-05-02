@@ -50,9 +50,9 @@
                         <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
                         — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
                         <button name="action_back_to_pt_selector"
-                                type="object" string="← Regresar al selector"
-                                class="btn btn-link btn-sm ms-2"
-                                invisible="pt_count &lt; 2"/>
+                            type="object" string="← Regresar al selector"
+                            class="btn btn-link btn-sm ms-2"
+                            invisible="pt_count &lt; 1"/>
                     </div>
 
                     <div class="alert alert-info p-2 mb-2 text-center"

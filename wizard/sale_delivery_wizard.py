@@ -103,26 +103,41 @@ class SaleDeliveryWizard(models.TransientModel):
             return res
 
         order = self.env['sale.order'].browse(so_id)
+        if not order.exists():
+            return res
+
         editing_pt_id = (
             res.get('editing_pick_ticket_id')
             or self.env.context.get('default_editing_pick_ticket_id')
         )
 
-        # Si no viene editing_pt_id pero hay 2+ PTs abiertos → modo selector
-        if not editing_pt_id:
+        # Si viene editing_pt_id explícito, se respeta.
+        # Esto permite seguir editando desde:
+        # - botón "Editar en Wizard" del documento
+        # - tarjetas del selector
+        if editing_pt_id:
+            res.update(self._prepare_default_wizard_vals(order, editing_pt_id))
             open_pts = order._get_open_pick_tickets()
-            if len(open_pts) >= 2:
-                res['sale_order_id'] = order.id
-                res['wizard_state'] = 'select_pt'
-                res['open_pt_ids'] = [(6, 0, open_pts.ids)]
-                res['delivery_address'] = order.partner_shipping_id.contact_address or ''
-                res['widget_selections'] = '[]'
-                return res
+            res['open_pt_ids'] = [(6, 0, open_pts.ids)]
+            return res
 
-        res.update(self._prepare_default_wizard_vals(order, editing_pt_id))
-        # Mantener open_pt_ids cargados también en otros modos por si acaso
         open_pts = order._get_open_pick_tickets()
-        res['open_pt_ids'] = [(6, 0, open_pts.ids)]
+
+        # CORRECCIÓN PRINCIPAL:
+        # Antes era >= 2. Eso impedía crear el segundo PT.
+        # Ahora, si existe al menos 1 PT abierto, mostramos selector.
+        if open_pts:
+            res['sale_order_id'] = order.id
+            res['wizard_state'] = 'select_pt'
+            res['open_pt_ids'] = [(6, 0, open_pts.ids)]
+            res['delivery_address'] = order.partner_shipping_id.contact_address or ''
+            res['special_instructions'] = ''
+            res['widget_selections'] = '[]'
+            return res
+
+        # Sin PTs abiertos: abrir selección limpia para crear el primero.
+        res.update(self._prepare_default_wizard_vals(order, editing_pt_id=None))
+        res['open_pt_ids'] = [(6, 0, [])]
         return res
 
     def _prepare_default_wizard_vals(self, order, editing_pt_id=None):
@@ -547,12 +562,20 @@ class SaleDeliveryWizard(models.TransientModel):
         return self._refresh()
 
     def action_back_to_pt_selector(self):
-        """Regresa al selector de PT (si hay 2+ PTs abiertos)."""
+        """
+        Regresa al selector de Pick Tickets.
+
+        Antes exigía 2+ PTs abiertos. Eso dejaba atrapado al usuario cuando
+        solo había 1 PT abierto y quería crear otro.
+        """
         self.ensure_one()
         open_pts = self.sale_order_id._get_open_pick_tickets()
-        if len(open_pts) < 2:
+
+        if not open_pts:
             raise UserError(_(
-                'Ya no hay múltiples Pick Tickets abiertos para seleccionar.'))
+                'No hay Pick Tickets abiertos para seleccionar.'
+            ))
+
         self.line_ids.unlink()
         self.write({
             'wizard_state': 'select_pt',

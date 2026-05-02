@@ -525,23 +525,22 @@ class SaleOrder(models.Model):
 
     def action_open_delivery_wizard(self):
         """
-        SIEMPRE abre el mismo wizard de entrega. El propio wizard se encarga
-        de detectar cuántos PTs abiertos hay y mostrar la sección adecuada:
-        - 0 PTs → selección de placas (nuevo PT)
-        - 1 PT → carga ese PT automáticamente para editar
-        - 2+ PTs → muestra dentro del wizard la selección de PT
+        Abre el wizard de entrega.
+
+        Comportamiento corregido:
+        - 0 Pick Tickets abiertos:
+            abre directamente selección de placas para crear un nuevo PT.
+        - 1+ Pick Tickets abiertos:
+            abre el selector de Pick Tickets, permitiendo:
+            a) editar un PT existente
+            b) crear un PT nuevo
+
+        Importante:
+        Ya NO se fuerza default_editing_pick_ticket_id cuando hay exactamente
+        un Pick Ticket abierto, porque eso impedía crear el segundo.
         """
         self.ensure_one()
         self._check_delivery_authorization()
-
-        open_pts = self._get_open_pick_tickets()
-        ctx = {
-            'default_sale_order_id': self.id,
-            'active_id': self.id,
-        }
-
-        if len(open_pts) == 1:
-            ctx['default_editing_pick_ticket_id'] = open_pts.id
 
         return {
             'name': _('Entregar Material'),
@@ -549,7 +548,11 @@ class SaleOrder(models.Model):
             'res_model': 'sale.delivery.wizard',
             'view_mode': 'form',
             'target': 'new',
-            'context': ctx,
+            'context': {
+                'default_sale_order_id': self.id,
+                'active_id': self.id,
+                'active_model': 'sale.order',
+            },
         }
 
     def action_open_return_wizard(self):
