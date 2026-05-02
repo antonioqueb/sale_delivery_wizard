@@ -36,6 +36,14 @@ class SaleOrder(models.Model):
         compute='_compute_delivery_summary',
         string='Demanda Total',
     )
+    x_total_current_demand_qty = fields.Float(
+        compute='_compute_delivery_summary',
+        string='Demanda Actual',
+    )
+    x_total_overdelivered_qty = fields.Float(
+        compute='_compute_delivery_summary',
+        string='Sobreentregado',
+    )
     x_fulfillment_net_pct = fields.Float(
         compute='_compute_delivery_summary',
         string='Fulfillment Neto %',
@@ -70,28 +78,63 @@ class SaleOrder(models.Model):
         string='Reentregas Pendientes',
     )
 
+    # ═══════════════════════════════════════════════════════════════════
+    # Demanda origen operativa
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _ensure_origin_demand_snapshot(self, source='manual'):
+        """
+        Congela la demanda origen de las líneas de venta antes del primer
+        evento operativo.
+
+        No congela líneas en cero. Si la orden fue confirmada sin selección,
+        la demanda origen se congelará cuando ya exista cantidad real en la
+        línea y se presione Entregar o Swap.
+        """
+        for order in self:
+            lines = order.order_line.filtered(
+                lambda l: l.product_id and l.product_id.type != 'service'
+            )
+            lines._ensure_origin_demand_snapshot(source=source)
+        return True
+
     @api.depends(
         'order_line.product_uom_qty',
         'order_line.qty_delivered',
         'order_line.x_returned_qty',
+        'order_line.x_delivered_net_qty',
+        'order_line.x_origin_demand_qty',
+        'order_line.x_origin_demand_locked',
+        'order_line.x_overdelivered_origin_qty',
     )
     def _compute_delivery_summary(self):
         for order in self:
             lines = order.order_line.filtered(
                 lambda l: l.product_id.type != 'service'
             )
-            demand = sum(lines.mapped('product_uom_qty'))
-            assigned = sum(lines.mapped('product_uom_qty'))
-            delivered_net = sum(lines.mapped('qty_delivered'))
+
+            demand = sum(
+                line.x_origin_demand_qty
+                if line.x_origin_demand_locked and line.x_origin_demand_qty > 0
+                else line.product_uom_qty
+                for line in lines
+            )
+
+            current_demand = sum(lines.mapped('product_uom_qty'))
+            assigned = current_demand
+            delivered_net = sum(lines.mapped('x_delivered_net_qty'))
             returned = sum(lines.mapped('x_returned_qty'))
             pending = demand - delivered_net
+            overdelivered = delivered_net - demand
 
             order.x_total_demand_qty = demand
+            order.x_total_current_demand_qty = current_demand
             order.x_total_assigned_qty = assigned
             order.x_total_delivered_gross_qty = delivered_net + returned
             order.x_total_returned_qty = returned
             order.x_total_delivered_net_qty = max(delivered_net, 0.0)
             order.x_total_pending_delivery_qty = max(pending, 0.0)
+            order.x_total_overdelivered_qty = max(overdelivered, 0.0)
             order.x_fulfillment_net_pct = (
                 (delivered_net / demand * 100.0) if demand else 0.0
             )
@@ -527,20 +570,13 @@ class SaleOrder(models.Model):
         """
         Abre el wizard de entrega.
 
-        Comportamiento corregido:
-        - 0 Pick Tickets abiertos:
-            abre directamente selección de placas para crear un nuevo PT.
-        - 1+ Pick Tickets abiertos:
-            abre el selector de Pick Tickets, permitiendo:
-            a) editar un PT existente
-            b) crear un PT nuevo
-
-        Importante:
-        Ya NO se fuerza default_editing_pick_ticket_id cuando hay exactamente
-        un Pick Ticket abierto, porque eso impedía crear el segundo.
+        Antes de abrir el flujo operativo, congela la demanda origen de las
+        líneas que ya tengan cantidad mayor a cero.
         """
         self.ensure_one()
         self._check_delivery_authorization()
+
+        self._ensure_origin_demand_snapshot(source='delivery_button')
 
         return {
             'name': _('Entregar Material'),
@@ -570,7 +606,16 @@ class SaleOrder(models.Model):
         }
 
     def action_open_swap_wizard(self):
+        """
+        Abre el wizard de swap.
+
+        Antes de permitir swap, congela la demanda origen de las líneas que ya
+        tengan cantidad mayor a cero.
+        """
         self.ensure_one()
+
+        self._ensure_origin_demand_snapshot(source='swap_button')
+
         return {
             'name': _('Swap de Lotes'),
             'type': 'ir.actions.act_window',

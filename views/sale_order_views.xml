@@ -74,27 +74,48 @@
             <xpath expr="//notebook" position="before">
                 <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
                     <div class="som_kpi">
-                        <span class="som_kpi_value"><field name="x_total_demand_qty" class="d-inline"/></span>
-                        <span class="som_kpi_label">Demanda</span>
+                        <span class="som_kpi_value">
+                            <field name="x_total_demand_qty" class="d-inline"/>
+                        </span>
+                        <span class="som_kpi_label">Demanda Origen</span>
                     </div>
                     <div class="som_kpi">
-                        <span class="som_kpi_value"><field name="x_total_assigned_qty" class="d-inline"/></span>
-                        <span class="som_kpi_label">Asignado</span>
+                        <span class="som_kpi_value">
+                            <field name="x_total_current_demand_qty" class="d-inline"/>
+                        </span>
+                        <span class="som_kpi_label">Demanda Actual</span>
                     </div>
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--success"><field name="x_total_delivered_net_qty" class="d-inline"/></span>
+                        <span class="som_kpi_value som_kpi_value--success">
+                            <field name="x_total_delivered_net_qty" class="d-inline"/>
+                        </span>
                         <span class="som_kpi_label">Entregado Neto</span>
                     </div>
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--warn"><field name="x_total_returned_qty" class="d-inline"/></span>
+                        <span class="som_kpi_value som_kpi_value--warn">
+                            <field name="x_total_returned_qty" class="d-inline"/>
+                        </span>
                         <span class="som_kpi_label">Devuelto</span>
                     </div>
                     <div class="som_kpi">
-                        <span class="som_kpi_value"><field name="x_total_pending_delivery_qty" class="d-inline"/></span>
-                        <span class="som_kpi_label">Pendiente</span>
+                        <span class="som_kpi_value">
+                            <field name="x_total_pending_delivery_qty" class="d-inline"/>
+                        </span>
+                        <span class="som_kpi_label">Pendiente Origen</span>
                     </div>
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--accent"><field name="x_fulfillment_net_pct" widget="float" digits="[3,1]" class="d-inline"/>%</span>
+                        <span class="som_kpi_value som_kpi_value--warn">
+                            <field name="x_total_overdelivered_qty" class="d-inline"/>
+                        </span>
+                        <span class="som_kpi_label">Sobreentrega</span>
+                    </div>
+                    <div class="som_kpi">
+                        <span class="som_kpi_value som_kpi_value--accent">
+                            <field name="x_fulfillment_net_pct"
+                                   widget="float"
+                                   digits="[3,1]"
+                                   class="d-inline"/>%
+                        </span>
                         <span class="som_kpi_label">Fulfillment</span>
                     </div>
                 </div>
@@ -124,15 +145,46 @@
             </xpath>
 
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
-                <field name="x_delivered_net_qty" string="Entregado Neto" optional="show"/>
-                <field name="x_returned_qty" string="Devuelto" optional="hide"/>
-                <field name="x_pending_qty" string="Pendiente" optional="show"/>
-                <field name="x_delivery_status" string="Estado Entrega"
+                <field name="x_origin_demand_qty"
+                       string="Demanda Origen"
+                       optional="show"/>
+                <field name="x_origin_demand_locked"
+                       string="Origen Cong."
+                       optional="hide"/>
+                <field name="x_origin_demand_source"
+                       string="Origen Snapshot"
+                       optional="hide"/>
+                <field name="x_origin_demand_locked_at"
+                       string="Fecha Snapshot"
+                       optional="hide"/>
+                <field name="x_delivered_net_qty"
+                       string="Entregado Neto"
+                       optional="show"/>
+                <field name="x_returned_qty"
+                       string="Devuelto"
+                       optional="hide"/>
+                <field name="x_pending_qty"
+                       string="Pendiente Origen"
+                       optional="show"/>
+                <field name="x_current_pending_qty"
+                       string="Pendiente Actual"
+                       optional="hide"/>
+                <field name="x_origin_pending_qty"
+                       string="Pendiente Origen 2"
+                       optional="hide"/>
+                <field name="x_overdelivered_origin_qty"
+                       string="Sobreentrega"
+                       optional="show"/>
+                <field name="x_fulfillment_net_pct"
+                       string="Fulfillment %"
+                       optional="hide"/>
+                <field name="x_delivery_status"
+                       string="Estado Entrega"
                        widget="badge"
                        decoration-success="x_delivery_status == 'entregado'"
                        decoration-warning="x_delivery_status in ('parcial_entregado', 'parcial_asignado')"
                        decoration-danger="x_delivery_status == 'sin_asignar'"
-                       decoration-info="x_delivery_status == 'asignado'"
+                       decoration-info="x_delivery_status in ('asignado', 'sobreentregado')"
                        optional="show"/>
             </xpath>
         </field>
@@ -148,6 +200,8 @@
                 <field name="x_delivery_document_count" invisible="1"/>
                 <field name="x_pick_ticket_open_count" invisible="1"/>
                 <field name="x_total_delivered_gross_qty" invisible="1"/>
+                <field name="x_total_current_demand_qty" invisible="1"/>
+                <field name="x_total_overdelivered_qty" invisible="1"/>
             </xpath>
         </field>
     </record>
