@@ -103,7 +103,7 @@
                                 <tr style="background-color: #111827;">
                                     <th style="width: 5%; text-align: center; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
                                     <th style="width: 36%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Producto</th>
-                                    <th style="width: 18%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Lote / Placa</th>
+                                    <th style="width: 18%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Lote</th>
                                     <th style="width: 17%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Ubicación</th>
                                     <th style="width: 10%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;" class="text-end">Cantidad</th>
                                     <th style="width: 8%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UdM</th>
