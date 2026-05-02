@@ -107,28 +107,92 @@ export class DeliveryGroupedList extends Component {
     }
 
     _normalizeGroupKeys() {
-        for (const group of this.state.groups) {
-            if (!group.groupKey) {
-                group.groupKey = `product-${group.productId || 0}`;
+        const usedGroupKeys = new Set();
+
+        this.state.groups.forEach((group, groupIndex) => {
+            const productId = group.productId || 0;
+            const remissionId = group.originRemissionId || 0;
+            const remissionName = group.originRemissionName || "";
+            const originalGroupKey = group.groupKey || "";
+
+            let baseKey;
+
+            if (this.state.mode === "return") {
+                baseKey = [
+                    "return",
+                    "remission",
+                    remissionId || "no-remission",
+                    "product",
+                    productId || "no-product",
+                    "idx",
+                    groupIndex,
+                ].join("-");
+            } else if (this.state.mode === "swap") {
+                baseKey = [
+                    "swap",
+                    "product",
+                    productId || "no-product",
+                    "idx",
+                    groupIndex,
+                ].join("-");
+            } else {
+                baseKey = [
+                    "delivery",
+                    originalGroupKey || "group",
+                    "product",
+                    productId || "no-product",
+                    "idx",
+                    groupIndex,
+                ].join("-");
             }
 
-            for (const line of group.lines || []) {
-                if (!line.groupKey) {
-                    line.groupKey = group.groupKey;
-                }
+            if (remissionName) {
+                baseKey += "-" + String(remissionName)
+                    .replace(/\s+/g, "-")
+                    .replace(/[^a-zA-Z0-9-_]/g, "");
             }
-        }
+
+            let finalKey = baseKey;
+            let counter = 1;
+
+            while (usedGroupKeys.has(finalKey)) {
+                finalKey = `${baseKey}-${counter}`;
+                counter += 1;
+            }
+
+            usedGroupKeys.add(finalKey);
+
+            group.groupKey = finalKey;
+            group._dglKey = finalKey;
+
+            (group.lines || []).forEach((line, lineIndex) => {
+                line.groupKey = finalKey;
+                line._dglKey = [
+                    finalKey,
+                    "line",
+                    lineIndex,
+                    line.originRemissionLineId || 0,
+                    line.moveLineId || 0,
+                    line.moveId || 0,
+                    line.lotId || line.originLotId || 0,
+                ].join("-");
+            });
+        });
     }
 
     _groupKey(groupOrKey) {
         if (typeof groupOrKey === "string" || typeof groupOrKey === "number") {
             return String(groupOrKey);
         }
+
         return String(
+            groupOrKey?._dglKey ||
             groupOrKey?.groupKey ||
-            groupOrKey?.productId ||
-            groupOrKey?.productName ||
-            "group"
+            [
+                "group",
+                groupOrKey?.originRemissionId || 0,
+                groupOrKey?.productId || 0,
+            ].join("-")
         );
     }
 
@@ -240,13 +304,11 @@ export class DeliveryGroupedList extends Component {
     }
 
     _syncCollapsedState() {
-        const next = { ...this.state.collapsed };
+        const next = {};
 
         for (const group of this.state.groups) {
             const key = this._groupKey(group);
-            if (!(key in next)) {
-                next[key] = false;
-            }
+            next[key] = this.state.collapsed[key] || false;
         }
 
         this.state.collapsed = next;
@@ -268,7 +330,7 @@ export class DeliveryGroupedList extends Component {
         for (const group of this.state.groups) {
             const groupKey = this._groupKey(group);
 
-            for (const line of group.lines) {
+            for (const line of group.lines || []) {
                 if (this.state.mode === "swap") {
                     const targetLotId = parseInt(line.targetLotId || 0);
 
@@ -281,7 +343,7 @@ export class DeliveryGroupedList extends Component {
                         productName: line.productName || "",
                         originLotId: line.originLotId || 0,
                         originLotName: line.originLotName || "",
-                        targetLotId: targetLotId,
+                        targetLotId,
                         targetLotName: line.targetLotName || "",
                         pickingId: line.pickingId || 0,
                         moveLineId: line.moveLineId || 0,
@@ -314,7 +376,7 @@ export class DeliveryGroupedList extends Component {
                     moveLineId: line.moveLineId || 0,
                     saleLineId: line.saleLineId || 0,
                     sourceLocationId: line.sourceLocationId || 0,
-                    qty: qty,
+                    qty,
                     qtyAvailable: line.qtyAvailable || 0,
                     originRemissionId: line.originRemissionId || group.originRemissionId || 0,
                     originRemissionName: line.originRemissionName || group.originRemissionName || "",
@@ -397,7 +459,7 @@ export class DeliveryGroupedList extends Component {
     selectAllInGroup(group) {
         if (this.state.mode === "swap") return;
 
-        for (const line of group.lines) {
+        for (const line of group.lines || []) {
             line.isSelected = true;
 
             if (this.state.mode === "delivery") {
@@ -415,7 +477,7 @@ export class DeliveryGroupedList extends Component {
     deselectAllInGroup(group) {
         if (this.state.mode === "swap") return;
 
-        for (const line of group.lines) {
+        for (const line of group.lines || []) {
             line.isSelected = false;
 
             if (this.state.mode === "delivery") {
@@ -449,7 +511,7 @@ export class DeliveryGroupedList extends Component {
         group.totalQty = 0;
         group.selectedCount = 0;
 
-        for (const line of group.lines) {
+        for (const line of group.lines || []) {
             if (this.state.mode === "delivery") {
                 group.totalQty += line.qtyToDeliver || 0;
                 if (line.isSelected) group.selectedCount += 1;
@@ -482,7 +544,7 @@ export class DeliveryGroupedList extends Component {
         let total = 0;
 
         for (const group of this.state.groups) {
-            for (const line of group.lines) {
+            for (const line of group.lines || []) {
                 if (this.state.mode === "delivery") {
                     if (line.isSelected) total += line.qtyToDeliver || 0;
                 } else if (this.state.mode === "return") {
@@ -500,7 +562,7 @@ export class DeliveryGroupedList extends Component {
         let total = 0;
 
         for (const group of this.state.groups) {
-            for (const line of group.lines) {
+            for (const line of group.lines || []) {
                 if (this.state.mode === "delivery") {
                     total += line.qtyAvailable || 0;
                 } else if (this.state.mode === "return") {
