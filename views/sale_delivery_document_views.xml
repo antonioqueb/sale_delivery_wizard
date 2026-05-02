@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Delivery Document Form -->
     <record id="sale_delivery_document_form" model="ir.ui.view">
         <field name="name">sale.delivery.document.form</field>
         <field name="model">sale.delivery.document</field>
@@ -11,30 +10,25 @@
                             type="object" class="btn-primary"
                             invisible="state != 'draft'"/>
 
-                    <!-- Editar Pick Ticket en wizard -->
                     <button name="action_edit_in_wizard" string="Editar en Wizard"
                             type="object" class="btn-primary"
                             invisible="document_type != 'pick_ticket' or state != 'prepared'"/>
 
-                    <!-- Cancelar Pick Ticket (libera lotes para otros PTs) -->
                     <button name="action_cancel_pick_ticket"
                             string="Cancelar Pick Ticket"
                             type="object" class="btn-warning"
                             invisible="document_type != 'pick_ticket' or state not in ('draft', 'prepared')"
                             confirm="¿Cancelar este Pick Ticket? Los lotes incluidos quedarán disponibles para otros Pick Tickets."/>
 
-                    <!-- Confirmar reentrega -->
                     <button name="action_confirm" string="Confirmar Entrega"
                             type="object" class="btn-primary"
                             invisible="state not in ('draft', 'prepared') or document_type != 'redelivery'"
                             confirm="¿Confirmar la reentrega? Se validará el picking y se descontará inventario."/>
 
-                    <!-- Confirmar (otros tipos, NO pick_ticket NI redelivery) -->
                     <button name="action_confirm" string="Confirmar"
                             type="object" class="btn-primary"
                             invisible="state not in ('draft', 'prepared') or document_type in ('redelivery', 'pick_ticket')"/>
 
-                    <!-- Cancelar genérico (no aplica a pick_ticket porque tiene su propio botón) -->
                     <button name="action_cancel" string="Cancelar"
                             type="object"
                             invisible="state in ('confirmed', 'cancelled') or document_type == 'pick_ticket'"/>
@@ -43,7 +37,6 @@
                            statusbar_visible="draft,prepared,confirmed"/>
                 </header>
                 <sheet>
-                    <!-- Banner: PT abierto editable -->
                     <div class="alert alert-info text-center p-3"
                          invisible="document_type != 'pick_ticket' or state != 'prepared'">
                         <strong>📝 Pick Ticket abierto</strong> —
@@ -52,7 +45,6 @@
                         en otros Pick Tickets de este pedido.
                     </div>
 
-                    <!-- Banner: Reentrega pendiente -->
                     <div class="alert alert-warning text-center p-3"
                          invisible="document_type != 'redelivery' or state != 'prepared'">
                         <strong>⏳ Reentrega Pendiente</strong> —
@@ -91,6 +83,15 @@
                                 <list editable="bottom">
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
+                                    <field name="origin_remission_number"
+                                           string="Remisión Origen"
+                                           column_invisible="parent.document_type != 'return'"/>
+                                    <field name="origin_remission_id"
+                                           optional="hide"
+                                           column_invisible="parent.document_type != 'return'"/>
+                                    <field name="origin_remission_line_id"
+                                           optional="hide"
+                                           column_invisible="parent.document_type != 'return'"/>
                                     <field name="qty_selected"/>
                                     <field name="qty_done"/>
                                     <field name="qty_returned"
@@ -121,7 +122,6 @@
         </field>
     </record>
 
-    <!-- Delivery Document List -->
     <record id="sale_delivery_document_list" model="ir.ui.view">
         <field name="name">sale.delivery.document.list</field>
         <field name="model">sale.delivery.document</field>
@@ -142,7 +142,6 @@
         </field>
     </record>
 
-    <!-- Menu & Actions -->
     <record id="action_sale_delivery_documents" model="ir.actions.act_window">
         <field name="name">Documentos de Entrega</field>
         <field name="res_model">sale.delivery.document</field>

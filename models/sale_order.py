@@ -78,19 +78,7 @@ class SaleOrder(models.Model):
         string='Reentregas Pendientes',
     )
 
-    # ═══════════════════════════════════════════════════════════════════
-    # Demanda origen operativa
-    # ═══════════════════════════════════════════════════════════════════
-
     def _ensure_origin_demand_snapshot(self, source='manual'):
-        """
-        Congela la demanda origen de las líneas de venta antes del primer
-        evento operativo.
-
-        No congela líneas en cero. Si la orden fue confirmada sin selección,
-        la demanda origen se congelará cuando ya exista cantidad real en la
-        línea y se presione Entregar o Swap.
-        """
         for order in self:
             lines = order.order_line.filtered(
                 lambda l: l.product_id and l.product_id.type != 'service'
@@ -173,10 +161,6 @@ class SaleOrder(models.Model):
                 )
             )
 
-    # ═══════════════════════════════════════════════════════════════════
-    # Lotes bloqueados por OTROS Pick Tickets abiertos
-    # ═══════════════════════════════════════════════════════════════════
-
     def _get_locked_lot_ids(self, exclude_pt_id=None):
         self.ensure_one()
         domain = [
@@ -205,10 +189,6 @@ class SaleOrder(models.Model):
                 if pl.lot_id:
                     result.setdefault(pl.lot_id.id, []).append(pt.name)
         return result
-
-    # ═══════════════════════════════════════════════════════════════════
-    # Build grouped data
-    # ═══════════════════════════════════════════════════════════════════
 
     def get_delivery_grouped_data(self, mode='delivery', editing_pt_id=None):
         self.ensure_one()
@@ -279,6 +259,7 @@ class SaleOrder(models.Model):
     def _append_group_line(self, groups_map, pid, pname, line_dict):
         if pid not in groups_map:
             groups_map[pid] = {
+                'groupKey': 'product-%s' % pid,
                 'productId': pid,
                 'productName': pname,
                 'lines': [],
@@ -288,6 +269,7 @@ class SaleOrder(models.Model):
             }
 
         group = groups_map[pid]
+        line_dict.setdefault('groupKey', group['groupKey'])
         group['lines'].append(line_dict)
         group['lineCount'] += 1
         group['totalQty'] += line_dict.get('qtyToDeliver', 0.0) or 0.0
@@ -440,26 +422,123 @@ class SaleOrder(models.Model):
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
+    def _get_returned_qty_by_origin_remission_line(self):
+        self.ensure_one()
+        returned_by_line = {}
+
+        return_docs = self.delivery_document_ids.filtered(
+            lambda d: d.document_type == 'return'
+            and d.state == 'confirmed'
+        )
+
+        for return_doc in return_docs:
+            for line in return_doc.line_ids:
+                if not line.origin_remission_line_id:
+                    continue
+                qty = line.qty_done or line.qty_selected or 0.0
+                if qty <= 0:
+                    continue
+                origin_line_id = line.origin_remission_line_id.id
+                returned_by_line[origin_line_id] = (
+                    returned_by_line.get(origin_line_id, 0.0) + qty
+                )
+
+        return returned_by_line
+
+    def _append_return_group_line(self, groups_map, group_key, group_name, line_dict):
+        if group_key not in groups_map:
+            groups_map[group_key] = {
+                'groupKey': group_key,
+                'productId': line_dict.get('productId') or 0,
+                'productName': group_name,
+                'originRemissionId': line_dict.get('originRemissionId') or 0,
+                'originRemissionName': line_dict.get('originRemissionName') or '',
+                'lines': [],
+                'totalQty': 0.0,
+                'selectedCount': 0,
+                'lineCount': 0,
+            }
+
+        group = groups_map[group_key]
+        line_dict['groupKey'] = group_key
+        group['lines'].append(line_dict)
+        group['lineCount'] += 1
+        group['totalQty'] += line_dict.get('qtyDelivered', 0.0) or 0.0
+        if line_dict.get('isSelected'):
+            group['selectedCount'] += 1
+
     def _build_return_groups(self):
+        self.ensure_one()
         groups_map = OrderedDict()
+        returned_by_line = self._get_returned_qty_by_origin_remission_line()
+
+        remissions = self.delivery_document_ids.filtered(
+            lambda d: d.document_type == 'remission'
+            and d.state == 'confirmed'
+        ).sorted(lambda d: d.id)
+
+        for remission in remissions:
+            remission_name = remission.remission_number or remission.name or _('Sin Remisión')
+
+            for doc_line in remission.line_ids.sorted(lambda l: (l.sequence, l.id)):
+                delivered_qty = doc_line.qty_done or doc_line.qty_selected or 0.0
+                returned_qty = returned_by_line.get(doc_line.id, 0.0)
+                qty_available = max(delivered_qty - returned_qty, 0.0)
+
+                if qty_available <= 0:
+                    continue
+
+                product = doc_line.product_id
+                if not product:
+                    continue
+
+                pid = product.id
+                pname = product.display_name
+                group_key = 'remission-%s-product-%s' % (remission.id, pid)
+                group_name = '%s · %s' % (remission_name, pname)
+
+                move = doc_line.move_id
+                ml = doc_line.move_line_id
+
+                ld = {
+                    'dbId': 0,
+                    'lotId': doc_line.lot_id.id if doc_line.lot_id else 0,
+                    'lotName': doc_line.lot_id.name if doc_line.lot_id else '',
+                    'productId': pid,
+                    'productName': pname,
+                    'pickingId': (
+                        remission.picking_id.id
+                        or (move.picking_id.id if move and move.picking_id else 0)
+                    ),
+                    'moveId': move.id if move else 0,
+                    'moveLineId': ml.id if ml else 0,
+                    'saleLineId': doc_line.sale_line_id.id if doc_line.sale_line_id else 0,
+                    'sourceLocationId': ml.location_dest_id.id if ml and ml.location_dest_id else 0,
+                    'isSelected': False,
+                    'qtyDelivered': qty_available,
+                    'qtyToReturn': 0,
+                    'originRemissionId': remission.id,
+                    'originRemissionName': remission_name,
+                    'originRemissionLineId': doc_line.id,
+                }
+
+                self._append_return_group_line(
+                    groups_map, group_key, group_name, ld
+                )
+
+        if groups_map:
+            return [g for g in groups_map.values() if g['lineCount'] > 0]
 
         for picking in self.picking_ids.filtered(
             lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'
         ):
+            fallback_remission_name = picking.name or _('Sin Remisión')
+
             for move in picking.move_ids.filtered(lambda m: m.state == 'done'):
                 pid = move.product_id.id
                 pname = move.product_id.display_name
-
-                if pid not in groups_map:
-                    groups_map[pid] = {
-                        'productId': pid,
-                        'productName': pname,
-                        'lines': [],
-                        'totalQty': 0.0,
-                        'selectedCount': 0,
-                        'lineCount': 0,
-                    }
-                group = groups_map[pid]
+                group_key = 'picking-%s-product-%s' % (picking.id, pid)
+                group_name = '%s · %s' % (fallback_remission_name, pname)
 
                 for ml in move.move_line_ids:
                     qty = ml.quantity or ml.qty_done or 0.0
@@ -480,9 +559,14 @@ class SaleOrder(models.Model):
                         'isSelected': False,
                         'qtyDelivered': qty,
                         'qtyToReturn': 0,
+                        'originRemissionId': 0,
+                        'originRemissionName': fallback_remission_name,
+                        'originRemissionLineId': 0,
                     }
-                    group['lines'].append(ld)
-                    group['lineCount'] += 1
+
+                    self._append_return_group_line(
+                        groups_map, group_key, group_name, ld
+                    )
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
@@ -506,6 +590,7 @@ class SaleOrder(models.Model):
 
                     if pid not in groups_map:
                         groups_map[pid] = {
+                            'groupKey': 'product-%s' % pid,
                             'productId': pid,
                             'productName': pname,
                             'lines': [],
@@ -516,6 +601,7 @@ class SaleOrder(models.Model):
                     group = groups_map[pid]
 
                     ld = {
+                        'groupKey': group['groupKey'],
                         'dbId': 0,
                         'productId': pid,
                         'productName': pname,
@@ -540,12 +626,7 @@ class SaleOrder(models.Model):
 
         return [g for g in groups_map.values() if g['lineCount'] > 0]
 
-    # ═══════════════════════════════════════════════════════════════════
-    # Acciones
-    # ═══════════════════════════════════════════════════════════════════
-
     def _get_open_pick_tickets(self):
-        """Pick Tickets en estado 'prepared' para esta SO."""
         self.ensure_one()
         return self.env['sale.delivery.document'].search([
             ('sale_order_id', '=', self.id),
@@ -567,12 +648,6 @@ class SaleOrder(models.Model):
                         'Contacte a un autorizador.'))
 
     def action_open_delivery_wizard(self):
-        """
-        Abre el wizard de entrega.
-
-        Antes de abrir el flujo operativo, congela la demanda origen de las
-        líneas que ya tengan cantidad mayor a cero.
-        """
         self.ensure_one()
         self._check_delivery_authorization()
 
@@ -606,12 +681,6 @@ class SaleOrder(models.Model):
         }
 
     def action_open_swap_wizard(self):
-        """
-        Abre el wizard de swap.
-
-        Antes de permitir swap, congela la demanda origen de las líneas que ya
-        tengan cantidad mayor a cero.
-        """
         self.ensure_one()
 
         self._ensure_origin_demand_snapshot(source='swap_button')

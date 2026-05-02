@@ -115,12 +115,7 @@ class SaleDeliveryDocument(models.Model):
             lambda d: d.state != 'confirmed'
         ).write({'state': 'cancelled'})
 
-    # ═══════════════════════════════════════════════════════════════════
-    # Edición de Pick Tickets en el wizard
-    # ═══════════════════════════════════════════════════════════════════
-
     def action_edit_in_wizard(self):
-        """Abre el wizard de entrega en modo edición de este Pick Ticket."""
         self.ensure_one()
         if self.document_type != 'pick_ticket':
             raise UserError(_('Solo se pueden editar Pick Tickets.'))
@@ -142,7 +137,6 @@ class SaleDeliveryDocument(models.Model):
         }
 
     def action_cancel_pick_ticket(self):
-        """Cancela el Pick Ticket liberando sus lotes para otros PTs."""
         self.ensure_one()
         if self.document_type != 'pick_ticket':
             raise UserError(_('Esta acción solo aplica a Pick Tickets.'))
@@ -154,10 +148,7 @@ class SaleDeliveryDocument(models.Model):
             'Pick Ticket cancelado por %s — lotes liberados.',
             self.env.user.name))
 
-    # ═══════════════════════════════════════════════════════════════════
-
     def _validate_picking_partial(self, picking, doc_ml_ids, doc_ml_qty):
-        """Validate a picking partially by setting qty only for selected move lines."""
         if picking.state == 'done':
             _logger.info('Picking %s already done, skipping.', picking.name)
             return True
@@ -215,19 +206,6 @@ class SaleDeliveryDocument(models.Model):
         return picking.state == 'done'
 
     def _resolve_doc_move_lines_for_picking(self, picking):
-        """
-        Resuelve las move lines reales a validar para una remisión.
-
-        Problema que corrige:
-        - Cuando el wizard viene de sale_line.lot_ids, el documento puede traer
-          lot_id y qty_selected pero move_line_id vacío.
-        - Si validamos solo por move_line_id, Odoo termina con todas las qty en 0.
-
-        Estrategia:
-        1. Usar move_line_id directo si existe.
-        2. Si no existe, resolver por (product_id, lot_id) dentro del picking.
-        3. Si hay varias move lines para el mismo lote, repartir la cantidad.
-        """
         self.ensure_one()
 
         doc_ml_ids = set()
@@ -244,21 +222,18 @@ class SaleDeliveryDocument(models.Model):
                 doc_lot_ids.add(doc_line.lot_id.id)
                 doc_lot_qty[doc_line.lot_id.id] = doc_lot_qty.get(doc_line.lot_id.id, 0.0) + requested_qty
 
-            # Caso ideal: viene move_line_id directo
             if doc_line.move_line_id and doc_line.move_line_id.picking_id == picking:
                 ml = doc_line.move_line_id
                 doc_ml_ids.add(ml.id)
                 doc_ml_qty[ml.id] = doc_ml_qty.get(ml.id, 0.0) + requested_qty
                 continue
 
-            # Fallback robusto: resolver por lote + producto dentro del picking
             candidate_mls = picking.move_ids.move_line_ids.filtered(
                 lambda ml: ml.product_id == doc_line.product_id
                 and ml.lot_id == doc_line.lot_id
                 and ml.move_id.state not in ('done', 'cancel')
             )
 
-            # Si no encontró por lot_id, último fallback por move_id
             if not candidate_mls and doc_line.move_id:
                 candidate_mls = doc_line.move_id.move_line_ids.filtered(
                     lambda ml: ml.picking_id == picking and ml.move_id.state not in ('done', 'cancel')
@@ -308,7 +283,6 @@ class SaleDeliveryDocument(models.Model):
         return doc_ml_ids, doc_ml_qty, doc_lot_ids, doc_lot_qty
 
     def _action_confirm_remission(self):
-        """Validate ONLY the selected lots/qty in the picking chain."""
         self.ensure_one()
         if not self.picking_id:
             raise UserError(_(
@@ -364,7 +338,6 @@ class SaleDeliveryDocument(models.Model):
                 'No OUT picking found. Single-step or push rule not triggered.')
 
     def _find_out_picking_for_lots(self, lot_ids):
-        """Find an outgoing picking for this SO that contains any of the given lots."""
         if not lot_ids:
             return False
 
@@ -390,7 +363,6 @@ class SaleDeliveryDocument(models.Model):
         return False
 
     def _action_confirm_return(self):
-        """Validate the return picking with quantities from the document lines."""
         self.ensure_one()
         if not self.return_picking_id:
             raise UserError(_('No hay picking de devolución asociado.'))
@@ -404,7 +376,10 @@ class SaleDeliveryDocument(models.Model):
         for doc_line in self.line_ids:
             if doc_line.qty_selected > 0:
                 if doc_line.lot_id:
-                    lot_qty[doc_line.lot_id.id] = doc_line.qty_selected
+                    lot_qty[doc_line.lot_id.id] = (
+                        lot_qty.get(doc_line.lot_id.id, 0.0)
+                        + doc_line.qty_selected
+                    )
                 elif doc_line.product_id:
                     product_qty[doc_line.product_id.id] = (
                         product_qty.get(doc_line.product_id.id, 0.0)
@@ -447,10 +422,6 @@ class SaleDeliveryDocument(models.Model):
                 immediate_wiz.process()
 
     def _action_confirm_redelivery(self):
-        """Confirm the redelivery: validate the associated outgoing picking
-        to actually deliver the material that was returned and re-scheduled.
-        This generates a remission number for the redelivery.
-        """
         self.ensure_one()
         if not self.picking_id:
             raise UserError(_(
@@ -550,6 +521,38 @@ class SaleDeliveryDocumentLine(models.Model):
 
     source_location_id = fields.Many2one('stock.location', string='Ubicación Origen')
 
+    origin_remission_id = fields.Many2one(
+        'sale.delivery.document',
+        string='Remisión Origen',
+        index=True,
+        ondelete='set null',
+        domain=[('document_type', '=', 'remission')],
+        help='Remisión original desde la que se originó esta devolución.'
+    )
+    origin_remission_line_id = fields.Many2one(
+        'sale.delivery.document.line',
+        string='Línea Remisión Origen',
+        index=True,
+        ondelete='set null',
+        help='Línea exacta de la remisión original que se está devolviendo.'
+    )
+    origin_remission_number = fields.Char(
+        string='Folio Remisión Origen',
+        compute='_compute_origin_remission_number',
+        store=True,
+        readonly=True,
+    )
+
     is_swap_origin = fields.Boolean(default=False)
     is_swap_target = fields.Boolean(default=False)
     is_replacement = fields.Boolean(default=False)
+
+    @api.depends('origin_remission_id.name', 'origin_remission_id.remission_number')
+    def _compute_origin_remission_number(self):
+        for line in self:
+            remission = line.origin_remission_id
+            line.origin_remission_number = (
+                remission.remission_number
+                or remission.name
+                or ''
+            ) if remission else ''

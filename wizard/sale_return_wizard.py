@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 import json
@@ -23,7 +24,6 @@ class SaleReturnWizard(models.TransientModel):
     line_ids = fields.One2many(
         'sale.return.wizard.line', 'wizard_id', string='Líneas')
 
-    # ── JSON field written by JS widget ──
     widget_selections = fields.Text(
         string='Selecciones del Widget', default='[]')
 
@@ -33,13 +33,93 @@ class SaleReturnWizard(models.TransientModel):
         so_id = res.get('sale_order_id') or self.env.context.get('active_id')
         if not so_id:
             return res
-        order = self.env['sale.order'].browse(so_id)
-        res['sale_order_id'] = order.id
 
+        order = self.env['sale.order'].browse(so_id)
+        if not order.exists():
+            return res
+
+        res['sale_order_id'] = order.id
+        res['widget_selections'] = '[]'
+
+        raw_lines = self._prepare_return_lines_from_remissions(order)
+
+        if not raw_lines:
+            raw_lines = self._prepare_return_lines_fallback_from_pickings(order)
+
+        res['line_ids'] = self._group_lines_by_remission_product(raw_lines)
+        return res
+
+    def _get_returned_qty_by_origin_remission_line(self, order):
+        returned_by_line = {}
+
+        return_docs = order.delivery_document_ids.filtered(
+            lambda d: d.document_type == 'return'
+            and d.state == 'confirmed'
+        )
+
+        for return_doc in return_docs:
+            for line in return_doc.line_ids:
+                if not line.origin_remission_line_id:
+                    continue
+                qty = line.qty_done or line.qty_selected or 0.0
+                if qty <= 0:
+                    continue
+                origin_line_id = line.origin_remission_line_id.id
+                returned_by_line[origin_line_id] = (
+                    returned_by_line.get(origin_line_id, 0.0) + qty
+                )
+
+        return returned_by_line
+
+    def _prepare_return_lines_from_remissions(self, order):
         raw_lines = []
+        returned_by_line = self._get_returned_qty_by_origin_remission_line(order)
+
+        remissions = order.delivery_document_ids.filtered(
+            lambda d: d.document_type == 'remission'
+            and d.state == 'confirmed'
+        ).sorted(lambda d: d.id)
+
+        for remission in remissions:
+            remission_name = remission.remission_number or remission.name or _('Sin Remisión')
+
+            for doc_line in remission.line_ids.sorted(lambda l: (l.sequence, l.id)):
+                qty_delivered = doc_line.qty_done or doc_line.qty_selected or 0.0
+                qty_returned = returned_by_line.get(doc_line.id, 0.0)
+                qty_available = max(qty_delivered - qty_returned, 0.0)
+
+                if qty_available <= 0:
+                    continue
+                if not doc_line.product_id:
+                    continue
+
+                move = doc_line.move_id
+                ml = doc_line.move_line_id
+
+                raw_lines.append((0, 0, {
+                    'move_id': move.id if move else False,
+                    'move_line_id': ml.id if ml else False,
+                    'sale_line_id': doc_line.sale_line_id.id if doc_line.sale_line_id else False,
+                    'product_id': doc_line.product_id.id,
+                    'lot_id': doc_line.lot_id.id if doc_line.lot_id else False,
+                    'qty_delivered': qty_available,
+                    'qty_to_return': qty_available,
+                    'is_selected': True,
+                    'origin_remission_id': remission.id,
+                    'origin_remission_line_id': doc_line.id,
+                    'origin_remission_number': remission_name,
+                }))
+
+        return raw_lines
+
+    def _prepare_return_lines_fallback_from_pickings(self, order):
+        raw_lines = []
+
         for picking in order.picking_ids.filtered(
                 lambda p: p.state == 'done'
                 and p.picking_type_code == 'outgoing'):
+            fallback_ref = picking.name or _('Sin Remisión')
+
             for move in picking.move_ids.filtered(
                     lambda m: m.state == 'done'):
                 for ml in move.move_line_ids:
@@ -48,44 +128,57 @@ class SaleReturnWizard(models.TransientModel):
                         raw_lines.append((0, 0, {
                             'move_id': move.id,
                             'move_line_id': ml.id,
-                            'sale_line_id': move.sale_line_id.id,
+                            'sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
                             'product_id': move.product_id.id,
                             'lot_id': ml.lot_id.id if ml.lot_id else False,
                             'qty_delivered': qty,
                             'qty_to_return': qty,
                             'is_selected': True,
+                            'origin_remission_id': False,
+                            'origin_remission_line_id': False,
+                            'origin_remission_number': fallback_ref,
                         }))
-        res['line_ids'] = self._group_lines_by_product(raw_lines)
-        return res
 
-    def _group_lines_by_product(self, raw_lines):
-        from collections import OrderedDict
+        return raw_lines
+
+    def _group_lines_by_remission_product(self, raw_lines):
         grouped = OrderedDict()
+
         for cmd in raw_lines:
             vals = cmd[2]
+            remission_id = vals.get('origin_remission_id') or 0
+            remission_number = vals.get('origin_remission_number') or _('Sin Remisión')
             pid = vals.get('product_id', 0)
-            grouped.setdefault(pid, []).append(cmd)
+
+            key = (remission_id, remission_number, pid)
+            grouped.setdefault(key, []).append(cmd)
 
         result = []
         Product = self.env['product.product']
         seq = 0
-        for pid, lines in grouped.items():
-            product = Product.browse(pid) if pid else None
-            section_name = product.display_name if product else _('Sin Producto')
+
+        for (remission_id, remission_number, pid), lines in grouped.items():
+            product = Product.browse(pid) if pid else Product
+            product_name = product.display_name if product and product.exists() else _('Sin Producto')
+            section_name = '%s · %s' % (remission_number, product_name)
+
             result.append((0, 0, {
                 'display_type': 'line_section',
                 'section_name': section_name,
-                'product_id': pid,
+                'product_id': pid or False,
+                'origin_remission_id': remission_id or False,
+                'origin_remission_number': remission_number,
                 'sequence': seq,
             }))
             seq += 1
+
             for line_cmd in lines:
                 line_cmd[2]['sequence'] = seq
                 result.append(line_cmd)
                 seq += 1
+
         return result
 
-    # ─── RPC for grouped list widget ─────────────────────────────────
     def get_grouped_lines_data(self):
         self.ensure_one()
         groups = []
@@ -95,10 +188,26 @@ class SaleReturnWizard(models.TransientModel):
             if line.display_type == 'line_section':
                 if current_group and current_group['lines']:
                     groups.append(current_group)
+
+                remission_name = line.origin_remission_number or _('Sin Remisión')
+                product_name = (
+                    line.product_id.display_name
+                    if line.product_id
+                    else _('Sin Producto')
+                )
+                group_key = 'remission-%s-product-%s-section-%s' % (
+                    line.origin_remission_id.id if line.origin_remission_id else 0,
+                    line.product_id.id if line.product_id else 0,
+                    line.id or line.sequence,
+                )
+
                 current_group = {
+                    'groupKey': group_key,
                     'productId': line.product_id.id or 0,
-                    'productName': line.section_name or (
-                        line.product_id.display_name if line.product_id else 'Sin Producto'),
+                    'productName': line.section_name or '%s · %s' % (
+                        remission_name, product_name),
+                    'originRemissionId': line.origin_remission_id.id if line.origin_remission_id else 0,
+                    'originRemissionName': remission_name,
                     'lines': [],
                     'totalQty': 0,
                     'selectedCount': 0,
@@ -107,17 +216,31 @@ class SaleReturnWizard(models.TransientModel):
                 continue
 
             if current_group is None:
-                pname = line.product_id.display_name if line.product_id else 'Sin Producto'
+                remission_name = line.origin_remission_number or _('Sin Remisión')
+                pname = line.product_id.display_name if line.product_id else _('Sin Producto')
+                group_key = 'remission-%s-product-%s-line-%s' % (
+                    line.origin_remission_id.id if line.origin_remission_id else 0,
+                    line.product_id.id if line.product_id else 0,
+                    line.id or line.sequence,
+                )
                 current_group = {
+                    'groupKey': group_key,
                     'productId': line.product_id.id or 0,
-                    'productName': pname,
+                    'productName': '%s · %s' % (remission_name, pname),
+                    'originRemissionId': line.origin_remission_id.id if line.origin_remission_id else 0,
+                    'originRemissionName': remission_name,
                     'lines': [],
                     'totalQty': 0,
                     'selectedCount': 0,
                     'lineCount': 0,
                 }
 
+            remission_name = line.origin_remission_number or (
+                current_group.get('originRemissionName') or _('Sin Remisión')
+            )
+
             ld = {
+                'groupKey': current_group.get('groupKey'),
                 'dbId': line.id,
                 'lotId': line.lot_id.id if line.lot_id else 0,
                 'lotName': line.lot_id.name if line.lot_id else '',
@@ -131,7 +254,11 @@ class SaleReturnWizard(models.TransientModel):
                 'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
                 'pickingId': line.move_id.picking_id.id if line.move_id and line.move_id.picking_id else 0,
                 'sourceLocationId': 0,
+                'originRemissionId': line.origin_remission_id.id if line.origin_remission_id else 0,
+                'originRemissionName': remission_name,
+                'originRemissionLineId': line.origin_remission_line_id.id if line.origin_remission_line_id else 0,
             }
+
             current_group['lines'].append(ld)
             current_group['lineCount'] += 1
             current_group['totalQty'] += line.qty_to_return or 0
@@ -143,12 +270,9 @@ class SaleReturnWizard(models.TransientModel):
 
         return groups
 
-    # ─── Action ──────────────────────────────────────────────────────
-
     def action_confirm_return(self):
         self.ensure_one()
 
-        # Try widget_selections first
         try:
             sels = json.loads(self.widget_selections or '[]')
         except (json.JSONDecodeError, TypeError):
@@ -160,21 +284,21 @@ class SaleReturnWizard(models.TransientModel):
             return self._confirm_return_from_lines()
 
     def _confirm_return_from_selections(self, sels):
-        """Process return using widget_selections JSON."""
         order = self.sale_order_id
 
-        # Build a structure similar to what _confirm_return_from_lines expects
-        # Group by original picking
         move_returns = {}
         for sel in sels:
             if sel.get('qty', 0) <= 0:
                 continue
+
             move_id = sel.get('moveId', 0)
             if not move_id:
                 continue
+
             move = self.env['stock.move'].browse(move_id)
             if not move.exists():
                 continue
+
             picking = move.picking_id
             move_returns.setdefault(picking, []).append({
                 'move': move,
@@ -183,6 +307,9 @@ class SaleReturnWizard(models.TransientModel):
                 'qty': sel.get('qty', 0),
                 'sale_line_id': sel.get('saleLineId') or False,
                 'move_line_id': sel.get('moveLineId') or False,
+                'origin_remission_id': sel.get('originRemissionId') or False,
+                'origin_remission_line_id': sel.get('originRemissionLineId') or False,
+                'origin_remission_number': sel.get('originRemissionName') or '',
             })
 
         if not move_returns:
@@ -195,7 +322,9 @@ class SaleReturnWizard(models.TransientModel):
                 active_id=picking.id,
                 active_model='stock.picking',
             ).create({})
+
             return_wiz.product_return_moves.unlink()
+
             for sl in sel_lines:
                 self.env['stock.return.picking.line'].create({
                     'wizard_id': return_wiz.id,
@@ -204,6 +333,7 @@ class SaleReturnWizard(models.TransientModel):
                     'move_id': sl['move'].id,
                     'uom_id': sl['move'].product_uom.id,
                 })
+
             result = return_wiz.action_create_returns()
             if result and result.get('res_id'):
                 ret_picking = self.env['stock.picking'].browse(result['res_id'])
@@ -213,12 +343,13 @@ class SaleReturnWizard(models.TransientModel):
         for ret_picking in return_pickings:
             orig_picking = ret_picking.move_ids.mapped(
                 'origin_returned_move_id.picking_id')
+
             picking_sels = []
             for picking, sl_list in move_returns.items():
                 if picking in orig_picking:
                     picking_sels.extend(sl_list)
+
             if not picking_sels:
-                # Fallback: use all selections
                 for sl_list in move_returns.values():
                     picking_sels.extend(sl_list)
 
@@ -237,6 +368,8 @@ class SaleReturnWizard(models.TransientModel):
                     'sale_line_id': sl['sale_line_id'],
                     'move_id': sl['move'].id,
                     'move_line_id': sl['move_line_id'],
+                    'origin_remission_id': sl.get('origin_remission_id') or False,
+                    'origin_remission_line_id': sl.get('origin_remission_line_id') or False,
                 }) for sl in picking_sels],
             })
 
@@ -265,6 +398,7 @@ class SaleReturnWizard(models.TransientModel):
                     'sticky': True,
                 },
             }
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -279,7 +413,6 @@ class SaleReturnWizard(models.TransientModel):
         }
 
     def _validate_return_picking_from_sels(self, picking, sel_lines):
-        """Validate return picking using selection dicts."""
         if picking.state in ('draft', 'confirmed', 'waiting'):
             picking.action_assign()
 
@@ -334,7 +467,6 @@ class SaleReturnWizard(models.TransientModel):
                 immediate_wiz.process()
 
     def _resolve_source_location(self, lot_id, product_id, parent_location_id):
-        """Encuentra la sub-ubicacion real donde vive el quant del lote."""
         Quant = self.env['stock.quant']
         quant = Quant.search([
             ('lot_id', '=', lot_id),
@@ -352,7 +484,6 @@ class SaleReturnWizard(models.TransientModel):
         return quant.location_id.id if quant else parent_location_id
 
     def _action_reagendar_from_sels(self, order, sels):
-        """Create redelivery picking from selections."""
         warehouse = order.warehouse_id
         pick_type = warehouse.out_type_id
         if not pick_type:
@@ -400,6 +531,7 @@ class SaleReturnWizard(models.TransientModel):
                 'origin': order.name,
             })
             move_map[sale_line_id] = move
+
             for s in sel_group:
                 if s.get('lotId'):
                     source_loc_id = self._resolve_source_location(
@@ -430,6 +562,8 @@ class SaleReturnWizard(models.TransientModel):
                 'sale_line_id': sel.get('saleLineId') or False,
                 'move_id': move.id if move else False,
                 'source_location_id': new_picking.location_id.id,
+                'origin_remission_id': sel.get('originRemissionId') or False,
+                'origin_remission_line_id': sel.get('originRemissionLineId') or False,
             }))
 
         doc = self.env['sale.delivery.document'].create({
@@ -437,19 +571,13 @@ class SaleReturnWizard(models.TransientModel):
             'sale_order_id': order.id,
             'picking_id': new_picking.id,
             'delivery_address': order.partner_shipping_id.contact_address or '',
-            'special_instructions': _(
-                'REENTREGA por devolución.'),
+            'special_instructions': _('REENTREGA por devolución.'),
             'line_ids': doc_lines,
         })
         doc.action_prepare()
         return doc
 
-    # ═══════════════════════════════════════════════════════════════════
-    # FALLBACK: Original methods using line_ids (unchanged)
-    # ═══════════════════════════════════════════════════════════════════
-
     def _confirm_return_from_lines(self):
-        """Original return logic using line_ids."""
         selected = self.line_ids.filtered(
             lambda l: l.is_selected and l.display_type != 'line_section')
         if not selected:
@@ -472,7 +600,9 @@ class SaleReturnWizard(models.TransientModel):
                 active_id=picking.id,
                 active_model='stock.picking',
             ).create({})
+
             return_wiz.product_return_moves.unlink()
+
             for line in lines:
                 self.env['stock.return.picking.line'].create({
                     'wizard_id': return_wiz.id,
@@ -481,6 +611,7 @@ class SaleReturnWizard(models.TransientModel):
                     'move_id': line.move_id.id,
                     'uom_id': line.move_id.product_uom.id,
                 })
+
             result = return_wiz.action_create_returns()
             if result and result.get('res_id'):
                 ret_picking = self.env['stock.picking'].browse(result['res_id'])
@@ -510,6 +641,8 @@ class SaleReturnWizard(models.TransientModel):
                     'sale_line_id': line.sale_line_id.id,
                     'move_id': line.move_id.id,
                     'move_line_id': line.move_line_id.id,
+                    'origin_remission_id': line.origin_remission_id.id if line.origin_remission_id else False,
+                    'origin_remission_line_id': line.origin_remission_line_id.id if line.origin_remission_line_id else False,
                 }) for line in picking_lines],
             })
 
@@ -539,6 +672,7 @@ class SaleReturnWizard(models.TransientModel):
                     'sticky': True,
                 },
             }
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -622,6 +756,8 @@ class SaleReturnWizard(models.TransientModel):
                 'sale_line_id': wl.sale_line_id.id,
                 'move_id': move.id if move else False,
                 'source_location_id': new_picking.location_id.id,
+                'origin_remission_id': wl.origin_remission_id.id if wl.origin_remission_id else False,
+                'origin_remission_line_id': wl.origin_remission_line_id.id if wl.origin_remission_line_id else False,
             }))
 
         doc = self.env['sale.delivery.document'].create({
@@ -713,6 +849,7 @@ class SaleReturnWizardLine(models.TransientModel):
     wizard_id = fields.Many2one(
         'sale.return.wizard', ondelete='cascade', required=True)
     sequence = fields.Integer(default=10)
+
     display_type = fields.Selection([
         ('line_section', 'Section'),
     ], string='Tipo de Fila')
@@ -728,6 +865,22 @@ class SaleReturnWizardLine(models.TransientModel):
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
     qty_delivered = fields.Float(string='Entregado')
     qty_to_return = fields.Float(string='A Devolver')
+
+    origin_remission_id = fields.Many2one(
+        'sale.delivery.document',
+        string='Remisión Origen',
+        readonly=True,
+        domain=[('document_type', '=', 'remission')],
+    )
+    origin_remission_line_id = fields.Many2one(
+        'sale.delivery.document.line',
+        string='Línea Remisión Origen',
+        readonly=True,
+    )
+    origin_remission_number = fields.Char(
+        string='Folio Remisión Origen',
+        readonly=True,
+    )
 
     @api.model_create_multi
     def create(self, vals_list):

@@ -91,6 +91,7 @@ export class DeliveryGroupedList extends Component {
                 }
             }
 
+            this._normalizeGroupKeys();
             this._syncCollapsedState();
             this._recalcAllGroups();
 
@@ -103,6 +104,32 @@ export class DeliveryGroupedList extends Component {
         } finally {
             this.state.isLoading = false;
         }
+    }
+
+    _normalizeGroupKeys() {
+        for (const group of this.state.groups) {
+            if (!group.groupKey) {
+                group.groupKey = `product-${group.productId || 0}`;
+            }
+
+            for (const line of group.lines || []) {
+                if (!line.groupKey) {
+                    line.groupKey = group.groupKey;
+                }
+            }
+        }
+    }
+
+    _groupKey(groupOrKey) {
+        if (typeof groupOrKey === "string" || typeof groupOrKey === "number") {
+            return String(groupOrKey);
+        }
+        return String(
+            groupOrKey?.groupKey ||
+            groupOrKey?.productId ||
+            groupOrKey?.productName ||
+            "group"
+        );
     }
 
     _applyStoredSelections() {
@@ -216,8 +243,9 @@ export class DeliveryGroupedList extends Component {
         const next = { ...this.state.collapsed };
 
         for (const group of this.state.groups) {
-            if (!(group.productId in next)) {
-                next[group.productId] = false;
+            const key = this._groupKey(group);
+            if (!(key in next)) {
+                next[key] = false;
             }
         }
 
@@ -238,6 +266,8 @@ export class DeliveryGroupedList extends Component {
         const selections = [];
 
         for (const group of this.state.groups) {
+            const groupKey = this._groupKey(group);
+
             for (const line of group.lines) {
                 if (this.state.mode === "swap") {
                     const targetLotId = parseInt(line.targetLotId || 0);
@@ -246,6 +276,7 @@ export class DeliveryGroupedList extends Component {
 
                     selections.push({
                         dbId: line.dbId || 0,
+                        groupKey,
                         productId: line.productId || 0,
                         productName: line.productName || "",
                         originLotId: line.originLotId || 0,
@@ -275,6 +306,7 @@ export class DeliveryGroupedList extends Component {
 
                 selections.push({
                     dbId: line.dbId || 0,
+                    groupKey,
                     lotId: line.lotId || 0,
                     productId: line.productId || 0,
                     pickingId: line.pickingId || 0,
@@ -284,6 +316,9 @@ export class DeliveryGroupedList extends Component {
                     sourceLocationId: line.sourceLocationId || 0,
                     qty: qty,
                     qtyAvailable: line.qtyAvailable || 0,
+                    originRemissionId: line.originRemissionId || group.originRemissionId || 0,
+                    originRemissionName: line.originRemissionName || group.originRemissionName || "",
+                    originRemissionLineId: line.originRemissionLineId || 0,
                 });
             }
         }
@@ -303,23 +338,24 @@ export class DeliveryGroupedList extends Component {
         return null;
     }
 
-    toggleGroup(productId) {
-        this.state.collapsed[productId] = !this.state.collapsed[productId];
+    toggleGroup(group) {
+        const key = this._groupKey(group);
+        this.state.collapsed[key] = !this.state.collapsed[key];
     }
 
-    isCollapsed(productId) {
-        return !!this.state.collapsed[productId];
+    isCollapsed(group) {
+        return !!this.state.collapsed[this._groupKey(group)];
     }
 
     expandAll() {
         for (const group of this.state.groups) {
-            this.state.collapsed[group.productId] = false;
+            this.state.collapsed[this._groupKey(group)] = false;
         }
     }
 
     collapseAll() {
         for (const group of this.state.groups) {
-            this.state.collapsed[group.productId] = true;
+            this.state.collapsed[this._groupKey(group)] = true;
         }
     }
 
@@ -333,7 +369,7 @@ export class DeliveryGroupedList extends Component {
             lineData.qtyToReturn = newVal ? (lineData.qtyDelivered || 0) : 0;
         }
 
-        this._recalcGroupTotals(lineData.productId);
+        this._recalcGroupForLine(lineData);
         this.state.groups = [...this.state.groups];
         this._writeSelectionsToRecord();
     }
@@ -353,7 +389,7 @@ export class DeliveryGroupedList extends Component {
             event.target.value = lineData.qtyToReturn;
         }
 
-        this._recalcGroupTotals(lineData.productId);
+        this._recalcGroupForLine(lineData);
         this.state.groups = [...this.state.groups];
         this._writeSelectionsToRecord();
     }
@@ -371,7 +407,7 @@ export class DeliveryGroupedList extends Component {
             }
         }
 
-        this._recalcGroupTotals(group.productId);
+        this._recalcGroupObject(group);
         this.state.groups = [...this.state.groups];
         this._writeSelectionsToRecord();
     }
@@ -389,14 +425,25 @@ export class DeliveryGroupedList extends Component {
             }
         }
 
-        this._recalcGroupTotals(group.productId);
+        this._recalcGroupObject(group);
         this.state.groups = [...this.state.groups];
         this._writeSelectionsToRecord();
     }
 
-    _recalcGroupTotals(productId) {
-        const group = this.state.groups.find((g) => g.productId === productId);
+    _recalcGroupForLine(lineData) {
+        const group = this.state.groups.find((g) => {
+            if (lineData.groupKey && this._groupKey(g) === lineData.groupKey) {
+                return true;
+            }
+            return (g.lines || []).includes(lineData);
+        });
 
+        if (group) {
+            this._recalcGroupObject(group);
+        }
+    }
+
+    _recalcGroupObject(group) {
         if (!group) return;
 
         group.totalQty = 0;
@@ -419,9 +466,15 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
+    _recalcGroupTotals(productId) {
+        for (const group of this.state.groups.filter((g) => g.productId === productId)) {
+            this._recalcGroupObject(group);
+        }
+    }
+
     _recalcAllGroups() {
         for (const group of this.state.groups) {
-            this._recalcGroupTotals(group.productId);
+            this._recalcGroupObject(group);
         }
     }
 
@@ -676,7 +729,7 @@ export class DeliveryGroupedList extends Component {
             lineData.targetBloque = selectedQuant?.x_bloque || "";
             lineData.targetQty = selectedQuant?.quantity || 0;
 
-            self._recalcGroupTotals(lineData.productId);
+            self._recalcGroupForLine(lineData);
             self.state.groups = [...self.state.groups];
 
             await self._doWriteSelectionsToRecord();
@@ -821,7 +874,7 @@ export class DeliveryGroupedList extends Component {
         lineData.targetBloque = "";
         lineData.targetQty = 0;
 
-        this._recalcGroupTotals(lineData.productId);
+        this._recalcGroupForLine(lineData);
         this.state.groups = [...this.state.groups];
 
         await this._doWriteSelectionsToRecord();
