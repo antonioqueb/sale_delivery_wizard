@@ -1,6 +1,9 @@
+from collections import OrderedDict
+import json
+import logging
+
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
-import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -10,78 +13,102 @@ class SaleSwapWizard(models.TransientModel):
     _description = 'Wizard de Swap de Lotes'
 
     sale_order_id = fields.Many2one(
-        'sale.order', string='Orden de Venta', required=True)
+        'sale.order',
+        string='Orden de Venta',
+        required=True,
+    )
     line_ids = fields.One2many(
-        'sale.swap.wizard.line', 'wizard_id', string='Lotes Asignados')
+        'sale.swap.wizard.line',
+        'wizard_id',
+        string='Lotes Asignados',
+    )
 
-    # ── JSON field for widget consistency (swap uses target_lot_id on lines) ──
     widget_selections = fields.Text(
-        string='Selecciones del Widget', default='[]')
+        string='Selecciones del Widget',
+        default='[]',
+    )
 
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
         so_id = res.get('sale_order_id') or self.env.context.get('active_id')
+
         if not so_id:
             return res
-        res['sale_order_id'] = so_id
+
         order = self.env['sale.order'].browse(so_id)
+        if not order.exists():
+            return res
+
+        res['sale_order_id'] = order.id
+        res['widget_selections'] = '[]'
 
         raw_lines = []
+
         for picking in order.picking_ids.filtered(
-                lambda p: p.state in ('assigned', 'confirmed')
-                and p.picking_type_code in ('outgoing', 'internal')):
+            lambda p: p.state in ('assigned', 'confirmed')
+            and p.picking_type_code in ('outgoing', 'internal')
+        ):
             for move in picking.move_ids.filtered(
-                    lambda m: m.state in ('assigned', 'confirmed')):
+                lambda m: m.state in ('assigned', 'confirmed')
+            ):
                 for ml in move.move_line_ids:
-                    if ml.lot_id:
-                        lot = ml.lot_id
-                        raw_lines.append((0, 0, {
-                            'product_id': move.product_id.id,
-                            'origin_lot_id': lot.id,
-                            'move_line_id': ml.id,
-                            'picking_id': picking.id,
-                            'sale_line_id': move.sale_line_id.id,
-                            'qty': ml.quantity or move.product_uom_qty,
-                            'origin_bloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
-                            'origin_atado': lot.x_atado or '' if hasattr(lot, 'x_atado') else '',
-                            'origin_alto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
-                            'origin_ancho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
-                            'origin_grosor': str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else '',
-                        }))
+                    if not ml.lot_id:
+                        continue
+
+                    lot = ml.lot_id
+
+                    raw_lines.append((0, 0, {
+                        'product_id': move.product_id.id,
+                        'origin_lot_id': lot.id,
+                        'move_line_id': ml.id,
+                        'picking_id': picking.id,
+                        'sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
+                        'qty': ml.quantity or move.product_uom_qty or 0.0,
+                        'origin_bloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
+                        'origin_atado': lot.x_atado or '' if hasattr(lot, 'x_atado') else '',
+                        'origin_alto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
+                        'origin_ancho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
+                        'origin_grosor': str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else '',
+                    }))
+
         res['line_ids'] = self._group_lines_by_product(raw_lines)
         return res
 
     def _group_lines_by_product(self, raw_lines):
-        from collections import OrderedDict
         grouped = OrderedDict()
+
         for cmd in raw_lines:
             vals = cmd[2]
-            pid = vals.get('product_id', 0)
+            pid = vals.get('product_id') or 0
             grouped.setdefault(pid, []).append(cmd)
 
         result = []
         Product = self.env['product.product']
         seq = 0
+
         for pid, lines in grouped.items():
-            product = Product.browse(pid) if pid else None
-            section_name = product.display_name if product else _('Sin Producto')
+            product = Product.browse(pid) if pid else Product
+            section_name = product.display_name if product and product.exists() else _('Sin Producto')
+
             result.append((0, 0, {
                 'display_type': 'line_section',
                 'section_name': section_name,
-                'product_id': pid,
+                'product_id': pid or False,
                 'sequence': seq,
             }))
             seq += 1
+
             for line_cmd in lines:
                 line_cmd[2]['sequence'] = seq
                 result.append(line_cmd)
                 seq += 1
+
         return result
 
-    # ─── RPC for grouped list widget ─────────────────────────────────
     def get_grouped_lines_data(self):
         self.ensure_one()
+
         groups = []
         current_group = None
 
@@ -89,27 +116,31 @@ class SaleSwapWizard(models.TransientModel):
             if line.display_type == 'line_section':
                 if current_group and current_group['lines']:
                     groups.append(current_group)
+
                 current_group = {
-                    'productId': line.product_id.id or 0,
+                    'productId': line.product_id.id if line.product_id else 0,
                     'productName': line.section_name or (
-                        line.product_id.display_name if line.product_id else 'Sin Producto'),
+                        line.product_id.display_name if line.product_id else _('Sin Producto')
+                    ),
                     'lines': [],
-                    'totalQty': 0,
+                    'totalQty': 0.0,
                     'selectedCount': 0,
                     'lineCount': 0,
                 }
                 continue
 
             if current_group is None:
-                pname = line.product_id.display_name if line.product_id else 'Sin Producto'
+                pname = line.product_id.display_name if line.product_id else _('Sin Producto')
                 current_group = {
-                    'productId': line.product_id.id or 0,
+                    'productId': line.product_id.id if line.product_id else 0,
                     'productName': pname,
                     'lines': [],
-                    'totalQty': 0,
+                    'totalQty': 0.0,
                     'selectedCount': 0,
                     'lineCount': 0,
                 }
+
+            has_target = bool(line.target_lot_id)
 
             ld = {
                 'dbId': line.id,
@@ -120,107 +151,280 @@ class SaleSwapWizard(models.TransientModel):
                 'originBloque': line.origin_bloque or '',
                 'originAlto': line.origin_alto or '',
                 'originAncho': line.origin_ancho or '',
-                'qty': line.qty or 0,
+                'qty': line.qty or 0.0,
                 'targetLotId': line.target_lot_id.id if line.target_lot_id else 0,
                 'targetLotName': line.target_lot_id.name if line.target_lot_id else '',
                 'targetBloque': line.target_bloque or '',
-                'targetQty': line.target_qty or 0,
+                'targetQty': line.target_qty or 0.0,
                 'pickingId': line.picking_id.id if line.picking_id else 0,
                 'moveLineId': line.move_line_id.id if line.move_line_id else 0,
                 'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
             }
+
             current_group['lines'].append(ld)
             current_group['lineCount'] += 1
-            current_group['totalQty'] += line.qty or 0
+            current_group['totalQty'] += line.qty or 0.0
+
+            if has_target:
+                current_group['selectedCount'] += 1
 
         if current_group and current_group['lines']:
             groups.append(current_group)
 
         return groups
 
-    def action_confirm_swap(self):
-        """Execute lot swaps on pending pickings."""
+    def _safe_quant_available_qty(self, quant):
+        if not quant:
+            return 0.0
+
+        if 'available_quantity' in quant._fields:
+            return quant.available_quantity or 0.0
+
+        return (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
+
+    def _find_available_target_quant(self, target_lot, product):
+        Quant = self.env['stock.quant']
+
+        quants = Quant.search([
+            ('lot_id', '=', target_lot.id),
+            ('product_id', '=', product.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ], order='quantity desc, id asc')
+
+        for quant in quants:
+            if self._safe_quant_available_qty(quant) > 0:
+                return quant
+
+        return Quant.browse()
+
+    def _get_swap_lines_from_widget_selections(self):
+        """
+        Lee la selección real enviada por el widget OWL.
+
+        Este método es la corrección principal porque el log mostró que
+        target_lot_id no estaba llegando confiablemente en sale.swap.wizard.line.
+        """
         self.ensure_one()
 
-        # Read target_lot_id directly from DB to avoid web_save overwrites
-        line_data = self.env['sale.swap.wizard.line'].search_read(
-            [('wizard_id', '=', self.id), ('display_type', '!=', 'line_section')],
-            ['id', 'target_lot_id', 'origin_lot_id', 'product_id',
-             'move_line_id', 'picking_id', 'sale_line_id', 'qty',
-             'origin_bloque'],
+        try:
+            payload = json.loads(self.widget_selections or '[]')
+        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = []
+
+        if not isinstance(payload, list):
+            return []
+
+        result = []
+
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+
+            target_lot_id = int(item.get('targetLotId') or 0)
+            move_line_id = int(item.get('moveLineId') or 0)
+
+            if not target_lot_id or not move_line_id:
+                continue
+
+            move_line = self.env['stock.move.line'].browse(move_line_id)
+            if not move_line.exists():
+                continue
+
+            target_lot = self.env['stock.lot'].browse(target_lot_id)
+            if not target_lot.exists():
+                continue
+
+            origin_lot_id = int(item.get('originLotId') or 0)
+            origin_lot = (
+                self.env['stock.lot'].browse(origin_lot_id)
+                if origin_lot_id
+                else move_line.lot_id
+            )
+
+            product_id = int(item.get('productId') or 0)
+            product = (
+                self.env['product.product'].browse(product_id)
+                if product_id
+                else move_line.product_id
+            )
+
+            sale_line_id = int(item.get('saleLineId') or 0)
+            sale_line = (
+                self.env['sale.order.line'].browse(sale_line_id)
+                if sale_line_id
+                else move_line.move_id.sale_line_id
+            )
+
+            qty = float(
+                item.get('qty')
+                or move_line.quantity
+                or move_line.move_id.product_uom_qty
+                or 0.0
+            )
+
+            result.append({
+                'move_line': move_line,
+                'origin_lot': origin_lot,
+                'target_lot': target_lot,
+                'product': product,
+                'sale_line': sale_line,
+                'qty': qty,
+            })
+
+        return result
+
+    def _get_swap_lines_from_db_lines(self):
+        """
+        Fallback legacy.
+
+        Si en alguna instalación target_lot_id sí se guarda correctamente en las
+        líneas transitorias, este método permite conservar compatibilidad.
+        """
+        self.ensure_one()
+
+        result = []
+
+        lines = self.line_ids.filtered(
+            lambda l: l.display_type != 'line_section' and l.target_lot_id
         )
 
-        self.env.cr.execute(
-            "SELECT id, origin_lot_id, target_lot_id FROM sale_swap_wizard_line "
-            "WHERE wizard_id = %s AND (display_type IS NULL OR display_type != 'line_section')",
-            [self.id])
-        raw_rows = self.env.cr.fetchall()
-        _logger.info('[SWAP DEBUG] Raw SQL rows: %s', raw_rows)
+        for line in lines:
+            move_line = line.move_line_id
 
-        lines_with_target = [
-            d for d in line_data if d.get('target_lot_id')
-        ]
+            if not move_line:
+                continue
+
+            result.append({
+                'move_line': move_line,
+                'origin_lot': line.origin_lot_id or move_line.lot_id,
+                'target_lot': line.target_lot_id,
+                'product': line.product_id or move_line.product_id,
+                'sale_line': line.sale_line_id or move_line.move_id.sale_line_id,
+                'qty': line.qty or move_line.quantity or move_line.move_id.product_uom_qty or 0.0,
+            })
+
+        return result
+
+    def action_confirm_swap(self):
+        """
+        Ejecuta el swap de lotes sobre pickings pendientes.
+
+        Flujo corregido:
+        1. Intenta leer la selección desde widget_selections.
+        2. Si no hay JSON, intenta leer target_lot_id desde las líneas del wizard.
+        3. Valida stock disponible del lote destino.
+        4. Cambia lot_id/location_id/quantity en stock.move.line.
+        5. Actualiza sale_line.lot_ids si aplica.
+        6. Crea documento de auditoría del swap.
+        """
+        self.ensure_one()
+
+        lines_with_target = self._get_swap_lines_from_widget_selections()
+
+        if not lines_with_target:
+            lines_with_target = self._get_swap_lines_from_db_lines()
 
         if not lines_with_target:
             raise UserError(_(
-                'Seleccione al menos un lote destino para ejecutar el swap.'))
+                'Seleccione al menos un lote destino para ejecutar el swap.'
+            ))
+
+        processed = 0
 
         for data in lines_with_target:
-            origin_lot_id = data['origin_lot_id'][0]
-            target_lot_id = data['target_lot_id'][0]
-            target_lot_name = data['target_lot_id'][1]
-            origin_lot_name = data['origin_lot_id'][1]
+            move_line = data.get('move_line')
+            origin_lot = data.get('origin_lot')
+            target_lot = data.get('target_lot')
+            product = data.get('product')
+            sale_line = data.get('sale_line')
+            qty = data.get('qty') or 0.0
 
-            if origin_lot_id == target_lot_id:
+            if not move_line or not move_line.exists():
+                raise UserError(_(
+                    'No se encontró la línea de movimiento pendiente para ejecutar el swap.'
+                ))
+
+            move_state = move_line.move_id.state if move_line.move_id else False
+            if move_state not in ('assigned', 'confirmed'):
+                raise UserError(_(
+                    'No se puede hacer swap sobre el lote %s porque el movimiento ya no está pendiente. Estado actual: %s.',
+                    origin_lot.name if origin_lot else 'S/L',
+                    move_state or 'N/A',
+                ))
+
+            if not origin_lot or not origin_lot.exists():
+                raise UserError(_(
+                    'La línea seleccionada no tiene lote origen. No se puede ejecutar el swap.'
+                ))
+
+            if not target_lot or not target_lot.exists():
+                raise UserError(_(
+                    'La línea seleccionada no tiene lote destino. No se puede ejecutar el swap.'
+                ))
+
+            if not product or not product.exists():
+                raise UserError(_(
+                    'La línea seleccionada no tiene producto válido. No se puede ejecutar el swap.'
+                ))
+
+            if origin_lot.id == target_lot.id:
                 raise UserError(_(
                     'El lote origen y destino no pueden ser el mismo (%s).',
-                    origin_lot_name))
+                    origin_lot.name,
+                ))
 
-            move_line = self.env['stock.move.line'].browse(
-                data['move_line_id'][0]) if data.get('move_line_id') else False
-            if not move_line or move_line.state not in ('assigned', 'confirmed'):
+            if target_lot.product_id and target_lot.product_id != product:
                 raise UserError(_(
-                    'No se encontró movimiento pendiente para el lote %s.',
-                    origin_lot_name))
+                    'El lote destino %s pertenece al producto %s, pero se esperaba %s.',
+                    target_lot.name,
+                    target_lot.product_id.display_name,
+                    product.display_name,
+                ))
 
-            target_lot = self.env['stock.lot'].browse(target_lot_id)
-            origin_lot = self.env['stock.lot'].browse(origin_lot_id)
+            target_quant = self._find_available_target_quant(target_lot, product)
 
-            target_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', target_lot_id),
-                ('location_id.usage', '=', 'internal'),
-                ('quantity', '>', 0),
-            ], limit=1)
             if not target_quant:
                 raise UserError(_(
-                    'El lote destino %s no tiene stock disponible.',
-                    target_lot_name))
+                    'El lote destino %s no tiene stock interno disponible.',
+                    target_lot.name,
+                ))
+
+            available_qty = self._safe_quant_available_qty(target_quant)
+
+            if available_qty <= 0:
+                raise UserError(_(
+                    'El lote destino %s existe, pero no tiene cantidad disponible. Cantidad: %.2f, Reservado: %.2f.',
+                    target_lot.name,
+                    target_quant.quantity or 0.0,
+                    target_quant.reserved_quantity or 0.0,
+                ))
 
             if hasattr(target_lot, 'hold_order_ids'):
                 active_holds = target_lot.hold_order_ids.filtered(
                     lambda h: h.state == 'active'
-                    and h.sale_order_id != self.sale_order_id)
+                    and h.sale_order_id != self.sale_order_id
+                )
                 if active_holds:
                     raise UserError(_(
                         'El lote %s está apartado en otra orden (%s).',
-                        target_lot_name,
-                        active_holds[0].sale_order_id.name))
+                        target_lot.name,
+                        active_holds[0].sale_order_id.name,
+                    ))
 
-            target_qty = target_quant.quantity
-            old_lot_name = origin_lot_name
+            old_lot_name = origin_lot.name
+            new_qty = target_quant.quantity or available_qty or qty
 
-            move_line.lot_id = target_lot_id
-            move_line.quantity = target_qty
+            move_line.write({
+                'lot_id': target_lot.id,
+                'location_id': target_quant.location_id.id,
+                'quantity': new_qty,
+            })
 
             if move_line.move_id:
-                total_ml_qty = sum(
-                    move_line.move_id.move_line_ids.mapped('quantity'))
-                if total_ml_qty != move_line.move_id.product_uom_qty:
+                total_ml_qty = sum(move_line.move_id.move_line_ids.mapped('quantity'))
+                if total_ml_qty and total_ml_qty != move_line.move_id.product_uom_qty:
                     move_line.move_id.product_uom_qty = total_ml_qty
-
-            product_id = data['product_id'][0]
-            qty = data.get('qty', 0.0)
-            origin_bloque = data.get('origin_bloque', '')
 
             self.env['sale.delivery.document'].create({
                 'document_type': 'pick_ticket',
@@ -229,49 +433,58 @@ class SaleSwapWizard(models.TransientModel):
                 'special_instructions': _(
                     'SWAP: %s (Bloque: %s, %.2f m²) → %s (Bloque: %s, %.2f m²)',
                     old_lot_name,
-                    origin_bloque or 'S/B',
+                    getattr(origin_lot, 'x_bloque', False) or 'S/B',
                     qty,
-                    target_lot_name,
-                    target_lot.x_bloque or 'S/B' if hasattr(target_lot, 'x_bloque') else 'S/B',
-                    target_qty),
+                    target_lot.name,
+                    getattr(target_lot, 'x_bloque', False) or 'S/B',
+                    new_qty,
+                ),
                 'line_ids': [
                     (0, 0, {
-                        'product_id': product_id,
-                        'lot_id': origin_lot_id,
+                        'product_id': product.id,
+                        'lot_id': origin_lot.id,
                         'qty_selected': qty,
                         'is_swap_origin': True,
                     }),
                     (0, 0, {
-                        'product_id': product_id,
-                        'lot_id': target_lot_id,
-                        'qty_selected': target_qty,
+                        'product_id': product.id,
+                        'lot_id': target_lot.id,
+                        'qty_selected': new_qty,
                         'is_swap_target': True,
                     }),
                 ],
             })
 
-            sale_line_id = data['sale_line_id'][0] if data.get('sale_line_id') else False
-            sale_line = self.env['sale.order.line'].browse(
-                sale_line_id) if sale_line_id else False
-            if (sale_line and hasattr(sale_line, 'lot_ids')
-                    and origin_lot in sale_line.lot_ids):
-                sale_line.lot_ids = [
-                    (3, origin_lot_id),
-                    (4, target_lot_id),
-                ]
+            if (
+                sale_line
+                and sale_line.exists()
+                and hasattr(sale_line, 'lot_ids')
+                and origin_lot in sale_line.lot_ids
+            ):
+                sale_line.write({
+                    'lot_ids': [
+                        (3, origin_lot.id),
+                        (4, target_lot.id),
+                    ]
+                })
+
+            processed += 1
 
             _logger.info(
-                'Swap executed: %s → %s on picking %s',
-                old_lot_name, target_lot_name,
-                data['picking_id'][1] if data.get('picking_id') else 'N/A')
+                '[SWAP] Ejecutado correctamente: %s → %s en picking %s',
+                old_lot_name,
+                target_lot.name,
+                move_line.picking_id.name if move_line.picking_id else 'N/A',
+            )
+
+        self.write({'widget_selections': '[]'})
 
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': _('Swap Completado'),
-                'message': _(
-                    '%d swap(s) realizados exitosamente.') % len(lines_with_target),
+                'message': _('%d swap(s) realizados exitosamente.') % processed,
                 'type': 'success',
                 'sticky': False,
             },
@@ -284,24 +497,48 @@ class SaleSwapWizardLine(models.TransientModel):
     _order = 'sequence, id'
 
     wizard_id = fields.Many2one(
-        'sale.swap.wizard', ondelete='cascade', required=True)
+        'sale.swap.wizard',
+        ondelete='cascade',
+        required=True,
+    )
     sequence = fields.Integer(default=10)
+
     display_type = fields.Selection([
         ('line_section', 'Section'),
     ], string='Tipo de Fila')
+
     section_name = fields.Char(string='Nombre de Sección')
 
     product_id = fields.Many2one(
-        'product.product', string='Producto', readonly=True)
+        'product.product',
+        string='Producto',
+        readonly=True,
+    )
     origin_lot_id = fields.Many2one(
-        'stock.lot', string='Lote Actual', readonly=True)
+        'stock.lot',
+        string='Lote Actual',
+        readonly=True,
+    )
     target_lot_id = fields.Many2one(
-        'stock.lot', string='Lote Nuevo',
-        domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]")
+        'stock.lot',
+        string='Lote Nuevo',
+        domain="[('product_id', '=', product_id), ('id', '!=', origin_lot_id)]",
+    )
+
     qty = fields.Float(string='m² Actual', readonly=True)
-    move_line_id = fields.Many2one('stock.move.line', string='Move Line')
-    picking_id = fields.Many2one('stock.picking', string='Picking')
-    sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')
+
+    move_line_id = fields.Many2one(
+        'stock.move.line',
+        string='Move Line',
+    )
+    picking_id = fields.Many2one(
+        'stock.picking',
+        string='Picking',
+    )
+    sale_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Línea de Venta',
+    )
 
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
@@ -310,46 +547,67 @@ class SaleSwapWizardLine(models.TransientModel):
     origin_grosor = fields.Char(string='Grosor', readonly=True)
 
     target_bloque = fields.Char(
-        string='Bloque Nuevo', compute='_compute_target_info', readonly=True)
+        string='Bloque Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
     target_atado = fields.Char(
-        string='Atado Nuevo', compute='_compute_target_info', readonly=True)
+        string='Atado Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
     target_alto = fields.Char(
-        string='Alto Nuevo', compute='_compute_target_info', readonly=True)
+        string='Alto Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
     target_ancho = fields.Char(
-        string='Ancho Nuevo', compute='_compute_target_info', readonly=True)
+        string='Ancho Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
     target_grosor = fields.Char(
-        string='Grosor Nuevo', compute='_compute_target_info', readonly=True)
+        string='Grosor Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
     target_qty = fields.Float(
-        string='m² Nuevo', compute='_compute_target_info', readonly=True)
+        string='m² Nuevo',
+        compute='_compute_target_info',
+        readonly=True,
+    )
 
     @api.depends('target_lot_id')
     def _compute_target_info(self):
+        Quant = self.env['stock.quant']
+
         for line in self:
+            line.target_bloque = ''
+            line.target_atado = ''
+            line.target_alto = ''
+            line.target_ancho = ''
+            line.target_grosor = ''
+            line.target_qty = 0.0
+
             if line.display_type == 'line_section':
-                line.target_bloque = ''
-                line.target_atado = ''
-                line.target_alto = ''
-                line.target_ancho = ''
-                line.target_grosor = ''
-                line.target_qty = 0.0
                 continue
+
             lot = line.target_lot_id
-            if lot:
-                line.target_bloque = lot.x_bloque if hasattr(lot, 'x_bloque') else ''
-                line.target_atado = lot.x_atado if hasattr(lot, 'x_atado') else ''
-                line.target_alto = str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else ''
-                line.target_ancho = str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else ''
-                line.target_grosor = str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else ''
-                quant = self.env['stock.quant'].search([
-                    ('lot_id', '=', lot.id),
-                    ('location_id.usage', '=', 'internal'),
-                    ('quantity', '>', 0),
-                ], limit=1)
-                line.target_qty = quant.quantity if quant else 0.0
-            else:
-                line.target_bloque = ''
-                line.target_atado = ''
-                line.target_alto = ''
-                line.target_ancho = ''
-                line.target_grosor = ''
-                line.target_qty = 0.0
+
+            if not lot:
+                continue
+
+            line.target_bloque = lot.x_bloque if hasattr(lot, 'x_bloque') else ''
+            line.target_atado = lot.x_atado if hasattr(lot, 'x_atado') else ''
+            line.target_alto = str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else ''
+            line.target_ancho = str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else ''
+            line.target_grosor = str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else ''
+
+            quant = Quant.search([
+                ('lot_id', '=', lot.id),
+                ('product_id', '=', line.product_id.id),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '>', 0),
+            ], order='quantity desc, id asc', limit=1)
+
+            line.target_qty = quant.quantity if quant else 0.0
