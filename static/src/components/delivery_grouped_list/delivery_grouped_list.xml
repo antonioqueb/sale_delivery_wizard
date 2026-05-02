@@ -31,34 +31,59 @@
             </div>
 
             <div t-else="" class="dgl-groups">
-                <t t-foreach="state.groups" t-as="group" t-key="group.groupKey || group.productId">
+                <t t-foreach="state.groups"
+                   t-as="group"
+                   t-key="'group-' + group_index + '-' + (group.groupKey || group.productId || 0)">
+
                     <div class="dgl-group" t-att-class="isCollapsed(group) ? 'collapsed' : 'expanded'">
                         <div class="dgl-group-header" t-on-click="() => this.toggleGroup(group)">
                             <div class="dgl-group-toggle">
                                 <i t-att-class="isCollapsed(group) ? 'fa fa-chevron-right' : 'fa fa-chevron-down'"/>
                             </div>
+
                             <div class="dgl-group-title">
                                 <i t-att-class="state.mode === 'return' ? 'fa fa-truck dgl-product-icon' : 'fa fa-cube dgl-product-icon'"/>
-                                <span class="dgl-product-name"><t t-esc="group.productName"/></span>
+                                <span class="dgl-product-name">
+                                    <t t-esc="group.productName"/>
+                                </span>
                             </div>
+
                             <div class="dgl-group-badges">
                                 <span class="dgl-badge dgl-badge-count">
                                     <t t-esc="group.lineCount"/> línea(s)
                                 </span>
+
                                 <t t-if="state.mode !== 'swap'">
                                     <span class="dgl-badge dgl-badge-selected" t-if="group.selectedCount > 0">
-                                        <i class="fa fa-check-circle me-1"/><t t-esc="group.selectedCount"/> sel.
+                                        <i class="fa fa-check-circle me-1"/>
+                                        <t t-esc="group.selectedCount"/> sel.
                                     </span>
                                 </t>
-                                <span class="dgl-badge dgl-badge-qty"><t t-esc="fmt(group.totalQty)"/> m²</span>
+
+                                <span class="dgl-badge dgl-badge-qty">
+                                    <t t-esc="fmt(group.totalQty)"/> m²
+                                </span>
+
                                 <t t-if="state.mode !== 'swap'">
-                                    <button class="dgl-mini-btn dgl-mini-sel" t-on-click.stop="() => this.selectAllInGroup(group)" title="Seleccionar todo"><i class="fa fa-check-square-o"/></button>
-                                    <button class="dgl-mini-btn dgl-mini-desel" t-on-click.stop="() => this.deselectAllInGroup(group)" title="Deseleccionar todo"><i class="fa fa-square-o"/></button>
+                                    <button class="dgl-mini-btn dgl-mini-sel"
+                                            t-on-click.stop="() => this.selectAllInGroup(group)"
+                                            title="Seleccionar todo">
+                                        <i class="fa fa-check-square-o"/>
+                                    </button>
+                                    <button class="dgl-mini-btn dgl-mini-desel"
+                                            t-on-click.stop="() => this.deselectAllInGroup(group)"
+                                            title="Deseleccionar todo">
+                                        <i class="fa fa-square-o"/>
+                                    </button>
                                 </t>
                             </div>
                         </div>
 
                         <div class="dgl-group-body" t-if="!isCollapsed(group)">
+
+                            <!-- ═══════════════════════════════════════
+                                 MODO ENTREGA
+                                 ═══════════════════════════════════════ -->
                             <t t-if="state.mode === 'delivery'">
                                 <table class="dgl-table">
                                     <thead>
@@ -71,7 +96,9 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <t t-foreach="group.lines" t-as="line" t-key="line_index">
+                                        <t t-foreach="group.lines"
+                                           t-as="line"
+                                           t-key="'delivery-line-' + group_index + '-' + line_index + '-' + (line.moveLineId || line.moveId || line.lotId || 0)">
                                             <tr t-att-class="line.isSelected ? 'dgl-row-selected' : ''">
                                                 <td class="col-sel">
                                                     <input type="checkbox"
@@ -103,6 +130,9 @@
                                 </table>
                             </t>
 
+                            <!-- ═══════════════════════════════════════
+                                 MODO DEVOLUCIÓN POR REMISIÓN
+                                 ═══════════════════════════════════════ -->
                             <t t-if="state.mode === 'return'">
                                 <table class="dgl-table">
                                     <thead>
@@ -115,7 +145,9 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <t t-foreach="group.lines" t-as="line" t-key="line_index">
+                                        <t t-foreach="group.lines"
+                                           t-as="line"
+                                           t-key="'return-line-' + group_index + '-' + line_index + '-' + (line.originRemissionLineId || line.moveLineId || line.moveId || line.lotId || 0)">
                                             <tr t-att-class="line.isSelected ? 'dgl-row-selected' : ''">
                                                 <td class="col-sel">
                                                     <input type="checkbox"
@@ -147,6 +179,9 @@
                                 </table>
                             </t>
 
+                            <!-- ═══════════════════════════════════════
+                                 MODO SWAP
+                                 ═══════════════════════════════════════ -->
                             <t t-if="state.mode === 'swap'">
                                 <table class="dgl-table">
                                     <thead>
@@ -162,7 +197,9 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <t t-foreach="group.lines" t-as="line" t-key="line_index">
+                                        <t t-foreach="group.lines"
+                                           t-as="line"
+                                           t-key="'swap-line-' + group_index + '-' + line_index + '-' + (line.moveLineId || line.originLotId || 0)">
                                             <tr>
                                                 <td class="dgl-cell-lot">
                                                     <t t-esc="line.originLotName || '-'"/>
@@ -181,16 +218,21 @@
                                                 </td>
                                                 <td class="dgl-swap-target-cell">
                                                     <t t-if="line.targetLotId">
-                                                        <div class="dgl-swap-chosen" t-on-click="() => this.openSwapSelector(line)">
+                                                        <div class="dgl-swap-chosen"
+                                                             t-on-click="() => this.openSwapSelector(line)">
                                                             <i class="fa fa-cube me-1"/>
-                                                            <span><t t-esc="line.targetLotName"/></span>
-                                                            <button class="dgl-swap-clear" t-on-click.stop="() => this.clearSwapTarget(line)">
+                                                            <span>
+                                                                <t t-esc="line.targetLotName"/>
+                                                            </span>
+                                                            <button class="dgl-swap-clear"
+                                                                    t-on-click.stop="() => this.clearSwapTarget(line)">
                                                                 <i class="fa fa-times"/>
                                                             </button>
                                                         </div>
                                                     </t>
                                                     <t t-else="">
-                                                        <button class="dgl-swap-pick-btn" t-on-click="() => this.openSwapSelector(line)">
+                                                        <button class="dgl-swap-pick-btn"
+                                                                t-on-click="() => this.openSwapSelector(line)">
                                                             <i class="fa fa-search me-1"/> Buscar lote...
                                                         </button>
                                                     </t>
@@ -206,6 +248,7 @@
                                     </tbody>
                                 </table>
                             </t>
+
                         </div>
                     </div>
                 </t>
