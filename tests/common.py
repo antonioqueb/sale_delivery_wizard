@@ -55,7 +55,6 @@ class SaleDeliveryWizardTestCommon(TransactionCase):
         vals = {
             "name": name,
             "uom_id": self.uom.id,
-            "uom_po_id": self.uom.id,
             "list_price": 100.0,
         }
 
