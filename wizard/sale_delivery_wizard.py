@@ -36,13 +36,11 @@ class SaleDeliveryWizard(models.TransientModel):
     pick_ticket_id = fields.Many2one(
         'sale.delivery.document', string='Pick Ticket')
 
-    # ── Modo edición ─────────────────────────────────────────────────
     editing_pick_ticket_id = fields.Many2one(
         'sale.delivery.document', string='Pick Ticket a Editar')
     is_editing = fields.Boolean(
         compute='_compute_is_editing', string='Modo Edición')
 
-    # ── Selector integrado de PT ─────────────────────────────────────
     open_pt_ids = fields.Many2many(
         'sale.delivery.document',
         'sale_delivery_wizard_open_pt_rel',
@@ -111,10 +109,6 @@ class SaleDeliveryWizard(models.TransientModel):
             or self.env.context.get('default_editing_pick_ticket_id')
         )
 
-        # Si viene editing_pt_id explícito, se respeta.
-        # Esto permite seguir editando desde:
-        # - botón "Editar en Wizard" del documento
-        # - tarjetas del selector
         if editing_pt_id:
             res.update(self._prepare_default_wizard_vals(order, editing_pt_id))
             open_pts = order._get_open_pick_tickets()
@@ -123,9 +117,6 @@ class SaleDeliveryWizard(models.TransientModel):
 
         open_pts = order._get_open_pick_tickets()
 
-        # CORRECCIÓN PRINCIPAL:
-        # Antes era >= 2. Eso impedía crear el segundo PT.
-        # Ahora, si existe al menos 1 PT abierto, mostramos selector.
         if open_pts:
             res['sale_order_id'] = order.id
             res['wizard_state'] = 'select_pt'
@@ -135,19 +126,134 @@ class SaleDeliveryWizard(models.TransientModel):
             res['widget_selections'] = '[]'
             return res
 
-        # Sin PTs abiertos: abrir selección limpia para crear el primero.
         res.update(self._prepare_default_wizard_vals(order, editing_pt_id=None))
         res['open_pt_ids'] = [(6, 0, [])]
         return res
 
-    def _prepare_default_wizard_vals(self, order, editing_pt_id=None):
-        """
-        - editing_pt_id presente → cargar líneas del PT (modo edición).
-        - editing_pt_id vacío → wizard limpio para crear PT nuevo.
+    def _delivery_get_move_line_qty(self, move_line):
+        if not move_line:
+            return 0.0
 
-        Matching en 2 niveles (exacto + por lot_id) y grupo "huérfano"
-        para lotes del PT que ya no aparecen en el grouped.
+        if 'quantity' in move_line._fields and move_line.quantity:
+            return move_line.quantity or 0.0
+        if 'reserved_uom_qty' in move_line._fields and move_line.reserved_uom_qty:
+            return move_line.reserved_uom_qty or 0.0
+        if 'qty_done' in move_line._fields and move_line.qty_done:
+            return move_line.qty_done or 0.0
+
+        return 0.0
+
+    def _is_live_delivery_move_line(self, move_line):
+        if not move_line or not move_line.exists():
+            return False
+        if move_line.move_id and move_line.move_id.state in ('done', 'cancel'):
+            return False
+        if move_line.picking_id and move_line.picking_id.state in ('done', 'cancel'):
+            return False
+        return True
+
+    def _sync_pick_ticket_lines_from_live_move_lines(self, pt):
         """
+        Corrige Pick Tickets preparados después de un swap.
+
+        Si el swap cambió el lote en stock.move.line, el Pick Ticket no debe
+        conservar el lote anterior como línea huérfana. Esta sincronización
+        reemplaza lote/ubicación/cantidad usando la línea viva del picking.
+        """
+        if not pt or not pt.exists() or pt.document_type != 'pick_ticket':
+            return False
+        if pt.state != 'prepared':
+            return False
+
+        changed = False
+
+        for line in pt.line_ids.filtered(lambda l: l.qty_selected > 0):
+            ml = line.move_line_id
+
+            if not self._is_live_delivery_move_line(ml):
+                continue
+
+            if line.product_id and ml.product_id != line.product_id:
+                continue
+
+            vals = {}
+
+            if ml.lot_id and line.lot_id != ml.lot_id:
+                vals['lot_id'] = ml.lot_id.id
+
+            if ml.location_id and line.source_location_id != ml.location_id:
+                vals['source_location_id'] = ml.location_id.id
+
+            if ml.move_id and line.move_id != ml.move_id:
+                vals['move_id'] = ml.move_id.id
+
+            qty = self._delivery_get_move_line_qty(ml)
+            if qty > 0 and abs((line.qty_selected or 0.0) - qty) > 0.0001:
+                vals['qty_selected'] = qty
+
+            if vals:
+                old_lot = line.lot_id.name if line.lot_id else 'S/L'
+                line.write(vals)
+                changed = True
+                pt.message_post(body=_(
+                    'Pick Ticket sincronizado después de swap: %s → %s. '
+                    'La selección anterior fue reemplazada.'
+                ) % (
+                    old_lot,
+                    line.lot_id.name if line.lot_id else 'S/L',
+                ))
+
+        seen = {}
+        duplicates = self.env['sale.delivery.document.line']
+
+        for line in pt.line_ids.sorted(lambda l: (l.sequence, l.id)):
+            if line.qty_selected <= 0 or not line.product_id:
+                continue
+            key = (
+                line.product_id.id,
+                line.lot_id.id if line.lot_id else 0,
+                line.move_line_id.id if line.move_line_id else 0,
+                line.move_id.id if line.move_id else 0,
+            )
+            if key in seen:
+                duplicates |= line
+            else:
+                seen[key] = line.id
+
+        if duplicates:
+            lot_names = ', '.join(duplicates.mapped('lot_id.name'))
+            duplicates.unlink()
+            changed = True
+            pt.message_post(body=_(
+                'Se eliminaron líneas duplicadas del Pick Ticket después de swap: %s.'
+            ) % (lot_names or 'S/L'))
+
+        if changed:
+            pt.invalidate_recordset()
+
+        return changed
+
+    def _normalize_selections_from_live_move_lines(self, sels):
+        normalized = []
+
+        for sel in sels or []:
+            item = dict(sel)
+            move_line_id = int(item.get('moveLineId') or 0)
+
+            if move_line_id:
+                ml = self.env['stock.move.line'].browse(move_line_id)
+                if self._is_live_delivery_move_line(ml):
+                    item['moveId'] = ml.move_id.id if ml.move_id else item.get('moveId') or False
+                    item['pickingId'] = ml.picking_id.id if ml.picking_id else item.get('pickingId') or 0
+                    item['lotId'] = ml.lot_id.id if ml.lot_id else item.get('lotId') or False
+                    item['productId'] = ml.product_id.id if ml.product_id else item.get('productId')
+                    item['sourceLocationId'] = ml.location_id.id if ml.location_id else item.get('sourceLocationId') or False
+
+            normalized.append(item)
+
+        return normalized
+
+    def _prepare_default_wizard_vals(self, order, editing_pt_id=None):
         delivery_address = order.partner_shipping_id.contact_address or ''
 
         vals = {
@@ -181,16 +287,22 @@ class SaleDeliveryWizard(models.TransientModel):
             vals['line_ids'] = self._groups_to_line_commands(grouped)
             return vals
 
+        self._sync_pick_ticket_lines_from_live_move_lines(pt)
+        pt.invalidate_recordset()
+
         pt_line_map = {}
         pt_lot_map = {}
         pt_lots_unmatched = {}
+
         for pt_line in pt.line_ids:
             if pt_line.qty_selected <= 0:
                 continue
+
             key_full = (
                 pt_line.product_id.id,
                 pt_line.lot_id.id if pt_line.lot_id else 0,
             )
+
             info = {
                 'qty': pt_line.qty_selected,
                 'productId': pt_line.product_id.id,
@@ -203,13 +315,17 @@ class SaleDeliveryWizard(models.TransientModel):
                 'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else 0,
                 'sourceLocation': pt_line.source_location_id.display_name if pt_line.source_location_id else '',
             }
+
             pt_line_map[key_full] = info
+
             if pt_line.lot_id:
                 pt_lot_map[pt_line.lot_id.id] = info
+
             pt_lots_unmatched[key_full] = info
 
         widget_sels = []
         matched_count = 0
+
         for group in grouped:
             for line in group.get('lines', []):
                 pid = line.get('productId', 0)
@@ -259,6 +375,7 @@ class SaleDeliveryWizard(models.TransientModel):
                         'selectedCount': 0,
                         'lineCount': 0,
                     }
+
                 g = orphan_groups[pid]
                 line_dict = {
                     'dbId': 0,
@@ -471,20 +588,8 @@ class SaleDeliveryWizard(models.TransientModel):
             raise UserError(_('Seleccione al menos una línea.'))
         return selected
 
-    # ═══════════════════════════════════════════════════════════════════
-    # SELECTOR INTEGRADO DE PT — llamado desde el componente OWL
-    # ═══════════════════════════════════════════════════════════════════
-
     @api.model
     def action_load_pt_from_cards(self, sale_order_id, pt_id, current_wizard_id=0):
-        """
-        Llamado desde el componente OWL `pt_selector_cards` al hacer click
-        en una tarjeta. NO requiere que el wizard esté persistido en BD.
-
-        Si current_wizard_id se pasa y es válido, se reutiliza ese wizard.
-        Si no, se crea uno nuevo. En ambos casos se carga el PT en modo
-        edición y se retorna una act_window apuntando al wizard final.
-        """
         if not sale_order_id or not pt_id:
             raise UserError(_('Parámetros inválidos.'))
 
@@ -497,7 +602,6 @@ class SaleDeliveryWizard(models.TransientModel):
         if not order.exists():
             raise UserError(_('Orden de venta no válida.'))
 
-        # Reutilizar el wizard si se pasó un ID válido, si no crear uno nuevo
         wizard = False
         if current_wizard_id:
             candidate = self.browse(current_wizard_id)
@@ -507,7 +611,6 @@ class SaleDeliveryWizard(models.TransientModel):
         if not wizard:
             wizard = self.create({'sale_order_id': sale_order_id})
 
-        # Cargar el PT en modo edición
         wizard.line_ids.unlink()
         vals = wizard._prepare_default_wizard_vals(order, editing_pt_id=pt_id)
         line_cmds = vals.pop('line_ids', [])
@@ -516,7 +619,6 @@ class SaleDeliveryWizard(models.TransientModel):
         if line_cmds:
             wizard.write({'line_ids': line_cmds})
 
-        # Mantener open_pt_ids cargado por si el usuario regresa al selector
         open_pts = order._get_open_pick_tickets()
         wizard.write({'open_pt_ids': [(6, 0, open_pts.ids)]})
 
@@ -540,13 +642,11 @@ class SaleDeliveryWizard(models.TransientModel):
         }
 
     def action_load_pt_by_id(self, pt_id):
-        """Wrapper legacy — delega al método @api.model."""
         self.ensure_one()
         return self.action_load_pt_from_cards(
             self.sale_order_id.id, pt_id, current_wizard_id=self.id)
 
     def action_start_new_pt(self):
-        """Desde el selector, cambia el mismo wizard a modo 'nuevo PT'."""
         self.ensure_one()
         self.line_ids.unlink()
         vals = self._prepare_default_wizard_vals(
@@ -562,12 +662,6 @@ class SaleDeliveryWizard(models.TransientModel):
         return self._refresh()
 
     def action_back_to_pt_selector(self):
-        """
-        Regresa al selector de Pick Tickets.
-
-        Antes exigía 2+ PTs abiertos. Eso dejaba atrapado al usuario cuando
-        solo había 1 PT abierto y quería crear otro.
-        """
         self.ensure_one()
         open_pts = self.sale_order_id._get_open_pick_tickets()
 
@@ -602,10 +696,6 @@ class SaleDeliveryWizard(models.TransientModel):
             line.qty_to_deliver = 0.0
         return self._refresh()
 
-    # ═══════════════════════════════════════════════════════════════════
-    # VALIDACIÓN DE COLISIÓN DE LOTES ENTRE PICK TICKETS
-    # ═══════════════════════════════════════════════════════════════════
-
     def _validate_no_lot_collision(self, selections, exclude_pt_id=None):
         if not selections:
             return
@@ -638,10 +728,6 @@ class SaleDeliveryWizard(models.TransientModel):
                 'abiertos y no se pueden duplicar:\n\n%s\n\n'
                 'Edite o cancele el otro Pick Ticket antes de continuar.'
             ) % '\n'.join(msg_lines))
-
-    # ═══════════════════════════════════════════════════════════════════
-    # PICK TICKET — generación, edición y reimpresión
-    # ═══════════════════════════════════════════════════════════════════
 
     def action_generate_pick_ticket(self):
         self.ensure_one()
@@ -686,6 +772,8 @@ class SaleDeliveryWizard(models.TransientModel):
                 'pickingId': l.picking_id.id,
             } for l in selected]
 
+        sels = self._normalize_selections_from_live_move_lines(sels)
+
         new_lines = []
         for sel in sels:
             if float(sel.get('qty', 0) or 0) <= 0:
@@ -722,6 +810,8 @@ class SaleDeliveryWizard(models.TransientModel):
         ).report_action(pt)
 
     def _generate_pick_ticket_from_selections(self, sels):
+        sels = self._normalize_selections_from_live_move_lines(sels)
+
         doc_lines = []
         for sel in sels:
             if sel.get('qty', 0) <= 0:
@@ -788,10 +878,6 @@ class SaleDeliveryWizard(models.TransientModel):
             'sale_delivery_wizard.action_report_pick_ticket'
         ).report_action(pt)
 
-    # ═══════════════════════════════════════════════════════════════════
-    # REMISIÓN
-    # ═══════════════════════════════════════════════════════════════════
-
     def action_generate_remission(self):
         self.ensure_one()
 
@@ -834,6 +920,53 @@ class SaleDeliveryWizard(models.TransientModel):
 
         return 0, 0, 0
 
+    def _resolve_current_picking_for_pt_line(self, order, pt_line):
+        """
+        Resuelve la línea viva del picking para una línea de Pick Ticket.
+
+        Si el PT quedó apuntando a un lote viejo pero su move_line_id fue
+        cambiado por swap, se usa el lote actual de stock.move.line. Esto evita
+        que la remisión mezcle lote viejo + lote nuevo.
+        """
+        product_id = pt_line.product_id.id if pt_line.product_id else 0
+        lot_id = pt_line.lot_id.id if pt_line.lot_id else 0
+        source_location_id = pt_line.source_location_id.id if pt_line.source_location_id else False
+
+        ml = pt_line.move_line_id
+        if self._is_live_delivery_move_line(ml):
+            product_id = ml.product_id.id if ml.product_id else product_id
+            lot_id = ml.lot_id.id if ml.lot_id else lot_id
+            source_location_id = ml.location_id.id if ml.location_id else source_location_id
+            return {
+                'product_id': product_id,
+                'lot_id': lot_id,
+                'picking_id': ml.picking_id.id if ml.picking_id else 0,
+                'move_id': ml.move_id.id if ml.move_id else 0,
+                'move_line_id': ml.id,
+                'source_location_id': source_location_id,
+            }
+
+        picking_id, move_id, move_line_id = self._resolve_current_picking_for_lot(
+            order,
+            product_id,
+            lot_id,
+        )
+
+        if move_line_id:
+            live_ml = self.env['stock.move.line'].browse(move_line_id)
+            if self._is_live_delivery_move_line(live_ml):
+                lot_id = live_ml.lot_id.id if live_ml.lot_id else lot_id
+                source_location_id = live_ml.location_id.id if live_ml.location_id else source_location_id
+
+        return {
+            'product_id': product_id,
+            'lot_id': lot_id,
+            'picking_id': picking_id,
+            'move_id': move_id,
+            'move_line_id': move_line_id,
+            'source_location_id': source_location_id,
+        }
+
     def _generate_remission_from_pick_ticket(self):
         pt = self.pick_ticket_id
         order = self.sale_order_id
@@ -844,16 +977,22 @@ class SaleDeliveryWizard(models.TransientModel):
                 raise UserError(_(
                     'Entrega bloqueada: pedido sin autorización de pago.'))
 
+        self._sync_pick_ticket_lines_from_live_move_lines(pt)
+        pt.invalidate_recordset()
+
         sels = []
         for pt_line in pt.line_ids:
             if pt_line.qty_selected <= 0:
                 continue
 
-            product_id = pt_line.product_id.id
-            lot_id = pt_line.lot_id.id if pt_line.lot_id else 0
+            resolved = self._resolve_current_picking_for_pt_line(order, pt_line)
 
-            picking_id, move_id, move_line_id = \
-                self._resolve_current_picking_for_lot(order, product_id, lot_id)
+            product_id = resolved.get('product_id') or pt_line.product_id.id
+            lot_id = resolved.get('lot_id') or False
+            picking_id = resolved.get('picking_id') or 0
+            move_id = resolved.get('move_id') or False
+            move_line_id = resolved.get('move_line_id') or False
+            source_location_id = resolved.get('source_location_id') or False
 
             if not picking_id:
                 _logger.warning(
@@ -865,8 +1004,8 @@ class SaleDeliveryWizard(models.TransientModel):
                     picking_id = pt_line.move_id.picking_id.id
                 elif pt_line.move_line_id and pt_line.move_line_id.picking_id:
                     picking_id = pt_line.move_line_id.picking_id.id
-                move_id = pt_line.move_id.id if pt_line.move_id else 0
-                move_line_id = pt_line.move_line_id.id if pt_line.move_line_id else 0
+                move_id = pt_line.move_id.id if pt_line.move_id else move_id
+                move_line_id = pt_line.move_line_id.id if pt_line.move_line_id else move_line_id
 
             sels.append({
                 'saleLineId': pt_line.sale_line_id.id if pt_line.sale_line_id else False,
@@ -875,13 +1014,14 @@ class SaleDeliveryWizard(models.TransientModel):
                 'productId': product_id,
                 'lotId': lot_id or False,
                 'qty': pt_line.qty_selected,
-                'sourceLocationId': pt_line.source_location_id.id if pt_line.source_location_id else False,
+                'sourceLocationId': source_location_id or False,
                 'pickingId': picking_id,
             })
 
         if not sels:
             raise UserError(_('El Pick Ticket no tiene líneas válidas.'))
 
+        sels = self._normalize_selections_from_live_move_lines(sels)
         return self._generate_remission_from_selections(sels)
 
     def _generate_remission_from_selections(self, sels):
@@ -892,6 +1032,8 @@ class SaleDeliveryWizard(models.TransientModel):
                     'sale_delivery_wizard.group_delivery_authorizer'):
                 raise UserError(_(
                     'Entrega bloqueada: pedido sin autorización de pago.'))
+
+        sels = self._normalize_selections_from_live_move_lines(sels)
 
         picking_sels = {}
         for sel in sels:

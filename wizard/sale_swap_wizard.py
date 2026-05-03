@@ -209,12 +209,28 @@ class SaleSwapWizard(models.TransientModel):
         return Quant.browse()
 
     def _get_move_line_qty(self, move_line):
-        return (
-            move_line.quantity
-            or getattr(move_line, 'reserved_uom_qty', 0.0)
-            or getattr(move_line, 'qty_done', 0.0)
-            or 0.0
-        )
+        if not move_line:
+            return 0.0
+
+        if 'quantity' in move_line._fields and move_line.quantity:
+            return move_line.quantity or 0.0
+        if 'reserved_uom_qty' in move_line._fields and move_line.reserved_uom_qty:
+            return move_line.reserved_uom_qty or 0.0
+        if 'qty_done' in move_line._fields and move_line.qty_done:
+            return move_line.qty_done or 0.0
+
+        return 0.0
+
+    def _set_move_line_qty(self, move_line, qty):
+        vals = {}
+
+        if 'quantity' in move_line._fields:
+            vals['quantity'] = qty
+        elif 'qty_done' in move_line._fields:
+            vals['qty_done'] = qty
+
+        if vals:
+            move_line.write(vals)
 
     def _write_move_line_swap_values(self, move_line, target_lot, target_location, qty):
         vals = {
@@ -222,12 +238,71 @@ class SaleSwapWizard(models.TransientModel):
             'location_id': target_location.id,
         }
 
+        if 'location_dest_id' in move_line._fields and move_line.location_dest_id:
+            vals['location_dest_id'] = move_line.location_dest_id.id
+
         if 'quantity' in move_line._fields:
             vals['quantity'] = qty
         elif 'qty_done' in move_line._fields:
             vals['qty_done'] = qty
 
         move_line.write(vals)
+
+    def _cleanup_move_lines_after_swap(self, move_line, origin_lot, target_lot, product):
+        """
+        El swap es reemplazo, no suma.
+
+        Después de escribir el lote nuevo en la línea activa, este método limpia
+        cualquier línea pendiente residual del mismo movimiento que todavía apunte
+        al lote origen o duplique el lote destino. Esto evita que la siguiente
+        entrega vea: lote devuelto + lote nuevo + otro lote devuelto.
+        """
+        if not move_line or not move_line.exists() or not move_line.move_id:
+            return
+
+        move = move_line.move_id
+
+        stale_lines = move.move_line_ids.filtered(
+            lambda ml: ml.id != move_line.id
+            and ml.product_id == product
+            and ml.move_id.state not in ('done', 'cancel')
+            and ml.picking_id.state not in ('done', 'cancel')
+            and origin_lot
+            and ml.lot_id == origin_lot
+        )
+
+        duplicate_target_lines = move.move_line_ids.filtered(
+            lambda ml: ml.id != move_line.id
+            and ml.product_id == product
+            and ml.move_id.state not in ('done', 'cancel')
+            and ml.picking_id.state not in ('done', 'cancel')
+            and target_lot
+            and ml.lot_id == target_lot
+        )
+
+        lines_to_remove = stale_lines | duplicate_target_lines
+
+        for stale in lines_to_remove:
+            qty = self._get_move_line_qty(stale)
+            stale_id = stale.id
+            stale_lot_name = stale.lot_id.name if stale.lot_id else 'S/L'
+            try:
+                self._set_move_line_qty(stale, 0.0)
+                stale.unlink()
+                _logger.info(
+                    '[SWAP] Línea residual eliminada: move_line=%s lote=%s qty=%.2f',
+                    stale_id,
+                    stale_lot_name,
+                    qty,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    '[SWAP] No se pudo eliminar línea residual %s; se dejó en cero. Error: %s',
+                    stale_id,
+                    exc,
+                )
+
+        move.invalidate_recordset()
 
     def _get_swap_lines_from_widget_selections(self):
         self.ensure_one()
@@ -329,20 +404,42 @@ class SaleSwapWizard(models.TransientModel):
 
         return result
 
-    def _get_pending_redelivery_docs_for_picking(self, picking):
+    def _get_pending_documents_for_swap(self, move_line):
         self.ensure_one()
 
-        if not picking:
+        if not move_line or not move_line.exists():
             return self.env['sale.delivery.document']
 
-        return self.env['sale.delivery.document'].search([
+        docs = self.env['sale.delivery.document'].search([
             ('sale_order_id', '=', self.sale_order_id.id),
-            ('document_type', '=', 'redelivery'),
+            ('document_type', 'in', ('redelivery', 'pick_ticket')),
             ('state', 'in', ('draft', 'prepared')),
-            ('picking_id', '=', picking.id),
         ])
 
-    def _find_redelivery_doc_line_candidates(
+        result = self.env['sale.delivery.document']
+        picking = move_line.picking_id
+        move = move_line.move_id
+
+        for doc in docs:
+            if doc.document_type == 'redelivery':
+                if doc.picking_id and picking and doc.picking_id != picking:
+                    continue
+                result |= doc
+                continue
+
+            # Pick Tickets no tienen picking_id a nivel documento. Solo se
+            # actualizan si ya contienen una línea relacionada con el move/move_line.
+            if doc.line_ids.filtered(
+                lambda l: (
+                    (l.move_line_id and l.move_line_id == move_line)
+                    or (move and l.move_id and l.move_id == move)
+                )
+            ):
+                result |= doc
+
+        return result
+
+    def _find_doc_line_candidates_for_swap(
         self,
         doc,
         move_line,
@@ -351,34 +448,74 @@ class SaleSwapWizard(models.TransientModel):
         product,
         sale_line,
     ):
+        def _same_sale_line(line):
+            return not sale_line or not line.sale_line_id or line.sale_line_id == sale_line
+
         candidates = doc.line_ids.filtered(
             lambda l: l.product_id == product
+            and _same_sale_line(l)
             and (
                 (l.move_line_id and l.move_line_id == move_line)
                 or (
                     l.move_id
                     and l.move_id == move_line.move_id
-                    and l.lot_id == origin_lot
+                    and (
+                        l.lot_id == origin_lot
+                        or l.lot_id == target_lot
+                    )
                 )
                 or (
                     not l.move_line_id
                     and l.lot_id == origin_lot
-                    and (not sale_line or l.sale_line_id == sale_line)
                 )
                 or (
                     not l.move_line_id
                     and l.lot_id == target_lot
-                    and (not sale_line or l.sale_line_id == sale_line)
                 )
             )
         )
 
-        if candidates:
-            return candidates.sorted(lambda l: l.id)
+        return candidates.sorted(lambda l: l.id)
 
-        return self.env['sale.delivery.document.line']
+    def _remove_stale_doc_lines_after_swap(
+        self,
+        doc,
+        keep,
+        move_line,
+        origin_lot,
+        target_lot,
+        product,
+        sale_line,
+    ):
+        def _same_sale_line(line):
+            return not sale_line or not line.sale_line_id or line.sale_line_id == sale_line
 
-    def _sync_pending_redelivery_doc_after_swap(
+        stale_lines = doc.line_ids.filtered(
+            lambda l: l.id != keep.id
+            and l.product_id == product
+            and _same_sale_line(l)
+            and (
+                l.lot_id == origin_lot
+                or (
+                    l.lot_id == target_lot
+                    and (
+                        (l.move_line_id and l.move_line_id == move_line)
+                        or (l.move_id and l.move_id == move_line.move_id)
+                        or not l.move_line_id
+                    )
+                )
+            )
+        )
+
+        if stale_lines:
+            stale_names = ', '.join(stale_lines.mapped('lot_id.name'))
+            stale_lines.unlink()
+            doc.message_post(body=_(
+                'Líneas residuales eliminadas después de swap: %s. '
+                'El swap quedó como reemplazo único.'
+            ) % (stale_names or 'S/L'))
+
+    def _sync_pending_documents_after_swap(
         self,
         move_line,
         origin_lot,
@@ -389,22 +526,36 @@ class SaleSwapWizard(models.TransientModel):
         sale_line,
     ):
         """
-        Sincroniza el documento SOM de reentrega pendiente con el picking.
+        Sincroniza documentos preparados que representan selección pendiente.
 
-        Esta es la corrección crítica:
-        - No se agrega una línea nueva junto a la anterior.
-        - Se reemplaza la línea vieja por el lote nuevo.
-        - La cantidad queda como la del lote nuevo, no como suma.
+        Aplica a:
+        - Reentregas pendientes creadas por devolución/reagendar.
+        - Pick Tickets preparados que todavía apuntaban al lote origen.
+
+        El comportamiento es de reemplazo: la línea vieja se actualiza al lote
+        nuevo y cualquier residual del lote origen se elimina.
         """
-        docs = self._get_pending_redelivery_docs_for_picking(move_line.picking_id)
+        docs = self._get_pending_documents_for_swap(move_line)
 
         if not docs:
             return self.env['sale.delivery.document']
 
         touched_docs = self.env['sale.delivery.document']
 
+        vals = {
+            'product_id': product.id,
+            'lot_id': target_lot.id,
+            'qty_selected': replacement_qty,
+            'qty_done': 0.0,
+            'qty_returned': 0.0,
+            'sale_line_id': sale_line.id if sale_line else False,
+            'move_id': move_line.move_id.id if move_line.move_id else False,
+            'move_line_id': move_line.id,
+            'source_location_id': target_quant.location_id.id if target_quant else False,
+        }
+
         for doc in docs:
-            candidates = self._find_redelivery_doc_line_candidates(
+            candidates = self._find_doc_line_candidates_for_swap(
                 doc,
                 move_line,
                 origin_lot,
@@ -413,55 +564,75 @@ class SaleSwapWizard(models.TransientModel):
                 sale_line,
             )
 
-            vals = {
-                'product_id': product.id,
-                'lot_id': target_lot.id,
-                'qty_selected': replacement_qty,
-                'qty_done': 0.0,
-                'qty_returned': 0.0,
-                'sale_line_id': sale_line.id if sale_line else False,
-                'move_id': move_line.move_id.id if move_line.move_id else False,
-                'move_line_id': move_line.id,
-                'source_location_id': target_quant.location_id.id if target_quant else False,
-            }
-
             if candidates:
                 keep = candidates[0]
                 old_name = keep.lot_id.name if keep.lot_id else ''
-
                 keep.write(vals)
 
                 duplicates = candidates - keep
                 if duplicates:
                     duplicates.unlink()
 
+                self._remove_stale_doc_lines_after_swap(
+                    doc=doc,
+                    keep=keep,
+                    move_line=move_line,
+                    origin_lot=origin_lot,
+                    target_lot=target_lot,
+                    product=product,
+                    sale_line=sale_line,
+                )
+
                 doc.message_post(body=_(
-                    'Swap aplicado en reentrega pendiente: %s → %s. '
-                    'La línea fue reemplazada, no sumada. Cantidad nueva: %.2f.'
+                    'Swap aplicado: %s → %s. '
+                    'La selección pendiente fue reemplazada, no sumada. Cantidad nueva: %.2f.'
                 ) % (
                     old_name or (origin_lot.name if origin_lot else 'S/L'),
                     target_lot.name,
                     replacement_qty,
                 ))
-            else:
+                touched_docs |= doc
+                continue
+
+            # En reentregas pendientes sí debe existir una línea por cada move_line
+            # vigente del picking. Si no existe, se crea sincronizada. En Pick Tickets
+            # no se crea una línea nueva porque eso sería sumar selección.
+            if doc.document_type == 'redelivery':
                 self.env['sale.delivery.document.line'].create(dict(
                     vals,
                     document_id=doc.id,
                 ))
-
                 doc.message_post(body=_(
-                    'Swap aplicado en reentrega pendiente: %s → %s. '
-                    'Se creó una línea sincronizada porque no existía una línea SOM equivalente. '
-                    'Cantidad nueva: %.2f.'
+                    'Swap aplicado: %s → %s. '
+                    'Se creó una línea sincronizada de reentrega porque no existía '
+                    'una línea SOM equivalente. Cantidad nueva: %.2f.'
                 ) % (
                     origin_lot.name if origin_lot else 'S/L',
                     target_lot.name,
                     replacement_qty,
                 ))
-
-            touched_docs |= doc
+                touched_docs |= doc
 
         return touched_docs
+
+    def _validate_no_duplicate_targets(self, swap_lines):
+        seen_targets = {}
+
+        for data in swap_lines:
+            target_lot = data.get('target_lot')
+            move_line = data.get('move_line')
+
+            if not target_lot or not target_lot.exists():
+                continue
+
+            previous = seen_targets.get(target_lot.id)
+            if previous and previous != (move_line.id if move_line else 0):
+                raise UserError(_(
+                    'El lote destino %s está seleccionado más de una vez. '
+                    'Cada lote nuevo solo puede reemplazar una línea.'
+                ) % target_lot.name)
+
+            seen_targets[target_lot.id] = move_line.id if move_line else 0
 
     def _sync_move_after_swap(self, move):
         if not move:
@@ -498,11 +669,10 @@ class SaleSwapWizard(models.TransientModel):
         """
         Ejecuta el swap de lotes sobre pickings pendientes.
 
-        Corrección principal:
-        - Reemplaza el lote en stock.move.line.
-        - Sincroniza la reentrega pendiente relacionada.
-        - No crea documento artificial pick_ticket con origen + destino.
-        - No suma lote anterior + lote nuevo.
+        Regla funcional:
+        - El swap reemplaza el lote origen por el lote destino.
+        - No debe conservar una selección anterior del lote origen.
+        - No debe crear líneas adicionales en Pick Ticket ni en Reentrega.
         """
         self.ensure_one()
 
@@ -516,8 +686,10 @@ class SaleSwapWizard(models.TransientModel):
                 'Seleccione al menos un lote destino para ejecutar el swap.'
             ))
 
+        self._validate_no_duplicate_targets(lines_with_target)
+
         processed = 0
-        touched_redeliveries = self.env['sale.delivery.document']
+        touched_documents = self.env['sale.delivery.document']
 
         for data in lines_with_target:
             move_line = data.get('move_line')
@@ -614,7 +786,8 @@ class SaleSwapWizard(models.TransientModel):
                         active_holds[0].sale_order_id.name,
                     ))
 
-            replacement_qty = available_qty or data.get('target_qty') or original_qty
+            desired_qty = data.get('target_qty') or available_qty or original_qty
+            replacement_qty = min(desired_qty, available_qty) if available_qty else desired_qty
 
             if replacement_qty <= 0:
                 raise UserError(_(
@@ -630,9 +803,16 @@ class SaleSwapWizard(models.TransientModel):
                 qty=replacement_qty,
             )
 
+            self._cleanup_move_lines_after_swap(
+                move_line=move_line,
+                origin_lot=origin_lot,
+                target_lot=target_lot,
+                product=product,
+            )
+
             self._sync_move_after_swap(move)
 
-            touched_redeliveries |= self._sync_pending_redelivery_doc_after_swap(
+            touched_documents |= self._sync_pending_documents_after_swap(
                 move_line=move_line,
                 origin_lot=origin_lot,
                 target_lot=target_lot,
@@ -651,7 +831,7 @@ class SaleSwapWizard(models.TransientModel):
             self.sale_order_id.message_post(body=_(
                 'Swap ejecutado: %s → %s en picking %s. '
                 'Cantidad original: %.2f. Cantidad reemplazo: %.2f. '
-                'El lote fue reemplazado, no sumado.'
+                'El lote fue reemplazado; cualquier selección anterior del lote origen fue retirada.'
             ) % (
                 old_lot_name,
                 target_lot.name,
@@ -673,11 +853,11 @@ class SaleSwapWizard(models.TransientModel):
 
         self.write({'widget_selections': '[]'})
 
-        if touched_redeliveries:
+        if touched_documents:
             message = _(
                 '%d swap(s) realizados exitosamente. '
-                'Se actualizaron %d reentrega(s) pendiente(s) reemplazando lote/cantidad.'
-            ) % (processed, len(touched_redeliveries))
+                'Se actualizaron %d documento(s) pendiente(s) reemplazando lote/cantidad.'
+            ) % (processed, len(touched_documents))
         else:
             message = _('%d swap(s) realizados exitosamente.') % processed
 
