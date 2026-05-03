@@ -152,37 +152,142 @@ class SaleOrderLine(models.Model):
         return self.product_uom_qty or 0.0
 
     # ═══════════════════════════════════════════════════════════════════
+    # Helpers de cantidad
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _som_move_done_qty(self, move):
+        qty = 0.0
+
+        for ml in move.move_line_ids:
+            qty += (
+                ml.quantity
+                or getattr(ml, 'qty_done', 0.0)
+                or 0.0
+            )
+
+        if qty:
+            return qty
+
+        return move.product_uom_qty or 0.0
+
+    def _som_custom_delivery_gross_qty(self):
+        self.ensure_one()
+
+        docs = self.order_id.delivery_document_ids.filtered(
+            lambda d: d.state == 'confirmed'
+            and d.document_type in ('remission', 'redelivery')
+        )
+
+        doc_lines = docs.mapped('line_ids').filtered(
+            lambda l: l.sale_line_id == self
+            and l.product_id == self.product_id
+        )
+
+        return sum(
+            l.qty_done or l.qty_selected or 0.0
+            for l in doc_lines
+        )
+
+    def _som_custom_returned_qty(self):
+        self.ensure_one()
+
+        docs = self.order_id.delivery_document_ids.filtered(
+            lambda d: d.state == 'confirmed'
+            and d.document_type == 'return'
+            and (
+                not d.return_picking_id
+                or d.return_picking_id.state == 'done'
+            )
+        )
+
+        doc_lines = docs.mapped('line_ids').filtered(
+            lambda l: l.sale_line_id == self
+            and l.product_id == self.product_id
+        )
+
+        return sum(
+            l.qty_returned or l.qty_done or l.qty_selected or 0.0
+            for l in doc_lines
+        )
+
+    def _som_stock_returned_qty(self):
+        self.ensure_one()
+
+        if not self.product_id:
+            return 0.0
+
+        source_moves = self.move_ids.filtered(lambda m: m.state == 'done')
+
+        return_moves = self.env['stock.move'].search([
+            ('state', '=', 'done'),
+            ('product_id', '=', self.product_id.id),
+            ('location_id.usage', '=', 'customer'),
+            ('location_dest_id.usage', '=', 'internal'),
+            '|',
+            ('origin_returned_move_id', 'in', source_moves.ids or [0]),
+            ('sale_line_id', '=', self.id),
+        ])
+
+        return sum(self._som_move_done_qty(move) for move in return_moves)
+
+    # ═══════════════════════════════════════════════════════════════════
     # Computes
     # ═══════════════════════════════════════════════════════════════════
 
     @api.depends(
         'move_ids.state',
-        'move_ids.origin_returned_move_id',
-        'move_ids.picking_id.picking_type_code',
-        'move_ids.location_dest_id.usage',
         'move_ids.product_uom_qty',
+        'move_ids.move_line_ids.quantity',
+        'move_ids.returned_move_ids.state',
+        'move_ids.returned_move_ids.product_uom_qty',
+        'move_ids.returned_move_ids.location_id.usage',
+        'move_ids.returned_move_ids.location_dest_id.usage',
+        'move_ids.returned_move_ids.move_line_ids.quantity',
+        'order_id.delivery_document_ids.state',
+        'order_id.delivery_document_ids.document_type',
+        'order_id.delivery_document_ids.return_picking_id.state',
+        'order_id.delivery_document_ids.line_ids.sale_line_id',
+        'order_id.delivery_document_ids.line_ids.product_id',
+        'order_id.delivery_document_ids.line_ids.qty_selected',
+        'order_id.delivery_document_ids.line_ids.qty_done',
+        'order_id.delivery_document_ids.line_ids.qty_returned',
     )
     def _compute_return_qty(self):
         for line in self:
-            returned = 0.0
-            for move in line.move_ids:
-                if (
-                    move.origin_returned_move_id
-                    and move.state == 'done'
-                    and move.location_dest_id.usage == 'internal'
-                ):
-                    returned += move.product_uom_qty or 0.0
-            line.x_returned_qty = returned
+            stock_returned = line._som_stock_returned_qty()
+            doc_returned = line._som_custom_returned_qty()
 
-    @api.depends('qty_delivered')
+            # max evita doble conteo cuando el documento custom y el stock.move
+            # representan la misma devolución.
+            line.x_returned_qty = max(stock_returned, doc_returned)
+
+    @api.depends(
+        'qty_delivered',
+        'x_returned_qty',
+        'order_id.delivery_document_ids.state',
+        'order_id.delivery_document_ids.document_type',
+        'order_id.delivery_document_ids.line_ids.sale_line_id',
+        'order_id.delivery_document_ids.line_ids.product_id',
+        'order_id.delivery_document_ids.line_ids.qty_selected',
+        'order_id.delivery_document_ids.line_ids.qty_done',
+        'order_id.delivery_document_ids.line_ids.qty_returned',
+    )
     def _compute_delivery_net(self):
-        # En Odoo, qty_delivered ya es neto: salidas - entradas.
         for line in self:
-            line.x_delivered_net_qty = max(line.qty_delivered or 0.0, 0.0)
+            gross_from_docs = line._som_custom_delivery_gross_qty()
+            returned = line.x_returned_qty or 0.0
+
+            if gross_from_docs > 0:
+                line.x_delivered_net_qty = max(gross_from_docs - returned, 0.0)
+            else:
+                # Fallback nativo: si no hay documentos SOM, se respeta el cálculo
+                # estándar de Odoo.
+                line.x_delivered_net_qty = max(line.qty_delivered or 0.0, 0.0)
 
     @api.depends(
         'product_uom_qty',
         'qty_delivered',
+        'x_returned_qty',
         'x_delivered_net_qty',
         'x_origin_demand_qty',
         'x_origin_demand_locked',
@@ -232,6 +337,8 @@ class SaleOrderLine(models.Model):
                 line.x_delivery_status = 'sin_asignar'
             elif overdelivered > 0:
                 line.x_delivery_status = 'sobreentregado'
+            elif returned > 0 and delivered_net < demand:
+                line.x_delivery_status = 'devuelto_parcial'
             elif delivered_net <= 0 and demand > 0:
                 line.x_delivery_status = 'sin_asignar'
             elif delivered_net >= demand:

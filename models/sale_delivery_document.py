@@ -71,10 +71,15 @@ class SaleDeliveryDocument(models.Model):
         for rec in self:
             rec.photo_count = len(rec.attachment_ids)
 
-    @api.depends('line_ids.qty_selected')
+    @api.depends('line_ids.qty_selected', 'line_ids.qty_done', 'line_ids.qty_returned')
     def _compute_totals(self):
         for rec in self:
-            rec.total_qty = sum(rec.line_ids.mapped('qty_selected'))
+            if rec.document_type == 'return':
+                rec.total_qty = sum(
+                    rec.line_ids.mapped('qty_returned')
+                ) or sum(rec.line_ids.mapped('qty_done')) or sum(rec.line_ids.mapped('qty_selected'))
+            else:
+                rec.total_qty = sum(rec.line_ids.mapped('qty_selected'))
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -107,8 +112,18 @@ class SaleDeliveryDocument(models.Model):
                 doc._action_confirm_return()
             elif doc.document_type == 'redelivery':
                 doc._action_confirm_redelivery()
-            doc.state = 'confirmed'
-            doc.delivery_date = fields.Datetime.now()
+
+            doc.write({
+                'state': 'confirmed',
+                'delivery_date': fields.Datetime.now(),
+            })
+
+            if doc.document_type in ('remission', 'return', 'redelivery'):
+                if doc.document_type == 'return':
+                    doc._som_finalize_return_document_quantities()
+                doc._som_force_sale_delivery_recompute()
+
+        return True
 
     def action_cancel(self):
         self.filtered(
@@ -148,6 +163,24 @@ class SaleDeliveryDocument(models.Model):
             'Pick Ticket cancelado por %s — lotes liberados.',
             self.env.user.name))
 
+    def _som_set_move_line_done_qty(self, move_line, qty):
+        vals = {}
+
+        if 'quantity' in move_line._fields:
+            vals['quantity'] = qty
+        elif 'qty_done' in move_line._fields:
+            vals['qty_done'] = qty
+
+        if vals:
+            move_line.write(vals)
+
+    def _som_get_move_line_done_qty(self, move_line):
+        return (
+            move_line.quantity
+            or getattr(move_line, 'qty_done', 0.0)
+            or 0.0
+        )
+
     def _validate_picking_partial(self, picking, doc_ml_ids, doc_ml_qty):
         if picking.state == 'done':
             _logger.info('Picking %s already done, skipping.', picking.name)
@@ -167,14 +200,14 @@ class SaleDeliveryDocument(models.Model):
         for move in picking.move_ids:
             for ml in move.move_line_ids:
                 if ml.id in doc_ml_ids:
-                    ml.quantity = doc_ml_qty[ml.id]
+                    self._som_set_move_line_done_qty(ml, doc_ml_qty[ml.id])
                     _logger.info(
                         'Picking %s ML %s (lot %s): qty set to %s',
                         picking.name, ml.id,
                         ml.lot_id.name if ml.lot_id else 'N/A',
                         doc_ml_qty[ml.id])
                 else:
-                    ml.quantity = 0
+                    self._som_set_move_line_done_qty(ml, 0.0)
 
         result = picking.with_context(
             skip_backorder=False,
@@ -362,64 +395,267 @@ class SaleDeliveryDocument(models.Model):
 
         return False
 
-    def _action_confirm_return(self):
+    def _som_create_or_update_return_move_line(self, move, lot, qty):
+        StockMoveLine = self.env['stock.move.line']
+
+        existing = move.move_line_ids.filtered(
+            lambda ml: ml.product_id == move.product_id
+            and (
+                (lot and ml.lot_id == lot)
+                or (not lot and not ml.lot_id)
+                or not ml.lot_id
+            )
+        )[:1]
+
+        vals = {
+            'move_id': move.id,
+            'picking_id': move.picking_id.id,
+            'product_id': move.product_id.id,
+            'location_id': move.location_id.id,
+            'location_dest_id': move.location_dest_id.id,
+        }
+
+        if lot:
+            vals['lot_id'] = lot.id
+
+        if 'quantity' in StockMoveLine._fields:
+            vals['quantity'] = qty
+        elif 'qty_done' in StockMoveLine._fields:
+            vals['qty_done'] = qty
+
+        if existing:
+            existing.write(vals)
+            return existing
+
+        return StockMoveLine.create(vals)
+
+    def _som_get_return_source_move_for_doc_line(self, doc_line):
+        source_move = doc_line.move_id
+
+        if source_move and source_move.state == 'done':
+            if (
+                source_move.location_dest_id.usage == 'customer'
+                or source_move.picking_id.picking_type_code == 'outgoing'
+            ):
+                return source_move
+
+        origin_line = doc_line.origin_remission_line_id
+        remission = doc_line.origin_remission_id or origin_line.origin_remission_id
+
+        if origin_line and remission:
+            source = self.sale_order_id._resolve_return_source_for_remission_line(
+                remission,
+                origin_line,
+            )
+            resolved_move = source.get('move')
+            resolved_ml = source.get('move_line')
+
+            if resolved_move:
+                vals = {'move_id': resolved_move.id}
+                if resolved_ml:
+                    vals['move_line_id'] = resolved_ml.id
+                doc_line.write(vals)
+                return resolved_move
+
+        return source_move
+
+    def _som_prepare_return_picking_quantities(self, picking):
         self.ensure_one()
-        if not self.return_picking_id:
-            raise UserError(_('No hay picking de devolución asociado.'))
-        picking = self.return_picking_id
 
-        if picking.state in ('draft', 'confirmed', 'waiting'):
-            picking.action_assign()
+        positive_lines = self.line_ids.filtered(
+            lambda l: (l.qty_selected or 0.0) > 0
+        )
 
-        lot_qty = {}
-        product_qty = {}
-        for doc_line in self.line_ids:
-            if doc_line.qty_selected > 0:
-                if doc_line.lot_id:
-                    lot_qty[doc_line.lot_id.id] = (
-                        lot_qty.get(doc_line.lot_id.id, 0.0)
-                        + doc_line.qty_selected
-                    )
-                elif doc_line.product_id:
-                    product_qty[doc_line.product_id.id] = (
-                        product_qty.get(doc_line.product_id.id, 0.0)
-                        + doc_line.qty_selected)
+        if not positive_lines:
+            raise UserError(_(
+                'No puedes confirmar una devolución sin cantidades positivas.'
+            ))
+
+        for ml in picking.move_line_ids:
+            self._som_set_move_line_done_qty(ml, 0.0)
+
+        aggregated = {}
+        move_totals = {}
+
+        for doc_line in positive_lines:
+            qty = doc_line.qty_selected or 0.0
+            if qty <= 0:
+                continue
+
+            source_move = self._som_get_return_source_move_for_doc_line(doc_line)
+
+            if not source_move:
+                raise UserError(_(
+                    'No se encontró el movimiento original de salida para devolver %s.'
+                ) % doc_line.product_id.display_name)
+
+            target_moves = picking.move_ids.filtered(
+                lambda m: m.origin_returned_move_id == source_move
+                and m.product_id == doc_line.product_id
+            )
+
+            if not target_moves:
+                target_moves = picking.move_ids.filtered(
+                    lambda m: m.product_id == doc_line.product_id
+                )
+
+            if not target_moves:
+                raise UserError(_(
+                    'El picking de devolución %s no contiene movimiento de retorno para %s.'
+                ) % (picking.name, doc_line.product_id.display_name))
+
+            target_move = target_moves[0]
+
+            if doc_line.sale_line_id and 'sale_line_id' in target_move._fields:
+                target_move.sale_line_id = doc_line.sale_line_id.id
+
+            if 'to_refund' in target_move._fields:
+                target_move.to_refund = True
+
+            lot = doc_line.lot_id
+
+            key = (
+                target_move.id,
+                doc_line.product_id.id,
+                lot.id if lot else 0,
+                doc_line.sale_line_id.id if doc_line.sale_line_id else 0,
+            )
+
+            if key not in aggregated:
+                aggregated[key] = {
+                    'move': target_move,
+                    'lot': lot,
+                    'qty': 0.0,
+                }
+
+            aggregated[key]['qty'] += qty
+            move_totals[target_move.id] = (
+                move_totals.get(target_move.id, 0.0) + qty
+            )
 
         for move in picking.move_ids:
-            if move.move_line_ids:
-                for ml in move.move_line_ids:
-                    lot_id = ml.lot_id.id if ml.lot_id else False
-                    if lot_id and lot_id in lot_qty:
-                        ml.quantity = lot_qty[lot_id]
-                    elif ml.product_id.id in product_qty:
-                        ml.quantity = product_qty[ml.product_id.id]
-                    else:
-                        ml.quantity = 0
-            else:
-                total_qty = sum(
-                    doc_line.qty_selected
-                    for doc_line in self.line_ids
-                    if doc_line.qty_selected > 0
-                    and doc_line.product_id.id == move.product_id.id)
-                if total_qty > 0:
-                    move.quantity = total_qty
+            total = move_totals.get(move.id, 0.0)
+            if total > 0:
+                move.product_uom_qty = total
 
-        result = picking.button_validate()
+        for data in aggregated.values():
+            self._som_create_or_update_return_move_line(
+                data['move'],
+                data['lot'],
+                data['qty'],
+            )
+
+    def _som_process_validate_result(self, picking, result):
         if isinstance(result, dict):
-            if result.get('res_model') == 'stock.backorder.confirmation':
+            res_model = result.get('res_model')
+
+            if res_model == 'stock.backorder.confirmation':
                 backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
                     button_validate_picking_ids=picking.ids,
                 ).create({
                     'pick_ids': [(4, picking.id)],
                 })
                 backorder_wiz.process()
-            elif result.get('res_model') == 'stock.immediate.transfer':
+
+            elif res_model == 'stock.immediate.transfer':
                 immediate_wiz = self.env['stock.immediate.transfer'].with_context(
                     button_validate_picking_ids=picking.ids,
                 ).create({
                     'pick_ids': [(4, picking.id)],
                 })
                 immediate_wiz.process()
+
+        picking.invalidate_recordset()
+
+        if picking.state != 'done':
+            raise UserError(_(
+                'La devolución %s no quedó validada. Estado actual: %s. '
+                'Revise cantidades, lote y disponibilidad antes de confirmar.'
+            ) % (picking.name, picking.state))
+
+        return True
+
+    def _som_finalize_return_document_quantities(self):
+        self.ensure_one()
+
+        for line in self.line_ids:
+            qty = (
+                line.qty_returned
+                or line.qty_done
+                or line.qty_selected
+                or 0.0
+            )
+
+            if qty <= 0:
+                continue
+
+            line.write({
+                'qty_done': qty,
+                'qty_returned': qty,
+            })
+
+        origin_lines = self.line_ids.mapped('origin_remission_line_id')
+
+        for origin_line in origin_lines:
+            return_lines = self.env['sale.delivery.document.line'].search([
+                ('origin_remission_line_id', '=', origin_line.id),
+                ('document_id.document_type', '=', 'return'),
+                ('document_id.state', '=', 'confirmed'),
+            ]).filtered(
+                lambda l: not l.document_id.return_picking_id
+                or l.document_id.return_picking_id.state == 'done'
+            )
+
+            origin_line.qty_returned = sum(
+                l.qty_returned or l.qty_done or l.qty_selected or 0.0
+                for l in return_lines
+            )
+
+    def _som_force_sale_delivery_recompute(self):
+        self.ensure_one()
+
+        sale_lines = self.line_ids.mapped('sale_line_id')
+
+        if not sale_lines:
+            return
+
+        sale_lines._compute_return_qty()
+        sale_lines._compute_delivery_net()
+        sale_lines._compute_pending_fulfillment()
+        sale_lines._compute_delivery_status()
+
+        orders = sale_lines.mapped('order_id')
+        if orders:
+            orders._compute_delivery_summary()
+
+    def _action_confirm_return(self):
+        self.ensure_one()
+
+        if not self.return_picking_id:
+            raise UserError(_('No hay picking de devolución asociado.'))
+
+        picking = self.return_picking_id
+
+        if picking.state == 'done':
+            self._som_finalize_return_document_quantities()
+            return True
+
+        if picking.state in ('draft', 'confirmed', 'waiting'):
+            if picking.state == 'draft':
+                picking.action_confirm()
+            picking.action_assign()
+
+        self._som_prepare_return_picking_quantities(picking)
+
+        result = picking.with_context(
+            skip_backorder=True,
+            cancel_backorder=True,
+        ).button_validate()
+
+        self._som_process_validate_result(picking, result)
+        self._som_finalize_return_document_quantities()
+
+        return True
 
     def _action_confirm_redelivery(self):
         self.ensure_one()
@@ -470,7 +706,7 @@ class SaleDeliveryDocument(models.Model):
                     if dl.product_id == move.product_id and dl.qty_selected > 0
                 )
                 if qty > 0:
-                    move.quantity = qty
+                    move.product_uom_qty = qty
 
             result = picking.with_context(
                 skip_backorder=False).button_validate()

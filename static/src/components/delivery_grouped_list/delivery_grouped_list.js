@@ -88,12 +88,6 @@ export class DeliveryGroupedList extends Component {
                 }
             }
 
-            /*
-             * Corrección crítica:
-             * No asignar grupos crudos al estado antes de normalizar.
-             * OWL puede renderizar con t-key duplicados si dos líneas comparten
-             * lotId / moveLineId / originRemissionLineId, por ejemplo 7049.
-             */
             this.state.groups = this._normalizeGroupKeys(groups || []);
             this._syncCollapsedState();
             this._recalcAllGroups();
@@ -456,6 +450,7 @@ export class DeliveryGroupedList extends Component {
                     sourceLocationId: line.sourceLocationId || 0,
                     qty,
                     qtyAvailable: line.qtyAvailable || 0,
+                    qtyDelivered: line.qtyDelivered || 0,
                     originRemissionId: line.originRemissionId || group.originRemissionId || 0,
                     originRemissionName: line.originRemissionName || group.originRemissionName || "",
                     originRemissionLineId: line.originRemissionLineId || 0,

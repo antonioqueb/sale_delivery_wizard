@@ -94,11 +94,17 @@ class SaleOrder(models.Model):
         'order_line.x_origin_demand_qty',
         'order_line.x_origin_demand_locked',
         'order_line.x_overdelivered_origin_qty',
+        'delivery_document_ids.state',
+        'delivery_document_ids.document_type',
+        'delivery_document_ids.return_picking_id.state',
+        'delivery_document_ids.line_ids.qty_selected',
+        'delivery_document_ids.line_ids.qty_done',
+        'delivery_document_ids.line_ids.qty_returned',
     )
     def _compute_delivery_summary(self):
         for order in self:
             lines = order.order_line.filtered(
-                lambda l: l.product_id.type != 'service'
+                lambda l: l.product_id and l.product_id.type != 'service'
             )
 
             demand = sum(
@@ -160,6 +166,117 @@ class SaleOrder(models.Model):
                     and d.state in ('draft', 'prepared')
                 )
             )
+
+    def _ml_done_qty(self, ml):
+        return (
+            ml.quantity
+            or getattr(ml, 'qty_done', 0.0)
+            or 0.0
+        )
+
+    def _resolve_return_source_for_remission_line(self, remission, doc_line):
+        """
+        Resuelve el movimiento REAL que debe devolverse.
+
+        Para que Odoo reduzca el entregado/fulfillment, la devolución debe
+        hacerse contra el stock.move DONE que salió hacia cliente, no contra
+        un movimiento interno previo.
+        """
+        self.ensure_one()
+
+        StockMove = self.env['stock.move']
+        StockMoveLine = self.env['stock.move.line']
+
+        product = doc_line.product_id
+        lot = doc_line.lot_id
+        sale_line = doc_line.sale_line_id
+        original_move = doc_line.move_id
+
+        if not product:
+            return {
+                'move': StockMove.browse(),
+                'move_line': StockMoveLine.browse(),
+                'picking': self.env['stock.picking'].browse(),
+            }
+
+        candidates = StockMove.browse()
+
+        if original_move and original_move.state == 'done':
+            if (
+                original_move.location_dest_id.usage == 'customer'
+                or original_move.picking_id.picking_type_code == 'outgoing'
+            ):
+                candidates |= original_move
+
+            candidates |= original_move.move_dest_ids.filtered(
+                lambda m: m.state == 'done'
+                and m.product_id == product
+                and (
+                    m.location_dest_id.usage == 'customer'
+                    or m.picking_id.picking_type_code == 'outgoing'
+                )
+            )
+
+        candidate_pickings = self.env['stock.picking']
+
+        if remission.out_picking_id:
+            candidate_pickings |= remission.out_picking_id
+
+        if remission.picking_id and remission.picking_id.picking_type_code == 'outgoing':
+            candidate_pickings |= remission.picking_id
+
+        for picking in candidate_pickings.filtered(lambda p: p.state == 'done'):
+            candidates |= picking.move_ids.filtered(
+                lambda m: m.state == 'done'
+                and m.product_id == product
+                and (
+                    m.location_dest_id.usage == 'customer'
+                    or picking.picking_type_code == 'outgoing'
+                )
+            )
+
+        if not candidates and sale_line:
+            candidates |= StockMove.search([
+                ('sale_line_id', '=', sale_line.id),
+                ('product_id', '=', product.id),
+                ('state', '=', 'done'),
+                ('location_dest_id.usage', '=', 'customer'),
+            ])
+
+        candidates = candidates.filtered(lambda m: m.product_id == product)
+
+        if sale_line:
+            strict = candidates.filtered(lambda m: m.sale_line_id == sale_line)
+            if strict:
+                candidates = strict
+
+        for move in candidates.sorted(lambda m: (m.picking_id.id or 0, m.id)):
+            move_lines = move.move_line_ids.filtered(
+                lambda ml: ml.product_id == product
+                and self._ml_done_qty(ml) > 0
+                and (not lot or ml.lot_id == lot)
+            )
+            if move_lines:
+                ml = move_lines.sorted(lambda l: l.id)[0]
+                return {
+                    'move': move,
+                    'move_line': ml,
+                    'picking': move.picking_id,
+                }
+
+        if candidates:
+            move = candidates.sorted(lambda m: (m.picking_id.id or 0, m.id))[0]
+            return {
+                'move': move,
+                'move_line': move.move_line_ids[:1],
+                'picking': move.picking_id,
+            }
+
+        return {
+            'move': StockMove.browse(),
+            'move_line': StockMoveLine.browse(),
+            'picking': self.env['stock.picking'].browse(),
+        }
 
     def _get_locked_lot_ids(self, exclude_pt_id=None):
         self.ensure_one()
@@ -252,7 +369,7 @@ class SaleOrder(models.Model):
         done = 0.0
         for ml in move.move_line_ids:
             if ml.move_id.state == 'done' or ml.picking_id.state == 'done':
-                done += (ml.quantity or getattr(ml, 'qty_done', 0.0) or 0.0)
+                done += self._ml_done_qty(ml)
         pending = demanded - done
         return max(pending, 0.0)
 
@@ -429,21 +546,65 @@ class SaleOrder(models.Model):
         return_docs = self.delivery_document_ids.filtered(
             lambda d: d.document_type == 'return'
             and d.state == 'confirmed'
+            and (
+                not d.return_picking_id
+                or d.return_picking_id.state == 'done'
+            )
         )
 
         for return_doc in return_docs:
             for line in return_doc.line_ids:
                 if not line.origin_remission_line_id:
                     continue
-                qty = line.qty_done or line.qty_selected or 0.0
+
+                qty = (
+                    line.qty_returned
+                    or line.qty_done
+                    or line.qty_selected
+                    or 0.0
+                )
+
                 if qty <= 0:
                     continue
+
                 origin_line_id = line.origin_remission_line_id.id
                 returned_by_line[origin_line_id] = (
                     returned_by_line.get(origin_line_id, 0.0) + qty
                 )
 
         return returned_by_line
+
+    def _get_returned_qty_by_source_move_lot(self):
+        self.ensure_one()
+        returned_by_key = {}
+
+        return_docs = self.delivery_document_ids.filtered(
+            lambda d: d.document_type == 'return'
+            and d.state == 'confirmed'
+            and (
+                not d.return_picking_id
+                or d.return_picking_id.state == 'done'
+            )
+        )
+
+        for return_doc in return_docs:
+            for line in return_doc.line_ids:
+                qty = (
+                    line.qty_returned
+                    or line.qty_done
+                    or line.qty_selected
+                    or 0.0
+                )
+                if qty <= 0 or not line.move_id:
+                    continue
+
+                key = (
+                    line.move_id.id,
+                    line.lot_id.id if line.lot_id else 0,
+                )
+                returned_by_key[key] = returned_by_key.get(key, 0.0) + qty
+
+        return returned_by_key
 
     def _append_return_group_line(self, groups_map, group_key, group_name, line_dict):
         if group_key not in groups_map:
@@ -492,13 +653,21 @@ class SaleOrder(models.Model):
                 if not product:
                     continue
 
+                source = self._resolve_return_source_for_remission_line(
+                    remission,
+                    doc_line,
+                )
+                move = source.get('move')
+                ml = source.get('move_line')
+                source_picking = source.get('picking')
+
+                if not move:
+                    continue
+
                 pid = product.id
                 pname = product.display_name
                 group_key = 'remission-%s-product-%s' % (remission.id, pid)
                 group_name = '%s · %s' % (remission_name, pname)
-
-                move = doc_line.move_id
-                ml = doc_line.move_line_id
 
                 ld = {
                     'dbId': 0,
@@ -506,10 +675,7 @@ class SaleOrder(models.Model):
                     'lotName': doc_line.lot_id.name if doc_line.lot_id else '',
                     'productId': pid,
                     'productName': pname,
-                    'pickingId': (
-                        remission.picking_id.id
-                        or (move.picking_id.id if move and move.picking_id else 0)
-                    ),
+                    'pickingId': source_picking.id if source_picking else 0,
                     'moveId': move.id if move else 0,
                     'moveLineId': ml.id if ml else 0,
                     'saleLineId': doc_line.sale_line_id.id if doc_line.sale_line_id else 0,
@@ -529,6 +695,8 @@ class SaleOrder(models.Model):
         if groups_map:
             return [g for g in groups_map.values() if g['lineCount'] > 0]
 
+        returned_by_source = self._get_returned_qty_by_source_move_lot()
+
         for picking in self.picking_ids.filtered(
             lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'
         ):
@@ -541,8 +709,17 @@ class SaleOrder(models.Model):
                 group_name = '%s · %s' % (fallback_remission_name, pname)
 
                 for ml in move.move_line_ids:
-                    qty = ml.quantity or ml.qty_done or 0.0
+                    qty = self._ml_done_qty(ml)
                     if qty <= 0:
+                        continue
+
+                    returned_qty = returned_by_source.get(
+                        (move.id, ml.lot_id.id if ml.lot_id else 0),
+                        0.0,
+                    )
+                    qty_available = max(qty - returned_qty, 0.0)
+
+                    if qty_available <= 0:
                         continue
 
                     ld = {
@@ -557,7 +734,7 @@ class SaleOrder(models.Model):
                         'saleLineId': move.sale_line_id.id if move.sale_line_id else 0,
                         'sourceLocationId': ml.location_dest_id.id if ml.location_dest_id else 0,
                         'isSelected': False,
-                        'qtyDelivered': qty,
+                        'qtyDelivered': qty_available,
                         'qtyToReturn': 0,
                         'originRemissionId': 0,
                         'originRemissionName': fallback_remission_name,
