@@ -58,15 +58,15 @@ export class DeliveryGroupedList extends Component {
         let loadedFromWizard = false;
 
         try {
+            let groups = [];
             const wizardId = this._getWizardId();
 
             if (wizardId) {
-                const groups = await this.orm.call(
+                groups = await this.orm.call(
                     this._wizardModel,
                     "get_grouped_lines_data",
                     [[wizardId]]
                 );
-                this.state.groups = groups || [];
                 loadedFromWizard = true;
             } else {
                 const soId = this._getSaleOrderId();
@@ -79,19 +79,22 @@ export class DeliveryGroupedList extends Component {
                         kwargs.editing_pt_id = editingPtId;
                     }
 
-                    const groups = await this.orm.call(
+                    groups = await this.orm.call(
                         "sale.order",
                         "get_delivery_grouped_data",
                         [[soId]],
                         kwargs
                     );
-                    this.state.groups = groups || [];
-                } else {
-                    this.state.groups = [];
                 }
             }
 
-            this._normalizeGroupKeys();
+            /*
+             * Corrección crítica:
+             * No asignar grupos crudos al estado antes de normalizar.
+             * OWL puede renderizar con t-key duplicados si dos líneas comparten
+             * lotId / moveLineId / originRemissionLineId, por ejemplo 7049.
+             */
+            this.state.groups = this._normalizeGroupKeys(groups || []);
             this._syncCollapsedState();
             this._recalcAllGroups();
 
@@ -106,77 +109,150 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
-    _normalizeGroupKeys() {
-        const usedGroupKeys = new Set();
+    _keyPart(value, fallback = "0") {
+        if (value === null || value === undefined || value === false || value === "") {
+            return fallback;
+        }
+        return String(value)
+            .trim()
+            .replace(/\s+/g, "_")
+            .replace(/[^a-zA-Z0-9_.:-]/g, "_");
+    }
 
-        this.state.groups.forEach((group, groupIndex) => {
+    _dedupeKey(baseKey, usedKeys) {
+        let finalKey = baseKey;
+        let counter = 1;
+
+        while (usedKeys.has(finalKey)) {
+            finalKey = `${baseKey}--${counter}`;
+            counter += 1;
+        }
+
+        usedKeys.add(finalKey);
+        return finalKey;
+    }
+
+    _normalizeGroupKeys(groups) {
+        const usedGroupKeys = new Set();
+        const usedLineKeys = new Set();
+
+        return (groups || []).map((group, groupIndex) => {
             const productId = group.productId || 0;
             const remissionId = group.originRemissionId || 0;
             const remissionName = group.originRemissionName || "";
             const originalGroupKey = group.groupKey || "";
 
-            let baseKey;
+            let baseGroupKey;
 
             if (this.state.mode === "return") {
-                baseKey = [
+                baseGroupKey = [
+                    "dgl",
                     "return",
                     "remission",
-                    remissionId || "no-remission",
+                    this._keyPart(remissionId || "no-remission"),
                     "product",
-                    productId || "no-product",
+                    this._keyPart(productId || "no-product"),
                     "idx",
                     groupIndex,
                 ].join("-");
             } else if (this.state.mode === "swap") {
-                baseKey = [
+                baseGroupKey = [
+                    "dgl",
                     "swap",
                     "product",
-                    productId || "no-product",
+                    this._keyPart(productId || "no-product"),
                     "idx",
                     groupIndex,
                 ].join("-");
             } else {
-                baseKey = [
+                baseGroupKey = [
+                    "dgl",
                     "delivery",
-                    originalGroupKey || "group",
+                    this._keyPart(originalGroupKey || "group"),
                     "product",
-                    productId || "no-product",
+                    this._keyPart(productId || "no-product"),
                     "idx",
                     groupIndex,
                 ].join("-");
             }
 
             if (remissionName) {
-                baseKey += "-" + String(remissionName)
-                    .replace(/\s+/g, "-")
-                    .replace(/[^a-zA-Z0-9-_]/g, "");
+                baseGroupKey += "-" + this._keyPart(remissionName, "remission");
             }
 
-            let finalKey = baseKey;
-            let counter = 1;
+            const finalGroupKey = this._dedupeKey(baseGroupKey, usedGroupKeys);
 
-            while (usedGroupKeys.has(finalKey)) {
-                finalKey = `${baseKey}-${counter}`;
-                counter += 1;
-            }
+            group.groupKey = finalGroupKey;
+            group._dglKey = finalGroupKey;
 
-            usedGroupKeys.add(finalKey);
+            group.lines = (group.lines || []).map((line, lineIndex) => {
+                line.groupKey = finalGroupKey;
 
-            group.groupKey = finalKey;
-            group._dglKey = finalKey;
+                let baseLineKey;
 
-            (group.lines || []).forEach((line, lineIndex) => {
-                line.groupKey = finalKey;
-                line._dglKey = [
-                    finalKey,
-                    "line",
-                    lineIndex,
-                    line.originRemissionLineId || 0,
-                    line.moveLineId || 0,
-                    line.moveId || 0,
-                    line.lotId || line.originLotId || 0,
-                ].join("-");
+                if (this.state.mode === "return") {
+                    baseLineKey = [
+                        finalGroupKey,
+                        "line",
+                        lineIndex,
+                        "db",
+                        this._keyPart(line.dbId || 0),
+                        "originLine",
+                        this._keyPart(line.originRemissionLineId || 0),
+                        "remission",
+                        this._keyPart(line.originRemissionId || remissionId || 0),
+                        "moveLine",
+                        this._keyPart(line.moveLineId || 0),
+                        "move",
+                        this._keyPart(line.moveId || 0),
+                        "lot",
+                        this._keyPart(line.lotId || 0),
+                        "product",
+                        this._keyPart(line.productId || productId || 0),
+                    ].join("-");
+                } else if (this.state.mode === "swap") {
+                    baseLineKey = [
+                        finalGroupKey,
+                        "line",
+                        lineIndex,
+                        "db",
+                        this._keyPart(line.dbId || 0),
+                        "moveLine",
+                        this._keyPart(line.moveLineId || 0),
+                        "originLot",
+                        this._keyPart(line.originLotId || 0),
+                        "targetLot",
+                        this._keyPart(line.targetLotId || 0),
+                        "product",
+                        this._keyPart(line.productId || productId || 0),
+                    ].join("-");
+                } else {
+                    baseLineKey = [
+                        finalGroupKey,
+                        "line",
+                        lineIndex,
+                        "db",
+                        this._keyPart(line.dbId || 0),
+                        "picking",
+                        this._keyPart(line.pickingId || 0),
+                        "move",
+                        this._keyPart(line.moveId || 0),
+                        "moveLine",
+                        this._keyPart(line.moveLineId || 0),
+                        "lot",
+                        this._keyPart(line.lotId || 0),
+                        "product",
+                        this._keyPart(line.productId || productId || 0),
+                        "location",
+                        this._keyPart(line.sourceLocationId || 0),
+                    ].join("-");
+                }
+
+                line._dglKey = this._dedupeKey(baseLineKey, usedLineKeys);
+                return line;
             });
+
+            return group;
         });
     }
 
@@ -218,7 +294,7 @@ export class DeliveryGroupedList extends Component {
             let hasAnyMatch = false;
 
             for (const group of this.state.groups) {
-                for (const line of group.lines) {
+                for (const line of group.lines || []) {
                     const key = `${line.productId || 0}-${line.lotId || 0}`;
                     const sel = selMap.get(key);
 
@@ -338,6 +414,7 @@ export class DeliveryGroupedList extends Component {
 
                     selections.push({
                         dbId: line.dbId || 0,
+                        rowKey: line._dglKey || "",
                         groupKey,
                         productId: line.productId || 0,
                         productName: line.productName || "",
@@ -368,6 +445,7 @@ export class DeliveryGroupedList extends Component {
 
                 selections.push({
                     dbId: line.dbId || 0,
+                    rowKey: line._dglKey || "",
                     groupKey,
                     lotId: line.lotId || 0,
                     productId: line.productId || 0,

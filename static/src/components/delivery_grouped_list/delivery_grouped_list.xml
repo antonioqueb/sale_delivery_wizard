@@ -33,7 +33,7 @@
             <div t-else="" class="dgl-groups">
                 <t t-foreach="state.groups"
                    t-as="group"
-                   t-key="'group-' + group_index + '-' + (group.groupKey || group.productId || 0)">
+                   t-key="group._dglKey || group.groupKey || ('group-' + group_index)">
 
                     <div class="dgl-group" t-att-class="isCollapsed(group) ? 'collapsed' : 'expanded'">
                         <div class="dgl-group-header" t-on-click="() => this.toggleGroup(group)">
@@ -98,7 +98,7 @@
                                     <tbody>
                                         <t t-foreach="group.lines"
                                            t-as="line"
-                                           t-key="'delivery-line-' + group_index + '-' + line_index + '-' + (line.moveLineId || line.moveId || line.lotId || 0)">
+                                           t-key="line._dglKey || ('delivery-line-' + (group._dglKey || group_index) + '-' + line_index)">
                                             <tr t-att-class="line.isSelected ? 'dgl-row-selected' : ''">
                                                 <td class="col-sel">
                                                     <input type="checkbox"
@@ -147,7 +147,7 @@
                                     <tbody>
                                         <t t-foreach="group.lines"
                                            t-as="line"
-                                           t-key="'return-line-' + group_index + '-' + line_index + '-' + (line.originRemissionLineId || line.moveLineId || line.moveId || line.lotId || 0)">
+                                           t-key="line._dglKey || ('return-line-' + (group._dglKey || group_index) + '-' + line_index)">
                                             <tr t-att-class="line.isSelected ? 'dgl-row-selected' : ''">
                                                 <td class="col-sel">
                                                     <input type="checkbox"
@@ -199,7 +199,7 @@
                                     <tbody>
                                         <t t-foreach="group.lines"
                                            t-as="line"
-                                           t-key="'swap-line-' + group_index + '-' + line_index + '-' + (line.moveLineId || line.originLotId || 0)">
+                                           t-key="line._dglKey || ('swap-line-' + (group._dglKey || group_index) + '-' + line_index)">
                                             <tr>
                                                 <td class="dgl-cell-lot">
                                                     <t t-esc="line.originLotName || '-'"/>
