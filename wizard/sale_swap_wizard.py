@@ -647,23 +647,23 @@ class SaleSwapWizard(models.TransientModel):
             move.product_uom_qty = total_qty
 
     def _update_sale_line_lots_after_swap(self, sale_line, origin_lot, target_lot):
-        if (
-            not sale_line
-            or not sale_line.exists()
-            or not hasattr(sale_line, 'lot_ids')
-        ):
-            return
+        """
+        NO-OP intencional.
 
-        commands = []
+        sale_stone_selection ya sincroniza sale_line.lot_ids automáticamente
+        cuando cambia el move_line (ver [STONE SYNC] Sincronizando movimientos
+        hacia SO en stock_move_line.py de ese módulo).
 
-        if origin_lot and origin_lot in sale_line.lot_ids:
-            commands.append((3, origin_lot.id))
+        Si escribimos aquí sobre sale_line.lot_ids, disparamos el sync inverso
+        (SO → Picking) que ve lotes residuales históricos en la lista y trata
+        de "rellenar" el picking agregando lotes que NO estaban en la selección
+        original del swap. Esos lotes acaban inyectados al picking y aparecen
+        sorpresivamente al momento de entregar.
 
-        if target_lot and target_lot not in sale_line.lot_ids:
-            commands.append((4, target_lot.id))
-
-        if commands:
-            sale_line.write({'lot_ids': commands})
+        El picking (move_line) es la fuente de verdad después del swap. La
+        propagación al SO se hace sola.
+        """
+        return
 
     def action_confirm_swap(self):
         """
@@ -673,6 +673,8 @@ class SaleSwapWizard(models.TransientModel):
         - El swap reemplaza el lote origen por el lote destino.
         - No debe conservar una selección anterior del lote origen.
         - No debe crear líneas adicionales en Pick Ticket ni en Reentrega.
+        - No debe escribir directamente sobre sale_line.lot_ids (lo hace
+          sale_stone_selection automáticamente al detectar cambio de move_line).
         """
         self.ensure_one()
 
@@ -822,11 +824,10 @@ class SaleSwapWizard(models.TransientModel):
                 sale_line=sale_line,
             )
 
-            self._update_sale_line_lots_after_swap(
-                sale_line=sale_line,
-                origin_lot=origin_lot,
-                target_lot=target_lot,
-            )
+            # NOTA: NO llamamos a _update_sale_line_lots_after_swap aquí.
+            # sale_stone_selection ya propaga el cambio del move_line hacia
+            # sale_line.lot_ids automáticamente. Llamarlo dispara el sync
+            # inverso SO→Picking que reinyecta lotes residuales históricos.
 
             self.sale_order_id.message_post(body=_(
                 'Swap ejecutado: %s → %s en picking %s. '
