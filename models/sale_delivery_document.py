@@ -1090,3 +1090,52 @@ class SaleDeliveryDocumentLine(models.Model):
                 or remission.name
                 or ''
             ) if remission else ''
+
+    def _format_short_location(self):
+        """
+        Devuelve la ubicación recortada a partir del ancla de stock interno.
+
+        Ejemplos:
+            "SOM/Existencias/G/Descarga G-1" → "G/Descarga G-1"
+            "SOM/Existencias"                → "Existencias"
+            "WH/Stock/Shelf A"               → "Shelf A"
+            "Sin jerarquía"                  → "Sin jerarquía"
+
+        Reconoce 'existencias', 'stock' e 'inventario' como anclas para
+        soportar instalaciones en distintos idiomas.
+        """
+        self.ensure_one()
+        if not self.source_location_id:
+            return '-'
+
+        raw = (
+            self.source_location_id.display_name
+            or self.source_location_id.name
+            or ''
+        ).strip()
+
+        if not raw:
+            return '-'
+
+        parts = [p.strip() for p in raw.split('/') if p.strip()]
+
+        if not parts:
+            return raw
+
+        anchors = ('existencias', 'stock', 'inventario')
+
+        anchor_index = -1
+        for i in range(len(parts) - 1, -1, -1):
+            if parts[i].lower() in anchors:
+                anchor_index = i
+                break
+
+        if anchor_index == -1:
+            return parts[-1]
+
+        after = parts[anchor_index + 1:]
+
+        if after:
+            return '/'.join(after)
+
+        return parts[anchor_index]

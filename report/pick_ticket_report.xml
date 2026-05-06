@@ -127,7 +127,7 @@
                                             </span>
                                         </td>
                                         <td>
-                                            <t t-esc="line.source_location_id.display_name or line.source_location_id.name or '-'"/>
+                                            <t t-esc="line._format_short_location()"/>
                                         </td>
                                         <td class="text-end">
                                             <t t-esc="'%.2f' % (line.qty_selected or 0.0)"/>
