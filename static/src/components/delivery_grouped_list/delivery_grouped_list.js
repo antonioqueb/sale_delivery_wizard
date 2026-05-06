@@ -1028,6 +1028,45 @@ export class DeliveryGroupedList extends Component {
         }
     }
 
+    fmtLocation(value) {
+        if (value === null || value === undefined || value === false) {
+            return "-";
+        }
+
+        const raw = String(value)
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if (!raw) {
+            return "-";
+        }
+
+        const parts = raw
+            .split("/")
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0);
+
+        if (!parts.length) {
+            return raw;
+        }
+
+        const existenciasIndex = parts.findIndex(
+            (part) => part.toLowerCase() === "existencias"
+        );
+
+        if (existenciasIndex === -1) {
+            return raw;
+        }
+
+        const afterExistencias = parts.slice(existenciasIndex + 1);
+
+        if (afterExistencias.length) {
+            return afterExistencias.join("/");
+        }
+
+        return parts[existenciasIndex];
+    }
+
     fmt(num) {
         if (num === null || num === undefined || isNaN(num)) return "0.00";
         return parseFloat(num).toFixed(2);

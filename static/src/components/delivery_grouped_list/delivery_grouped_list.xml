@@ -110,7 +110,7 @@
                                                     <t t-esc="line.lotName || '-'"/>
                                                 </td>
                                                 <td class="text-muted small">
-                                                    <t t-esc="line.sourceLocation || '-'"/>
+                                                    <t t-esc="fmtLocation(line.sourceLocation)"/>
                                                 </td>
                                                 <td class="text-end text-muted">
                                                     <t t-esc="fmt(line.qtyAvailable)"/>
