@@ -16,7 +16,7 @@
             <t t-foreach="docs" t-as="doc">
                 <t t-call="web.external_layout">
 
-                    <div class="page" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10px; color: #111827;">
+                    <div class="page" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; color: #111827;">
 
                         <!-- ===================================================== -->
                         <!-- ENCABEZADO -->
@@ -27,17 +27,17 @@
                                     <h2 style="margin: 0; font-size: 21px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
                                         PICK TICKET
                                     </h2>
-                                    <div style="font-size: 9px; color: #6b7280; margin-top: 2px;">
+                                    <div style="font-size: 11px; color: #6b7280; margin-top: 2px;">
                                         Documento interno de preparación de material
                                     </div>
                                 </div>
 
                                 <div class="col-5 text-end">
-                                    <div style="font-size: 8px; color: #6b7280;">No. Documento</div>
+                                    <div style="font-size: 11px; color: #6b7280;">No. Documento</div>
                                     <div style="font-size: 16px; font-weight: 800; color: #111827;">
                                         <t t-esc="doc.name or '-'"/>
                                     </div>
-                                    <div style="font-size: 7px; color: #6b7280; margin-top: 2px;">
+                                    <div style="font-size: 8px; color: #6b7280; margin-top: 2px;">
                                         Impreso:
                                         <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                                     </div>
@@ -51,11 +51,11 @@
                         <div class="row mb-2">
                             <div class="col-4">
                                 <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 98px;">
-                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
                                         Información comercial
                                     </div>
 
-                                    <table class="table table-sm table-borderless" style="margin: 0; font-size: 8px; line-height: 1.15;">
+                                    <table class="table table-sm table-borderless" style="margin: 0; font-size: 11px; line-height: 1.18;">
                                         <tr>
                                             <td style="width: 35%; padding: 1px 2px; font-weight: 700; color: #374151;">Pedido:</td>
                                             <td style="padding: 1px 2px;">
@@ -88,11 +88,11 @@
 
                             <div class="col-4">
                                 <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 98px;">
-                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
                                         Información operativa
                                     </div>
 
-                                    <table class="table table-sm table-borderless" style="margin: 0; font-size: 8px; line-height: 1.15;">
+                                    <table class="table table-sm table-borderless" style="margin: 0; font-size: 11px; line-height: 1.18;">
                                         <tr>
                                             <td style="width: 40%; padding: 1px 2px; font-weight: 700; color: #374151;">Fecha:</td>
                                             <td style="padding: 1px 2px;">
@@ -125,11 +125,11 @@
 
                             <div class="col-4">
                                 <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 98px;">
-                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
                                         Dirección de entrega
                                     </div>
 
-                                    <div style="font-size: 8px; line-height: 1.18; color: #374151;">
+                                    <div style="font-size: 11px; line-height: 1.18; color: #374151;">
                                         <t t-if="doc.delivery_address">
                                             <t t-esc="doc.delivery_address"/>
                                         </t>
@@ -145,7 +145,7 @@
                         <!-- INSTRUCCIONES ESPECIALES -->
                         <!-- ===================================================== -->
                         <t t-if="doc.special_instructions">
-                            <div style="border-left: 4px solid #f59e0b; background: #fffbeb; padding: 7px 9px; margin: 7px 0 9px; border-radius: 4px; font-size: 8px; line-height: 1.2;">
+                            <div style="border-left: 4px solid #f59e0b; background: #fffbeb; padding: 7px 9px; margin: 7px 0 9px; border-radius: 4px; font-size: 11px; line-height: 1.18;">
                                 <strong>Instrucciones especiales:</strong>
                                 <span t-esc="doc.special_instructions"/>
                             </div>
@@ -153,26 +153,27 @@
 
                         <!-- ===================================================== -->
                         <!-- DETALLE DE MATERIAL -->
+                        <!-- Solo esta sección usa 7px -->
                         <!-- ===================================================== -->
-                        <div style="font-weight: 800; font-size: 10px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
+                        <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
                             Materiales a preparar
                         </div>
 
                         <table class="table table-sm table-striped" style="width: 100%; font-size: 7px; border-collapse: collapse; border: 1px solid #9ca3af;">
                             <thead>
                                 <tr style="background-color: #111827;">
-                                    <th class="text-center" style="width: 5%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                    <th style="width: 18%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                    <th style="width: 12%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                    <th style="width: 25%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
-                                    <th class="text-center" style="width: 33%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                    <th class="text-center" style="width: 5%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                    <th style="width: 18%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                    <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                    <th style="width: 25%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
+                                    <th class="text-center" style="width: 33%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
                                         ANCHO X ALTO = M² / UNID.
                                     </th>
-                                    <th class="text-center" style="width: 7%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
+                                    <th class="text-center" style="width: 7%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
                                 </tr>
                             </thead>
 
-                            <tbody style="font-size: 7px; line-height: 1.05; border-bottom: 1px solid #111827;">
+                            <tbody style="font-size: 7px; line-height: 0.95; border-bottom: 1px solid #111827;">
                                 <t t-set="idx" t-value="0"/>
                                 <t t-set="grand_total_m2" t-value="0.0"/>
                                 <t t-set="last_product_id" t-value="False"/>
@@ -181,7 +182,7 @@
 
                                     <t t-if="last_product_id != line.product_id.id">
                                         <tr style="background-color: #2f2f2f;">
-                                            <td colspan="6" style="padding: 4px 6px; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                            <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 7px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
                                                 <span t-esc="line.product_id.display_name or '-'"/>
                                             </td>
                                         </tr>
@@ -198,11 +199,11 @@
                                     <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
 
                                     <tr>
-                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                             <t t-esc="idx"/>
                                         </td>
 
-                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
                                             <t t-if="line.lot_id">
                                                 <t t-esc="line.lot_id.name"/>
                                             </t>
@@ -211,18 +212,18 @@
                                             </t>
                                         </td>
 
-                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                             <t t-if="lot_block">
                                                 <t t-esc="lot_block"/>
                                             </t>
                                             <t t-else="">-</t>
                                         </td>
 
-                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                             <t t-esc="line._format_short_location()"/>
                                         </td>
 
-                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                             <t t-if="lot_width and lot_height">
                                                 <span t-esc="'%.3f x %.3f = %.2f %s' % (lot_width, lot_height, qty_to_show, uom_name)"/>
                                             </t>
@@ -231,15 +232,15 @@
                                             </t>
                                         </td>
 
-                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
-                                            <span style="font-size: 11px;">☐</span>
+                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <span style="font-size: 9px; line-height: 0.95;">☐</span>
                                         </td>
                                     </tr>
                                 </t>
 
                                 <t t-if="not doc.line_ids">
                                     <tr>
-                                        <td colspan="6" class="text-center" style="padding: 8px; color: #6b7280; font-style: italic;">
+                                        <td colspan="6" class="text-center" style="padding: 4px; line-height: 0.95; color: #6b7280; font-style: italic;">
                                             Sin líneas de material para preparar.
                                         </td>
                                     </tr>
@@ -248,10 +249,10 @@
 
                             <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                 <tr>
-                                    <td colspan="4" class="text-end" style="padding: 5px; font-size: 8px; font-weight: 800;">
+                                    <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
                                         TOTAL M² PREPARADO:
                                     </td>
-                                    <td class="text-center" style="padding: 5px; font-size: 8px; font-weight: 800;">
+                                    <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
                                         <t t-if="doc.total_qty">
                                             <span t-esc="'%.2f m²' % (doc.total_qty or 0.0)"/>
                                         </t>
@@ -270,11 +271,11 @@
                         <div class="row mt-2">
                             <div class="col-12">
                                 <div style="border: 1px solid #111827; border-radius: 4px; padding: 6px 8px;">
-                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; border-bottom: 1px solid #d1d5db; padding-bottom: 3px; margin-bottom: 4px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid #d1d5db; padding-bottom: 3px; margin-bottom: 4px;">
                                         Especificaciones de la entrega
                                     </div>
 
-                                    <table class="table table-sm table-borderless" style="width: 100%; margin: 0; font-size: 7px; line-height: 1.12;">
+                                    <table class="table table-sm table-borderless" style="width: 100%; margin: 0; font-size: 11px; line-height: 1.18;">
                                         <tr>
                                             <td style="width: 18%; padding: 1px 2px; font-weight: 800;">Dirección:</td>
                                             <td style="padding: 1px 2px;">
@@ -295,7 +296,7 @@
                                         </tr>
                                         <tr>
                                             <td style="padding: 1px 2px; font-weight: 800;">Observaciones:</td>
-                                            <td style="padding: 1px 2px; border-bottom: 1px solid #d1d5db; height: 16px;"></td>
+                                            <td style="padding: 1px 2px; border-bottom: 1px solid #d1d5db; height: 18px;"></td>
                                         </tr>
                                     </table>
                                 </div>
@@ -308,11 +309,11 @@
                         <div class="row mt-2">
                             <div class="col-12">
                                 <div style="border: 1px solid #d1d5db; border-radius: 4px; padding: 6px 8px;">
-                                    <div style="font-weight: 800; font-size: 8px; text-transform: uppercase; color: #374151; margin-bottom: 3px;">
+                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; margin-bottom: 3px;">
                                         Términos y condiciones operativas
                                     </div>
 
-                                    <ol style="margin: 0; padding-left: 13px; font-size: 6.5px; line-height: 1.15; color: #374151;">
+                                    <ol style="margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.18; color: #374151;">
                                         <li>Este documento es de uso interno para preparación de material; no sustituye factura, remisión ni comprobante fiscal.</li>
                                         <li>El almacén debe preparar únicamente los lotes indicados en este Pick Ticket, respetando lote, bloque, ubicación, dimensiones y cantidad solicitada.</li>
                                         <li>Cualquier diferencia física, daño, faltante, ubicación incorrecta o cambio de lote debe reportarse antes de autorizar la salida.</li>
@@ -331,17 +332,17 @@
                         <!-- ===================================================== -->
                         <div class="row mt-3">
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 8px; font-weight: 800;">
+                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 11px; font-weight: 800;">
                                     Preparó
                                 </div>
                             </div>
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 8px; font-weight: 800;">
+                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 11px; font-weight: 800;">
                                     Revisó almacén
                                 </div>
                             </div>
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 8px; font-weight: 800;">
+                                <div style="border-top: 1px solid #111827; margin-top: 32px; padding-top: 5px; font-size: 11px; font-weight: 800;">
                                     Autorizó salida
                                 </div>
                             </div>
@@ -350,7 +351,7 @@
                         <!-- ===================================================== -->
                         <!-- PIE -->
                         <!-- ===================================================== -->
-                        <div style="margin-top: 9px; font-size: 6px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 5px;">
+                        <div style="margin-top: 9px; font-size: 8px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 5px;">
                             Documento interno para preparación de material. Página <span class="page"/>.
                         </div>
 
