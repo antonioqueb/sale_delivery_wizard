@@ -6,6 +6,7 @@
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">sale_delivery_wizard.report_remission</field>
         <field name="report_file">sale_delivery_wizard.report_remission</field>
+        <field name="print_report_name">'Remisión - %s' % (object.remission_number or object.name or '')</field>
         <field name="binding_model_id" ref="model_sale_delivery_document"/>
         <field name="binding_type">report</field>
     </record>
@@ -14,169 +15,355 @@
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
                 <t t-call="web.external_layout">
-                    <div class="page" style="font-size: 12px; color: #111827;">
 
-                        <div style="border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px;">
-                            <div class="row">
+                    <div class="page" style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10px; color: #111827;">
+
+                        <!-- ===================================================== -->
+                        <!-- ENCABEZADO -->
+                        <!-- ===================================================== -->
+                        <div style="border-bottom: 2px solid #111827; padding-bottom: 8px; margin-bottom: 10px;">
+                            <div class="row" style="align-items: center;">
                                 <div class="col-7">
-                                    <h2 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
+                                    <h2 style="margin: 0; font-size: 21px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
                                         REMISIÓN
                                     </h2>
-                                    <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
+                                    <div style="font-size: 9px; color: #6b7280; margin-top: 2px;">
                                         Documento de entrega de material sin precios
                                     </div>
                                 </div>
+
                                 <div class="col-5 text-end">
-                                    <div style="font-size: 11px; color: #6b7280;">No. Remisión</div>
-                                    <div style="font-size: 18px; font-weight: 800; color: #111827;">
-                                        <t t-esc="doc.remission_number or doc.name"/>
+                                    <div style="font-size: 8px; color: #6b7280;">No. Remisión</div>
+                                    <div style="font-size: 16px; font-weight: 800; color: #111827;">
+                                        <t t-esc="doc.remission_number or doc.name or '-'"/>
+                                    </div>
+                                    <div style="font-size: 7px; color: #6b7280; margin-top: 2px;">
+                                        Impreso:
+                                        <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 132px;">
-                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-bottom: 7px;">
-                                        Información comercial
+                        <!-- ===================================================== -->
+                        <!-- INFORMACIÓN GENERAL -->
+                        <!-- ===================================================== -->
+                        <t t-set="commercial_partner" t-value="doc.sale_order_id.partner_id if doc.sale_order_id else doc.partner_id"/>
+
+                        <div class="row mb-2">
+                            <div class="col-4">
+                                <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 112px;">
+                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                        Cliente / Facturación
                                     </div>
-                                    <table class="table table-sm table-borderless" style="margin: 0;">
-                                        <tr>
-                                            <td style="width: 38%; font-weight: 700; color: #374151;">Pedido:</td>
-                                            <td><t t-esc="doc.sale_order_id.name or '-'"/></td>
-                                        </tr>
-                                        <tr>
-                                            <td style="font-weight: 700; color: #374151;">Cliente:</td>
-                                            <td><t t-esc="doc.partner_id.name or '-'"/></td>
-                                        </tr>
-                                        <tr>
-                                            <td style="font-weight: 700; color: #374151;">Vendedor:</td>
-                                            <td><t t-esc="doc.sale_order_id.user_id.name or '-'"/></td>
-                                        </tr>
-                                        <tr>
-                                            <td style="font-weight: 700; color: #374151;">Almacén:</td>
-                                            <td><t t-esc="doc.sale_order_id.warehouse_id.name or '-'"/></td>
-                                        </tr>
-                                    </table>
+
+                                    <div style="line-height: 1.15;">
+                                        <div style="font-weight: 800; font-size: 10px;">
+                                            <t t-esc="commercial_partner.name or '-'"/>
+                                        </div>
+
+                                        <div t-if="commercial_partner and commercial_partner.vat" style="font-size: 8px; margin-top: 2px;">
+                                            <strong>RFC:</strong>
+                                            <span t-esc="commercial_partner.vat"/>
+                                        </div>
+
+                                        <div style="font-size: 7px; color: #374151; line-height: 1.12; margin-top: 4px; padding-top: 4px; border-top: 1px dotted #d1d5db; white-space: pre-line;">
+                                            <t t-esc="commercial_partner.contact_address or '-'"/>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="col-6">
-                                <div style="border: 1px solid #d1d5db; border-radius: 6px; padding: 10px; min-height: 132px;">
-                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-bottom: 7px;">
-                                        Información de entrega
+                            <div class="col-4">
+                                <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 112px;">
+                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                        Dirección de entrega
                                     </div>
-                                    <table class="table table-sm table-borderless" style="margin: 0;">
+
+                                    <div style="font-size: 8px; line-height: 1.15; color: #374151; white-space: pre-line;">
+                                        <t t-if="doc.delivery_address">
+                                            <t t-esc="doc.delivery_address"/>
+                                        </t>
+                                        <t t-else="">
+                                            <span style="font-style: italic; color: #6b7280;">Misma dirección del cliente o sin dirección capturada.</span>
+                                        </t>
+                                    </div>
+
+                                    <div t-if="doc.special_instructions" style="margin-top: 5px; padding-top: 4px; border-top: 1px dotted #d1d5db; font-size: 7px; line-height: 1.12;">
+                                        <strong>Instrucciones:</strong>
+                                        <span t-esc="doc.special_instructions"/>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-4">
+                                <div style="border: 1px solid #d1d5db; border-radius: 5px; padding: 7px; min-height: 112px;">
+                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin-bottom: 5px;">
+                                        Referencia
+                                    </div>
+
+                                    <table class="table table-sm table-borderless" style="margin: 0; font-size: 7.5px; line-height: 1.12;">
                                         <tr>
-                                            <td style="width: 38%; font-weight: 700; color: #374151;">Fecha salida:</td>
-                                            <td>
+                                            <td style="width: 40%; padding: 1px 2px; font-weight: 800;">Pedido:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <t t-esc="doc.sale_order_id.name or '-'"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Fecha salida:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
                                                 <t t-esc="doc.delivery_date or doc.create_date" t-options="{'widget': 'datetime'}"/>
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td style="font-weight: 700; color: #374151;">Picking:</td>
-                                            <td><t t-esc="doc.picking_id.name or doc.out_picking_id.name or '-'"/></td>
-                                        </tr>
-                                        <tr>
-                                            <td style="font-weight: 700; color: #374151;">Estado:</td>
-                                            <td>
-                                                <span style="font-weight: 700; text-transform: uppercase;">
-                                                    <t t-esc="dict(doc._fields['state'].selection).get(doc.state) or doc.state"/>
-                                                </span>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Picking:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <t t-esc="doc.picking_id.name or doc.out_picking_id.name or '-'"/>
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td style="font-weight: 700; color: #374151;">Dirección:</td>
-                                            <td><t t-esc="doc.delivery_address or '-'"/></td>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Vendedor:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <t t-esc="doc.sale_order_id.user_id.name or '-'"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Almacén:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <t t-esc="doc.sale_order_id.warehouse_id.name or '-'"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Estado:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <span style="font-weight: 800; text-transform: uppercase;">
+                                                    <t t-esc="dict(doc._fields['state'].selection).get(doc.state) or doc.state or '-'"/>
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr t-if="doc.sale_order_id and 'x_project_id' in doc.sale_order_id._fields and doc.sale_order_id.x_project_id">
+                                            <td style="padding: 1px 2px; font-weight: 800;">Proyecto:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <span t-field="doc.sale_order_id.x_project_id.name"/>
+                                            </td>
+                                        </tr>
+                                        <tr t-if="doc.sale_order_id and 'x_architect_id' in doc.sale_order_id._fields and doc.sale_order_id.x_architect_id">
+                                            <td style="padding: 1px 2px; font-weight: 800;">Arquitecto:</td>
+                                            <td style="padding: 1px 2px;" class="text-end">
+                                                <span t-field="doc.sale_order_id.x_architect_id.name"/>
+                                            </td>
                                         </tr>
                                     </table>
                                 </div>
                             </div>
                         </div>
 
+                        <!-- ===================================================== -->
+                        <!-- INSTRUCCIONES DE ENTREGA -->
+                        <!-- ===================================================== -->
                         <t t-if="doc.special_instructions">
-                            <div style="border-left: 4px solid #2563eb; background: #eff6ff; padding: 9px 12px; margin-bottom: 14px; border-radius: 4px;">
+                            <div style="border-left: 4px solid #2563eb; background: #eff6ff; padding: 7px 9px; margin: 7px 0 9px; border-radius: 4px; font-size: 8px; line-height: 1.2;">
                                 <strong>Instrucciones de entrega:</strong>
                                 <span t-esc="doc.special_instructions"/>
                             </div>
                         </t>
 
-                        <div style="font-weight: 800; font-size: 12px; text-transform: uppercase; margin: 12px 0 6px; color: #111827;">
-                            Detalle de material entregado
+                        <!-- ===================================================== -->
+                        <!-- DETALLE DE MATERIAL ENTREGADO -->
+                        <!-- ===================================================== -->
+                        <div style="font-weight: 800; font-size: 10px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
+                            Detalle de materiales entregados
                         </div>
 
-                        <table class="table table-sm table-bordered" style="border-color: #9ca3af;">
+                        <table class="table table-sm table-striped" style="width: 100%; font-size: 7px; border-collapse: collapse; border: 1px solid #9ca3af;">
                             <thead>
                                 <tr style="background-color: #111827;">
-                                    <th style="width: 5%; text-align: center; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                    <th style="width: 42%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Producto / Material</th>
-                                    <th style="width: 23%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Lote</th>
-                                    <th style="width: 13%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;" class="text-end">Cantidad</th>
-                                    <th style="width: 9%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UdM</th>
-                                    <th style="width: 8%; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">Origen</th>
+                                    <th class="text-center" style="width: 4%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                    <th style="width: 17%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                    <th style="width: 10%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                    <th style="width: 8%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
+                                    <th class="text-center" style="width: 8%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">GROSOR</th>
+                                    <th style="width: 20%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN / ORIGEN</th>
+                                    <th class="text-center" style="width: 25%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                        ANCHO X ALTO = M² / UNID.
+                                    </th>
+                                    <th class="text-center" style="width: 8%; padding: 3px 4px; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UDM</th>
                                 </tr>
                             </thead>
-                            <tbody>
+
+                            <tbody style="font-size: 7px; line-height: 1.05; border-bottom: 1px solid #111827;">
                                 <t t-set="idx" t-value="0"/>
-                                <t t-foreach="doc.line_ids" t-as="line">
+                                <t t-set="grand_total_qty" t-value="0.0"/>
+                                <t t-set="last_product_id" t-value="False"/>
+
+                                <t t-foreach="doc.line_ids.sorted(key=lambda l: ((l.product_id.display_name or ''), (l.lot_id.name or '')))" t-as="line">
+
+                                    <t t-if="last_product_id != line.product_id.id">
+                                        <tr style="background-color: #2f2f2f;">
+                                            <td colspan="8" style="padding: 4px 6px; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                <span t-esc="line.product_id.display_name or '-'"/>
+                                            </td>
+                                        </tr>
+                                        <t t-set="last_product_id" t-value="line.product_id.id"/>
+                                    </t>
+
                                     <t t-set="idx" t-value="idx + 1"/>
+                                    <t t-set="qty_to_show" t-value="(('qty_done' in line._fields and line.qty_done) or ('qty_selected' in line._fields and line.qty_selected) or 0.0)"/>
+                                    <t t-set="grand_total_qty" t-value="grand_total_qty + qty_to_show"/>
+
+                                    <t t-set="uom_name" t-value="line.product_id.uom_id.name or ''"/>
+
+                                    <t t-set="lot_block" t-value="line.lot_id and (('x_bloque' in line.lot_id._fields and line.lot_id.x_bloque) or ('lot_general' in line.lot_id._fields and line.lot_id.lot_general) or '') or ''"/>
+                                    <t t-set="lot_atado" t-value="line.lot_id and ('x_atado' in line.lot_id._fields and line.lot_id.x_atado) or ''"/>
+                                    <t t-set="lot_grosor" t-value="line.lot_id and ('x_grosor' in line.lot_id._fields and line.lot_id.x_grosor) or ''"/>
+                                    <t t-set="lot_width" t-value="line.lot_id and (('x_ancho' in line.lot_id._fields and line.lot_id.x_ancho) or ('marble_width' in line.lot_id._fields and line.lot_id.marble_width) or 0.0) or 0.0"/>
+                                    <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
+                                    <t t-set="src_loc" t-value="('source_location_id' in line._fields and line.source_location_id and line.source_location_id.display_name) or ''"/>
+
                                     <tr>
-                                        <td class="text-center">
+                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
                                             <t t-esc="idx"/>
                                         </td>
-                                        <td>
-                                            <strong><t t-esc="line.product_id.display_name or '-'"/></strong>
+
+                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                            <t t-if="line.lot_id">
+                                                <t t-esc="line.lot_id.name"/>
+                                            </t>
+                                            <t t-else="">
+                                                <span style="color: #6b7280; font-style: italic;">Sin lote</span>
+                                            </t>
                                         </td>
-                                        <td>
-                                            <span style="font-family: monospace; font-weight: 700;">
-                                                <t t-esc="line.lot_id.name or '-'"/>
-                                            </span>
+
+                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-if="lot_block">
+                                                <t t-esc="lot_block"/>
+                                            </t>
+                                            <t t-else="">-</t>
                                         </td>
-                                        <td class="text-end">
-                                            <t t-esc="'%.2f' % ((line.qty_done or line.qty_selected) or 0.0)"/>
+
+                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-if="lot_atado">
+                                                <t t-esc="lot_atado"/>
+                                            </t>
+                                            <t t-else="">-</t>
                                         </td>
-                                        <td>
-                                            <t t-esc="line.product_id.uom_id.name or ''"/>
+
+                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-if="lot_grosor">
+                                                <t t-esc="lot_grosor"/>
+                                            </t>
+                                            <t t-else="">-</t>
                                         </td>
-                                        <td>
-                                            <t t-esc="line.source_location_id.name or '-'"/>
+
+                                        <td class="align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-if="src_loc">
+                                                <t t-esc="'/'.join(src_loc.split('/')[-2:]).strip()"/>
+                                            </t>
+                                            <t t-else="">-</t>
+                                        </td>
+
+                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-if="lot_width and lot_height">
+                                                <span t-esc="'%.3f x %.3f = %.2f' % (lot_width, lot_height, qty_to_show)"/>
+                                            </t>
+                                            <t t-else="">
+                                                <span t-esc="'%.2f' % (qty_to_show or 0.0)"/>
+                                            </t>
+                                        </td>
+
+                                        <td class="text-center align-middle" style="padding: 2px 3px; border: 1px solid #d1d5db;">
+                                            <t t-esc="uom_name"/>
+                                        </td>
+                                    </tr>
+                                </t>
+
+                                <t t-if="not doc.line_ids">
+                                    <tr>
+                                        <td colspan="8" class="text-center" style="padding: 8px; color: #6b7280; font-style: italic;">
+                                            Sin líneas de material entregado.
                                         </td>
                                     </tr>
                                 </t>
                             </tbody>
-                            <tfoot>
-                                <tr style="background: #f3f4f6; font-weight: 800;">
-                                    <td colspan="3" class="text-end">Total entregado:</td>
-                                    <td class="text-end">
-                                        <t t-esc="'%.2f' % sum(doc.line_ids.mapped('qty_done'))"/>
+
+                            <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
+                                <tr>
+                                    <td colspan="6" class="text-end" style="padding: 5px; font-size: 8px; font-weight: 800;">
+                                        TOTAL M² / UNIDADES ENTREGADAS:
                                     </td>
-                                    <td colspan="2"/>
+                                    <td class="text-center" style="padding: 5px; font-size: 8px; font-weight: 800;">
+                                        <span t-esc="'%.2f' % (grand_total_qty or 0.0)"/>
+                                    </td>
+                                    <td></td>
                                 </tr>
                             </tfoot>
                         </table>
 
-                        <div style="border: 1px solid #d1d5db; background: #f9fafb; border-radius: 6px; padding: 9px 12px; margin-top: 14px;">
+                        <!-- ===================================================== -->
+                        <!-- ESPECIFICACIONES DE ENTREGA -->
+                        <!-- ===================================================== -->
+                        <div class="row mt-2">
+                            <div class="col-12">
+                                <div style="border: 1px solid #111827; border-radius: 4px; padding: 6px 8px;">
+                                    <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; border-bottom: 1px solid #d1d5db; padding-bottom: 3px; margin-bottom: 4px;">
+                                        Especificaciones de la entrega
+                                    </div>
+
+                                    <table class="table table-sm table-borderless" style="width: 100%; margin: 0; font-size: 7px; line-height: 1.12;">
+                                        <tr>
+                                            <td style="width: 18%; padding: 1px 2px; font-weight: 800;">Dirección:</td>
+                                            <td style="padding: 1px 2px;">
+                                                <t t-esc="doc.delivery_address or '-'"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Instrucciones:</td>
+                                            <td style="padding: 1px 2px;">
+                                                <t t-esc="doc.special_instructions or 'Sin instrucciones especiales.'"/>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Validación:</td>
+                                            <td style="padding: 1px 2px;">
+                                                El cliente o contacto autorizado debe revisar lote, bloque, dimensiones, cantidad, estado físico y coincidencia contra la remisión antes de firmar de conformidad.
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 1px 2px; font-weight: 800;">Observaciones:</td>
+                                            <td style="padding: 1px 2px; border-bottom: 1px solid #d1d5db; height: 16px;"></td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ===================================================== -->
+                        <!-- OBSERVACIÓN -->
+                        <!-- ===================================================== -->
+                        <div style="border: 1px solid #d1d5db; background: #f9fafb; border-radius: 4px; padding: 6px 8px; margin-top: 8px; font-size: 7px; line-height: 1.15;">
                             <strong>Observación:</strong>
                             Este documento ampara únicamente la salida y entrega física del material relacionado.
                             No incluye precios, impuestos ni condiciones fiscales. Para información fiscal consulte la factura correspondiente.
                         </div>
 
-                        <div class="row mt-5">
+                        <!-- ===================================================== -->
+                        <!-- FIRMAS -->
+                        <!-- ===================================================== -->
+                        <div class="row mt-3" style="page-break-inside: avoid;">
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
+                                <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 8px; font-weight: 800;">
                                     Entregó
                                 </div>
-                                <div style="font-size: 10px; color: #6b7280;">
+                                <div style="font-size: 7px; color: #6b7280;">
                                     Nombre y firma
                                 </div>
                             </div>
 
                             <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
+                                <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 8px; font-weight: 800;">
                                     Transportó
                                 </div>
-                                <div style="font-size: 10px; color: #6b7280;">
+                                <div style="font-size: 7px; color: #6b7280;">
                                     Nombre y firma
                                 </div>
                             </div>
@@ -184,20 +371,48 @@
                             <div class="col-4 text-center">
                                 <t t-if="doc.signature_image">
                                     <img t-att-src="image_data_uri(doc.signature_image)"
-                                         style="max-height: 48px; max-width: 180px; margin-bottom: 4px;"/>
+                                         style="max-height: 46px; max-width: 170px; margin-bottom: 4px;"/>
                                     <br/>
                                 </t>
-                                <div style="border-top: 1px solid #111827; margin-top: 50px; padding-top: 6px; font-weight: 700;">
+                                <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 8px; font-weight: 800;">
                                     Recibió
                                 </div>
-                                <div style="font-size: 10px; color: #6b7280;">
+                                <div style="font-size: 7px; color: #6b7280;">
                                     <t t-esc="doc.signed_by or 'Nombre y firma'"/>
                                 </div>
                             </div>
                         </div>
 
-                        <div style="margin-top: 18px; font-size: 10px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 8px;">
-                            Remisión generada desde Odoo. Documento sin precios. Para información fiscal consulte su factura.
+                        <!-- ===================================================== -->
+                        <!-- TÉRMINOS Y CONDICIONES -->
+                        <!-- ===================================================== -->
+                        <div class="row mt-2" style="page-break-inside: avoid;">
+                            <div class="col-12">
+                                <div style="border: 1px solid #d1d5db; border-radius: 4px; padding: 6px 8px; background-color: #fafafa;">
+                                    <div style="font-weight: 800; font-size: 8px; text-transform: uppercase; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 3px; margin-bottom: 4px;">
+                                        Términos y condiciones – Remisión de entrega
+                                    </div>
+
+                                    <ul class="list-unstyled mb-0" style="font-size: 6.5px; text-align: justify; color: #374151; padding-left: 0; line-height: 1.15;">
+                                        <li style="margin-bottom: 2px;">• Para la programación y realización de la entrega, el pedido deberá estar pagado al 100%, salvo autorización expresa por escrito.</li>
+                                        <li style="margin-bottom: 2px;">• La entrega se realiza a pie de camión. No incluye maniobras especiales de descarga, acarreos, volados, ingreso a obra, elevación ni movimientos internos.</li>
+                                        <li style="margin-bottom: 2px;">• Es indispensable que se encuentre presente el contacto autorizado para recibir el material. En caso contrario, el material podrá regresar a bodega y generarse cargo adicional por reenvío.</li>
+                                        <li style="margin-bottom: 2px;">• El tiempo máximo de descarga es de 2 horas a partir de la llegada de la unidad. El tiempo excedente podrá generar cargos adicionales.</li>
+                                        <li style="margin-bottom: 2px;">• El cliente es responsable de revisar el material al momento de la entrega. Cualquier observación deberá anotarse en esta remisión antes de firmar.</li>
+                                        <li style="margin-bottom: 2px;">• Una vez firmada la remisión, el material se considera recibido de conformidad en cantidad, lote, estado físico visible y características generales.</li>
+                                        <li style="margin-bottom: 2px;">• El mármol, granito, cuarzo, piedra tecnológica y demás recubrimientos pueden presentar variaciones de tono, veta, textura, calibre, dureza y apariencia propias del material.</li>
+                                        <li style="margin-bottom: 2px;">• La empresa no se hace responsable por daños ocasionados después de la entrega, durante maniobras externas, descarga no contratada, instalación, traslado posterior o almacenamiento en obra.</li>
+                                        <li style="margin-bottom: 0;">• Este documento no sustituye factura ni comprobante fiscal. Los precios, impuestos, pagos, garantías, cambios o devoluciones se rigen por el pedido de venta y las políticas comerciales vigentes.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ===================================================== -->
+                        <!-- PIE -->
+                        <!-- ===================================================== -->
+                        <div style="margin-top: 8px; font-size: 6px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 5px;">
+                            Remisión generada desde Odoo. Documento sin precios. Página <span class="page"/>.
                         </div>
 
                     </div>
