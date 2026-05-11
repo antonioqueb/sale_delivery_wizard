@@ -21,23 +21,23 @@
                         <!-- ===================================================== -->
                         <!-- ENCABEZADO -->
                         <!-- ===================================================== -->
-                        <div style="border-bottom: 2px solid #111827; padding-bottom: 8px; margin-bottom: 10px;">
+                        <div style="border-bottom: 2px solid #111827; padding-bottom: 9px; margin-bottom: 10px;">
                             <div class="row" style="align-items: center;">
                                 <div class="col-7">
-                                    <h2 style="margin: 0; font-size: 21px; font-weight: 800; letter-spacing: .04em; color: #4b362d;">
+                                    <h2 style="margin: 0; font-size: 30px; font-weight: 900; letter-spacing: .05em; color: #4b362d; line-height: 1;">
                                         PICK TICKET
                                     </h2>
-                                    <div style="font-size: 11px; color: #6b7280; margin-top: 2px;">
+                                    <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
                                         Documento interno de preparación de material
                                     </div>
                                 </div>
 
                                 <div class="col-5 text-end">
-                                    <div style="font-size: 11px; color: #6b7280;">No. Documento</div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #111827;">
+                                    <div style="font-size: 12px; color: #6b7280; font-weight: 700;">No. Documento</div>
+                                    <div style="font-size: 24px; font-weight: 900; color: #111827; line-height: 1.05;">
                                         <t t-esc="doc.name or '-'"/>
                                     </div>
-                                    <div style="font-size: 8px; color: #6b7280; margin-top: 2px;">
+                                    <div style="font-size: 8px; color: #6b7280; margin-top: 3px;">
                                         Impreso:
                                         <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                                     </div>
@@ -153,7 +153,7 @@
 
                         <!-- ===================================================== -->
                         <!-- DETALLE DE MATERIAL -->
-                        <!-- Solo esta sección usa 8px -->
+                        <!-- Solo esta sección usa 10px -->
                         <!-- ===================================================== -->
                         <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
                             Materiales a preparar
@@ -170,21 +170,21 @@
                                 Productos medidos en m²
                             </div>
 
-                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af; margin-bottom: 6px;">
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 10px; border-collapse: collapse; border: 1px solid #9ca3af; margin-bottom: 6px;">
                                 <thead>
                                     <tr style="background-color: #111827;">
-                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                        <th style="width: 18%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                        <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                        <th style="width: 26%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
-                                        <th class="text-center" style="width: 32%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 15%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 30%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 22%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
+                                        <th class="text-center" style="width: 23%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
                                             ANCHO X ALTO = M²
                                         </th>
-                                        <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
+                                        <th class="text-center" style="width: 6%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
                                     </tr>
                                 </thead>
 
-                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                <tbody style="font-size: 10px; line-height: 1; border-bottom: 1px solid #111827;">
                                     <t t-set="idx_m2" t-value="0"/>
                                     <t t-set="grand_total_m2" t-value="0.0"/>
                                     <t t-set="last_product_id_m2" t-value="False"/>
@@ -193,7 +193,7 @@
 
                                         <t t-if="last_product_id_m2 != line.product_id.id">
                                             <tr style="background-color: #2f2f2f;">
-                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 1; font-weight: 800; font-size: 10px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
                                                     <span t-esc="line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
@@ -209,11 +209,11 @@
                                         <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
 
                                         <tr>
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <t t-esc="idx_m2"/>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
                                                 <t t-if="line.lot_id">
                                                     <t t-esc="line.lot_id.name"/>
                                                 </t>
@@ -222,18 +222,18 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 800;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
                                                 <t t-else="">-</t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <t t-esc="line._format_short_location()"/>
                                             </td>
 
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <t t-if="lot_width and lot_height">
                                                     <span t-esc="'%.3f x %.3f = %.2f' % (lot_width, lot_height, qty_to_show)"/>
                                                 </t>
@@ -242,8 +242,8 @@
                                                 </t>
                                             </td>
 
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                                <span style="font-size: 9px; line-height: 0.95;">☐</span>
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
+                                                <span style="font-size: 10px; line-height: 1;">☐</span>
                                             </td>
                                         </tr>
                                     </t>
@@ -251,10 +251,10 @@
 
                                 <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 1; font-size: 10px; font-weight: 800;">
                                             TOTAL M² PREPARADO:
                                         </td>
-                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 1; font-size: 10px; font-weight: 800;">
                                             <span t-esc="'%.2f' % (grand_total_m2 or 0.0)"/>
                                         </td>
                                         <td></td>
@@ -271,21 +271,21 @@
                                 Productos medidos por unidad
                             </div>
 
-                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af;">
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 10px; border-collapse: collapse; border: 1px solid #9ca3af;">
                                 <thead>
                                     <tr style="background-color: #111827;">
-                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                        <th style="width: 20%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                        <th style="width: 13%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                        <th style="width: 31%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
-                                        <th class="text-center" style="width: 24%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 16%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 32%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 25%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
+                                        <th class="text-center" style="width: 17%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
                                             CANTIDAD
                                         </th>
-                                        <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
+                                        <th class="text-center" style="width: 6%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
                                     </tr>
                                 </thead>
 
-                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                <tbody style="font-size: 10px; line-height: 1; border-bottom: 1px solid #111827;">
                                     <t t-set="idx_unit" t-value="0"/>
                                     <t t-set="grand_total_units" t-value="0.0"/>
                                     <t t-set="last_product_id_unit" t-value="False"/>
@@ -294,7 +294,7 @@
 
                                         <t t-if="last_product_id_unit != line.product_id.id">
                                             <tr style="background-color: #2f2f2f;">
-                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 1; font-weight: 800; font-size: 10px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
                                                     <span t-esc="line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
@@ -309,11 +309,11 @@
                                         <t t-set="uom_name" t-value="line.product_id.uom_id.name or ''"/>
 
                                         <tr>
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <t t-esc="idx_unit"/>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
                                                 <t t-if="line.lot_id">
                                                     <t t-esc="line.lot_id.name"/>
                                                 </t>
@@ -322,23 +322,23 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 800;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
                                                 <t t-else="">-</t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <t t-esc="line._format_short_location()"/>
                                             </td>
 
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
                                                 <span t-esc="'%.2f %s' % (qty_to_show or 0.0, uom_name)"/>
                                             </td>
 
-                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                                <span style="font-size: 9px; line-height: 0.95;">☐</span>
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db;">
+                                                <span style="font-size: 10px; line-height: 1;">☐</span>
                                             </td>
                                         </tr>
                                     </t>
@@ -346,10 +346,10 @@
 
                                 <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 1; font-size: 10px; font-weight: 800;">
                                             TOTAL UNIDADES PREPARADAS:
                                         </td>
-                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 1; font-size: 10px; font-weight: 800;">
                                             <span t-esc="'%.2f' % (grand_total_units or 0.0)"/>
                                         </td>
                                         <td></td>
