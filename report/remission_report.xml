@@ -170,7 +170,7 @@
 
                         <!-- ===================================================== -->
                         <!-- DETALLE DE MATERIAL ENTREGADO -->
-                        <!-- Solo esta sección usa 7px -->
+                        <!-- Solo esta sección usa 8px -->
                         <!-- ===================================================== -->
                         <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
                             Detalle de materiales entregados
@@ -187,22 +187,21 @@
                                 Productos medidos en m²
                             </div>
 
-                            <table class="table table-sm table-striped" style="width: 100%; font-size: 7px; border-collapse: collapse; border: 1px solid #9ca3af; margin-bottom: 6px;">
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af; margin-bottom: 6px;">
                                 <thead>
                                     <tr style="background-color: #111827;">
-                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                        <th style="width: 18%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                        <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                        <th style="width: 9%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
-                                        <th style="width: 24%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN / ORIGEN</th>
-                                        <th class="text-center" style="width: 25%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                        <th class="text-center" style="width: 5%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 21%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 34%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 10%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
+                                        <th class="text-center" style="width: 22%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
                                             ANCHO X ALTO = M²
                                         </th>
                                         <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UDM</th>
                                     </tr>
                                 </thead>
 
-                                <tbody style="font-size: 7px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
                                     <t t-set="idx_m2" t-value="0"/>
                                     <t t-set="grand_total_m2" t-value="0.0"/>
                                     <t t-set="last_product_id_m2" t-value="False"/>
@@ -211,7 +210,7 @@
 
                                         <t t-if="last_product_id_m2 != line.product_id.id">
                                             <tr style="background-color: #2f2f2f;">
-                                                <td colspan="7" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 7px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
                                                     <span t-esc="line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
@@ -227,7 +226,6 @@
                                         <t t-set="lot_atado" t-value="line.lot_id and ('x_atado' in line.lot_id._fields and line.lot_id.x_atado) or ''"/>
                                         <t t-set="lot_width" t-value="line.lot_id and (('x_ancho' in line.lot_id._fields and line.lot_id.x_ancho) or ('marble_width' in line.lot_id._fields and line.lot_id.marble_width) or 0.0) or 0.0"/>
                                         <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
-                                        <t t-set="src_loc" t-value="('source_location_id' in line._fields and line.source_location_id and line.source_location_id.display_name) or ''"/>
 
                                         <tr>
                                             <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
@@ -243,7 +241,7 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-weight: 800;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
@@ -253,13 +251,6 @@
                                             <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                                 <t t-if="lot_atado">
                                                     <t t-esc="lot_atado"/>
-                                                </t>
-                                                <t t-else="">-</t>
-                                            </td>
-
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                                <t t-if="src_loc">
-                                                    <t t-esc="'/'.join(src_loc.split('/')[-2:]).strip()"/>
                                                 </t>
                                                 <t t-else="">-</t>
                                             </td>
@@ -282,10 +273,10 @@
 
                                 <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td colspan="5" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
                                             TOTAL M² ENTREGADOS:
                                         </td>
-                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
                                             <span t-esc="'%.2f' % (grand_total_m2 or 0.0)"/>
                                         </td>
                                         <td></td>
@@ -302,22 +293,21 @@
                                 Productos medidos por unidad
                             </div>
 
-                            <table class="table table-sm table-striped" style="width: 100%; font-size: 7px; border-collapse: collapse; border: 1px solid #9ca3af;">
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af;">
                                 <thead>
                                     <tr style="background-color: #111827;">
-                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                        <th style="width: 20%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                        <th style="width: 13%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                        <th style="width: 10%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
-                                        <th style="width: 26%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN / ORIGEN</th>
-                                        <th class="text-center" style="width: 19%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                        <th class="text-center" style="width: 5%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 23%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 40%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
+                                        <th class="text-center" style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
                                             CANTIDAD
                                         </th>
                                         <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UDM</th>
                                     </tr>
                                 </thead>
 
-                                <tbody style="font-size: 7px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
                                     <t t-set="idx_unit" t-value="0"/>
                                     <t t-set="grand_total_units" t-value="0.0"/>
                                     <t t-set="last_product_id_unit" t-value="False"/>
@@ -326,7 +316,7 @@
 
                                         <t t-if="last_product_id_unit != line.product_id.id">
                                             <tr style="background-color: #2f2f2f;">
-                                                <td colspan="7" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 7px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
                                                     <span t-esc="line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
@@ -340,7 +330,6 @@
 
                                         <t t-set="lot_block" t-value="line.lot_id and (('x_bloque' in line.lot_id._fields and line.lot_id.x_bloque) or ('lot_general' in line.lot_id._fields and line.lot_id.lot_general) or '') or ''"/>
                                         <t t-set="lot_atado" t-value="line.lot_id and ('x_atado' in line.lot_id._fields and line.lot_id.x_atado) or ''"/>
-                                        <t t-set="src_loc" t-value="('source_location_id' in line._fields and line.source_location_id and line.source_location_id.display_name) or ''"/>
 
                                         <tr>
                                             <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
@@ -356,7 +345,7 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-weight: 800;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
@@ -366,13 +355,6 @@
                                             <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
                                                 <t t-if="lot_atado">
                                                     <t t-esc="lot_atado"/>
-                                                </t>
-                                                <t t-else="">-</t>
-                                            </td>
-
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                                <t t-if="src_loc">
-                                                    <t t-esc="'/'.join(src_loc.split('/')[-2:]).strip()"/>
                                                 </t>
                                                 <t t-else="">-</t>
                                             </td>
@@ -390,10 +372,10 @@
 
                                 <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td colspan="5" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
                                             TOTAL UNIDADES ENTREGADAS:
                                         </td>
-                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
                                             <span t-esc="'%.2f' % (grand_total_units or 0.0)"/>
                                         </td>
                                         <td></td>
@@ -434,7 +416,7 @@
                                         <tr>
                                             <td style="padding: 1px 2px; font-weight: 800;">Validación:</td>
                                             <td style="padding: 1px 2px;">
-                                                El cliente o contacto autorizado debe revisar lote, bloque, dimensiones, cantidad, estado físico y coincidencia contra la remisión antes de firmar de conformidad.
+                                                El cliente o contacto autorizado debe revisar lote, bloque, dimensiones, cantidad y estado físico contra la remisión antes de firmar de conformidad.
                                             </td>
                                         </tr>
                                         <tr>
@@ -502,7 +484,7 @@
                                         Términos y condiciones – Remisión de entrega
                                     </div>
 
-                                    <ul class="list-unstyled mb-0" style="font-size: 11px; text-align: justify; color: #374151; padding-left: 0; line-height: 1.18;">
+                                    <ul class="list-unstyled mb-0" style="font-size: 9px; text-align: justify; color: #374151; padding-left: 0; line-height: 1.12;">
                                         <li style="margin-bottom: 2px;">• Para la programación y realización de la entrega, el pedido deberá estar pagado al 100%, salvo autorización expresa por escrito.</li>
                                         <li style="margin-bottom: 2px;">• La entrega se realiza a pie de camión. No incluye maniobras especiales de descarga, acarreos, volados, ingreso a obra, elevación ni movimientos internos.</li>
                                         <li style="margin-bottom: 2px;">• Es indispensable que se encuentre presente el contacto autorizado para recibir el material. En caso contrario, el material podrá regresar a bodega y generarse cargo adicional por reenvío.</li>

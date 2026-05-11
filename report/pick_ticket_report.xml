@@ -153,117 +153,216 @@
 
                         <!-- ===================================================== -->
                         <!-- DETALLE DE MATERIAL -->
-                        <!-- Solo esta sección usa 7px -->
+                        <!-- Solo esta sección usa 8px -->
                         <!-- ===================================================== -->
                         <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; margin: 8px 0 4px; color: #111827;">
                             Materiales a preparar
                         </div>
 
-                        <table class="table table-sm table-striped" style="width: 100%; font-size: 7px; border-collapse: collapse; border: 1px solid #9ca3af;">
-                            <thead>
-                                <tr style="background-color: #111827;">
-                                    <th class="text-center" style="width: 5%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
-                                    <th style="width: 18%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
-                                    <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
-                                    <th style="width: 25%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
-                                    <th class="text-center" style="width: 33%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
-                                        ANCHO X ALTO = M² / UNID.
-                                    </th>
-                                    <th class="text-center" style="width: 7%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
-                                </tr>
-                            </thead>
+                        <t t-set="m2_lines" t-value="doc.line_ids.filtered(lambda l: l.product_id and l.product_id.uom_id and (('m²' in (l.product_id.uom_id.name or '').lower()) or ('m2' in (l.product_id.uom_id.name or '').lower()) or ('cuadr' in (l.product_id.uom_id.name or '').lower())))"/>
+                        <t t-set="unit_lines" t-value="doc.line_ids - m2_lines"/>
 
-                            <tbody style="font-size: 7px; line-height: 0.95; border-bottom: 1px solid #111827;">
-                                <t t-set="idx" t-value="0"/>
-                                <t t-set="grand_total_m2" t-value="0.0"/>
-                                <t t-set="last_product_id" t-value="False"/>
+                        <!-- ===================================================== -->
+                        <!-- PRODUCTOS MEDIDOS EN M² -->
+                        <!-- ===================================================== -->
+                        <t t-if="m2_lines">
+                            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; margin: 6px 0 3px; color: #374151;">
+                                Productos medidos en m²
+                            </div>
 
-                                <t t-foreach="doc.line_ids.sorted(key=lambda l: ((l.product_id.display_name or ''), (l.lot_id.name or '')))" t-as="line">
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af; margin-bottom: 6px;">
+                                <thead>
+                                    <tr style="background-color: #111827;">
+                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 18%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 12%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 26%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
+                                        <th class="text-center" style="width: 32%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                            ANCHO X ALTO = M²
+                                        </th>
+                                        <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
+                                    </tr>
+                                </thead>
 
-                                    <t t-if="last_product_id != line.product_id.id">
-                                        <tr style="background-color: #2f2f2f;">
-                                            <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 7px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
-                                                <span t-esc="line.product_id.display_name or '-'"/>
+                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                    <t t-set="idx_m2" t-value="0"/>
+                                    <t t-set="grand_total_m2" t-value="0.0"/>
+                                    <t t-set="last_product_id_m2" t-value="False"/>
+
+                                    <t t-foreach="m2_lines.sorted(key=lambda l: ((l.product_id.display_name or ''), (l.lot_id.name or '')))" t-as="line">
+
+                                        <t t-if="last_product_id_m2 != line.product_id.id">
+                                            <tr style="background-color: #2f2f2f;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                    <span t-esc="line.product_id.display_name or '-'"/>
+                                                </td>
+                                            </tr>
+                                            <t t-set="last_product_id_m2" t-value="line.product_id.id"/>
+                                        </t>
+
+                                        <t t-set="idx_m2" t-value="idx_m2 + 1"/>
+                                        <t t-set="qty_to_show" t-value="(('qty_selected' in line._fields and line.qty_selected) or ('quantity' in line._fields and line.quantity) or 0.0)"/>
+                                        <t t-set="grand_total_m2" t-value="grand_total_m2 + qty_to_show"/>
+
+                                        <t t-set="lot_block" t-value="line.lot_id and (('x_bloque' in line.lot_id._fields and line.lot_id.x_bloque) or ('lot_general' in line.lot_id._fields and line.lot_id.lot_general) or '') or ''"/>
+                                        <t t-set="lot_width" t-value="line.lot_id and (('x_ancho' in line.lot_id._fields and line.lot_id.x_ancho) or ('marble_width' in line.lot_id._fields and line.lot_id.marble_width) or 0.0) or 0.0"/>
+                                        <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
+
+                                        <tr>
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-esc="idx_m2"/>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                                <t t-if="line.lot_id">
+                                                    <t t-esc="line.lot_id.name"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <span style="color: #6b7280; font-style: italic;">Sin lote</span>
+                                                </t>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-if="lot_block">
+                                                    <t t-esc="lot_block"/>
+                                                </t>
+                                                <t t-else="">-</t>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-esc="line._format_short_location()"/>
+                                            </td>
+
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-if="lot_width and lot_height">
+                                                    <span t-esc="'%.3f x %.3f = %.2f' % (lot_width, lot_height, qty_to_show)"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <span t-esc="'%.2f' % (qty_to_show or 0.0)"/>
+                                                </t>
+                                            </td>
+
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <span style="font-size: 9px; line-height: 0.95;">☐</span>
                                             </td>
                                         </tr>
-                                        <t t-set="last_product_id" t-value="line.product_id.id"/>
                                     </t>
+                                </tbody>
 
-                                    <t t-set="idx" t-value="idx + 1"/>
-                                    <t t-set="qty_to_show" t-value="(('qty_selected' in line._fields and line.qty_selected) or ('quantity' in line._fields and line.quantity) or 0.0)"/>
-                                    <t t-set="grand_total_m2" t-value="grand_total_m2 + qty_to_show"/>
-                                    <t t-set="uom_name" t-value="line.product_id.uom_id.name or ''"/>
-
-                                    <t t-set="lot_block" t-value="line.lot_id and (('x_bloque' in line.lot_id._fields and line.lot_id.x_bloque) or ('lot_general' in line.lot_id._fields and line.lot_id.lot_general) or '') or ''"/>
-                                    <t t-set="lot_width" t-value="line.lot_id and (('x_ancho' in line.lot_id._fields and line.lot_id.x_ancho) or ('marble_width' in line.lot_id._fields and line.lot_id.marble_width) or 0.0) or 0.0"/>
-                                    <t t-set="lot_height" t-value="line.lot_id and (('x_alto' in line.lot_id._fields and line.lot_id.x_alto) or ('marble_height' in line.lot_id._fields and line.lot_id.marble_height) or 0.0) or 0.0"/>
-
+                                <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                            <t t-esc="idx"/>
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                            TOTAL M² PREPARADO:
                                         </td>
-
-                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
-                                            <t t-if="line.lot_id">
-                                                <t t-esc="line.lot_id.name"/>
-                                            </t>
-                                            <t t-else="">
-                                                <span style="color: #6b7280; font-style: italic;">Sin lote</span>
-                                            </t>
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                            <span t-esc="'%.2f' % (grand_total_m2 or 0.0)"/>
                                         </td>
-
-                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                            <t t-if="lot_block">
-                                                <t t-esc="lot_block"/>
-                                            </t>
-                                            <t t-else="">-</t>
-                                        </td>
-
-                                        <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                            <t t-esc="line._format_short_location()"/>
-                                        </td>
-
-                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                            <t t-if="lot_width and lot_height">
-                                                <span t-esc="'%.3f x %.3f = %.2f %s' % (lot_width, lot_height, qty_to_show, uom_name)"/>
-                                            </t>
-                                            <t t-else="">
-                                                <span t-esc="'%.2f %s' % (qty_to_show, uom_name)"/>
-                                            </t>
-                                        </td>
-
-                                        <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
-                                            <span style="font-size: 9px; line-height: 0.95;">☐</span>
-                                        </td>
+                                        <td></td>
                                     </tr>
-                                </t>
+                                </tfoot>
+                            </table>
+                        </t>
 
-                                <t t-if="not doc.line_ids">
+                        <!-- ===================================================== -->
+                        <!-- PRODUCTOS MEDIDOS POR UNIDAD -->
+                        <!-- ===================================================== -->
+                        <t t-if="unit_lines">
+                            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; margin: 6px 0 3px; color: #374151;">
+                                Productos medidos por unidad
+                            </div>
+
+                            <table class="table table-sm table-striped" style="width: 100%; font-size: 8px; border-collapse: collapse; border: 1px solid #9ca3af;">
+                                <thead>
+                                    <tr style="background-color: #111827;">
+                                        <th class="text-center" style="width: 4%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">#</th>
+                                        <th style="width: 20%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">LOTE</th>
+                                        <th style="width: 13%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
+                                        <th style="width: 31%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UBICACIÓN</th>
+                                        <th class="text-center" style="width: 24%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
+                                            CANTIDAD
+                                        </th>
+                                        <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 0.95; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">OK</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody style="font-size: 8px; line-height: 0.95; border-bottom: 1px solid #111827;">
+                                    <t t-set="idx_unit" t-value="0"/>
+                                    <t t-set="grand_total_units" t-value="0.0"/>
+                                    <t t-set="last_product_id_unit" t-value="False"/>
+
+                                    <t t-foreach="unit_lines.sorted(key=lambda l: ((l.product_id.display_name or ''), (l.lot_id.name or '')))" t-as="line">
+
+                                        <t t-if="last_product_id_unit != line.product_id.id">
+                                            <tr style="background-color: #2f2f2f;">
+                                                <td colspan="6" style="padding: 2px 4px; line-height: 0.95; font-weight: 800; font-size: 8px; text-transform: uppercase; color: #ffffff !important; background-color: #2f2f2f !important;">
+                                                    <span t-esc="line.product_id.display_name or '-'"/>
+                                                </td>
+                                            </tr>
+                                            <t t-set="last_product_id_unit" t-value="line.product_id.id"/>
+                                        </t>
+
+                                        <t t-set="idx_unit" t-value="idx_unit + 1"/>
+                                        <t t-set="qty_to_show" t-value="(('qty_selected' in line._fields and line.qty_selected) or ('quantity' in line._fields and line.quantity) or 0.0)"/>
+                                        <t t-set="grand_total_units" t-value="grand_total_units + qty_to_show"/>
+
+                                        <t t-set="lot_block" t-value="line.lot_id and (('x_bloque' in line.lot_id._fields and line.lot_id.x_bloque) or ('lot_general' in line.lot_id._fields and line.lot_id.lot_general) or '') or ''"/>
+                                        <t t-set="uom_name" t-value="line.product_id.uom_id.name or ''"/>
+
+                                        <tr>
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-esc="idx_unit"/>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                                <t t-if="line.lot_id">
+                                                    <t t-esc="line.lot_id.name"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <span style="color: #6b7280; font-style: italic;">Sin lote</span>
+                                                </t>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-if="lot_block">
+                                                    <t t-esc="lot_block"/>
+                                                </t>
+                                                <t t-else="">-</t>
+                                            </td>
+
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <t t-esc="line._format_short_location()"/>
+                                            </td>
+
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <span t-esc="'%.2f %s' % (qty_to_show or 0.0, uom_name)"/>
+                                            </td>
+
+                                            <td class="text-center align-middle" style="padding: 1px 2px; line-height: 0.95; border: 1px solid #d1d5db;">
+                                                <span style="font-size: 9px; line-height: 0.95;">☐</span>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+
+                                <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
                                     <tr>
-                                        <td colspan="6" class="text-center" style="padding: 4px; line-height: 0.95; color: #6b7280; font-style: italic;">
-                                            Sin líneas de material para preparar.
+                                        <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                            TOTAL UNIDADES PREPARADAS:
                                         </td>
+                                        <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 8px; font-weight: 800;">
+                                            <span t-esc="'%.2f' % (grand_total_units or 0.0)"/>
+                                        </td>
+                                        <td></td>
                                     </tr>
-                                </t>
-                            </tbody>
+                                </tfoot>
+                            </table>
+                        </t>
 
-                            <tfoot style="border-top: 2px solid #111827; background-color: #f3f4f6;">
-                                <tr>
-                                    <td colspan="4" class="text-end" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
-                                        TOTAL M² PREPARADO:
-                                    </td>
-                                    <td class="text-center" style="padding: 2px 3px; line-height: 0.95; font-size: 7px; font-weight: 800;">
-                                        <t t-if="doc.total_qty">
-                                            <span t-esc="'%.2f m²' % (doc.total_qty or 0.0)"/>
-                                        </t>
-                                        <t t-else="">
-                                            <span t-esc="'%.2f m²' % (grand_total_m2 or 0.0)"/>
-                                        </t>
-                                    </td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                        <t t-if="not doc.line_ids">
+                            <div style="border: 1px solid #d1d5db; padding: 8px; color: #6b7280; font-size: 11px; font-style: italic; text-align: center;">
+                                Sin líneas de material para preparar.
+                            </div>
+                        </t>
 
                         <!-- ===================================================== -->
                         <!-- ESPECIFICACIONES DE ENTREGA -->
@@ -313,7 +412,7 @@
                                         Términos y condiciones operativas
                                     </div>
 
-                                    <ol style="margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.18; color: #374151;">
+                                    <ol style="margin: 0; padding-left: 16px; font-size: 9px; line-height: 1.12; color: #374151;">
                                         <li>Este documento es de uso interno para preparación de material; no sustituye factura, remisión ni comprobante fiscal.</li>
                                         <li>El almacén debe preparar únicamente los lotes indicados en este Pick Ticket, respetando lote, bloque, ubicación, dimensiones y cantidad solicitada.</li>
                                         <li>Cualquier diferencia física, daño, faltante, ubicación incorrecta o cambio de lote debe reportarse antes de autorizar la salida.</li>
