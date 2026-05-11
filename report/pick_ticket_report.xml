@@ -213,7 +213,7 @@
                                                 <t t-esc="idx_m2"/>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 400;">
                                                 <t t-if="line.lot_id">
                                                     <t t-esc="line.lot_id.name"/>
                                                 </t>
@@ -222,7 +222,7 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 400;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
@@ -313,7 +313,7 @@
                                                 <t t-esc="idx_unit"/>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-family: monospace; font-weight: 400;">
                                                 <t t-if="line.lot_id">
                                                     <t t-esc="line.lot_id.name"/>
                                                 </t>
@@ -322,7 +322,7 @@
                                                 </t>
                                             </td>
 
-                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 800;">
+                                            <td class="align-middle" style="padding: 1px 2px; line-height: 1; border: 1px solid #d1d5db; font-weight: 400;">
                                                 <t t-if="lot_block">
                                                     <t t-esc="lot_block"/>
                                                 </t>
