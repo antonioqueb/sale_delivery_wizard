@@ -216,6 +216,74 @@ class SaleDeliveryDocument(models.Model):
         return qty or move.product_uom_qty or 0.0
 
     # ═══════════════════════════════════════════════════════════════════
+    # Consigna — resolución y propagación de propietario (owner_id)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _som_resolve_lot_owner(self, product, lot, location=None):
+        """Resuelve el propietario en consigna de un lote.
+
+        En este negocio cada lote (placa) es una pieza única que vive en un
+        solo quant; por eso el owner es determinista. Si el lote está en
+        consigna devuelve el partner propietario; si es stock propio, devuelve
+        un recordset vacío y no se altera nada.
+        """
+        empty = self.env['res.partner']
+        if not lot or not product:
+            return empty
+
+        Quant = self.env['stock.quant']
+        base_domain = [
+            ('product_id', '=', product.id),
+            ('lot_id', '=', lot.id),
+            ('owner_id', '!=', False),
+            ('quantity', '>', 0),
+        ]
+
+        if location:
+            located = Quant.search(
+                base_domain + [('location_id', '=', location.id)], limit=1)
+            if located:
+                return located.owner_id
+
+        quant = Quant.search(
+            base_domain + [('location_id.usage', '=', 'internal')], limit=1)
+        return quant.owner_id if quant else empty
+
+    def _som_apply_consignment_owner_to_move_line(self, move_line):
+        """Fuerza el owner correcto en una move line de salida.
+
+        Sin esto, una salida de material consignado descuenta de stock propio
+        (o crea uno sin owner) y deja el quant en consigna intacto, generando
+        inventario duplicado. Para stock propio no hace nada.
+        """
+        if not move_line or not move_line.lot_id:
+            return
+
+        doc_line = self.line_ids.filtered(
+            lambda l: (l.move_line_id and l.move_line_id == move_line)
+            or (
+                l.lot_id == move_line.lot_id
+                and l.product_id == move_line.product_id
+            )
+        )[:1]
+
+        owner = (
+            doc_line.owner_id
+            if doc_line and doc_line.owner_id
+            else self._som_resolve_lot_owner(
+                move_line.product_id,
+                move_line.lot_id,
+                move_line.location_id,
+            )
+        )
+
+        if owner:
+            if move_line.owner_id != owner:
+                move_line.owner_id = owner.id
+            if doc_line and not doc_line.owner_id:
+                doc_line.owner_id = owner.id
+
+    # ═══════════════════════════════════════════════════════════════════
     # Validación parcial de pickings
     # ═══════════════════════════════════════════════════════════════════
 
@@ -280,11 +348,13 @@ class SaleDeliveryDocument(models.Model):
             for ml in move.move_line_ids:
                 if ml.id in doc_ml_ids:
                     self._som_set_move_line_done_qty(ml, doc_ml_qty[ml.id])
+                    self._som_apply_consignment_owner_to_move_line(ml)
                     _logger.info(
-                        'Picking %s ML %s (lot %s): qty set to %s',
+                        'Picking %s ML %s (lot %s, owner %s): qty set to %s',
                         picking.name,
                         ml.id,
                         ml.lot_id.name if ml.lot_id else 'N/A',
+                        ml.owner_id.name if ml.owner_id else 'PROPIO',
                         doc_ml_qty[ml.id],
                     )
                 else:
@@ -576,7 +646,7 @@ class SaleDeliveryDocument(models.Model):
             'picking': self.env['stock.picking'].browse(),
         }
 
-    def _som_create_or_update_return_move_line(self, move, lot, qty):
+    def _som_create_or_update_return_move_line(self, move, lot, qty, owner=False):
         StockMoveLine = self.env['stock.move.line']
 
         existing = move.move_line_ids.filtered(
@@ -598,6 +668,11 @@ class SaleDeliveryDocument(models.Model):
 
         if lot:
             vals['lot_id'] = lot.id
+
+        # Devolver el material a su misma consigna: si el material salió de un
+        # owner, debe regresar al mismo owner. Para stock propio, owner vacío.
+        if owner:
+            vals['owner_id'] = owner if isinstance(owner, int) else owner.id
 
         if 'quantity' in StockMoveLine._fields:
             vals['quantity'] = qty
@@ -702,6 +777,15 @@ class SaleDeliveryDocument(models.Model):
 
             lot = doc_line.lot_id
 
+            # Owner del material devuelto: prioridad a la línea del documento,
+            # luego al owner del movimiento original de salida, luego se infiere
+            # del quant de consigna del lote. Para stock propio queda vacío.
+            source_owner = (
+                doc_line.owner_id
+                or source_move.move_line_ids[:1].owner_id
+                or self._som_resolve_lot_owner(doc_line.product_id, lot)
+            )
+
             key = (
                 target_move.id,
                 doc_line.product_id.id,
@@ -714,6 +798,7 @@ class SaleDeliveryDocument(models.Model):
                     'move': target_move,
                     'lot': lot,
                     'qty': 0.0,
+                    'owner': source_owner,
                 }
 
             aggregated[key]['qty'] += qty
@@ -731,6 +816,7 @@ class SaleDeliveryDocument(models.Model):
                 data['move'],
                 data['lot'],
                 data['qty'],
+                owner=data.get('owner'),
             )
 
     def _som_finalize_return_document_quantities(self):
@@ -880,6 +966,7 @@ class SaleDeliveryDocument(models.Model):
                         'move_id': move.id,
                         'move_line_id': False,
                         'source_location_id': move.location_id.id if move.location_id else False,
+                        'owner_id': template_line.owner_id.id if template_line and template_line.owner_id else False,
                         'origin_remission_id': template_line.origin_remission_id.id if template_line and template_line.origin_remission_id else False,
                         'origin_remission_line_id': template_line.origin_remission_line_id.id if template_line and template_line.origin_remission_line_id else False,
                     }))
@@ -903,6 +990,13 @@ class SaleDeliveryDocument(models.Model):
                         )
                     )[:1]
 
+                    ml_owner = (
+                        ml.owner_id
+                        or (template_line.owner_id if template_line else False)
+                        or doc._som_resolve_lot_owner(
+                            ml.product_id, ml.lot_id, ml.location_id)
+                    )
+
                     new_commands.append((0, 0, {
                         'sequence': sequence,
                         'product_id': ml.product_id.id,
@@ -914,6 +1008,7 @@ class SaleDeliveryDocument(models.Model):
                         'move_id': move.id,
                         'move_line_id': ml.id,
                         'source_location_id': ml.location_id.id if ml.location_id else False,
+                        'owner_id': ml_owner.id if ml_owner else False,
                         'origin_remission_id': template_line.origin_remission_id.id if template_line and template_line.origin_remission_id else False,
                         'origin_remission_line_id': template_line.origin_remission_line_id.id if template_line and template_line.origin_remission_line_id else False,
                     }))
@@ -1048,6 +1143,11 @@ class SaleDeliveryDocumentLine(models.Model):
     product_id = fields.Many2one('product.product', string='Producto', required=True)
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
     quant_id = fields.Many2one('stock.quant', string='Quant')
+
+    owner_id = fields.Many2one(
+        'res.partner',
+        string='Propietario (Consigna)',
+        help='Propietario del stock en consigna. Vacío = stock propio.')
 
     qty_selected = fields.Float(string='Cantidad Seleccionada')
     qty_done = fields.Float(string='Cantidad Realizada')

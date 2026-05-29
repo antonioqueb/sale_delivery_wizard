@@ -105,6 +105,7 @@ class SaleReturnWizard(models.TransientModel):
                     'sale_line_id': doc_line.sale_line_id.id if doc_line.sale_line_id else False,
                     'product_id': doc_line.product_id.id,
                     'lot_id': doc_line.lot_id.id if doc_line.lot_id else False,
+                    'owner_id': doc_line.owner_id.id if doc_line.owner_id else False,
                     'qty_delivered': qty_available,
                     'qty_to_return': qty_available,
                     'is_selected': True,
@@ -146,6 +147,7 @@ class SaleReturnWizard(models.TransientModel):
                         'sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
                         'product_id': move.product_id.id,
                         'lot_id': ml.lot_id.id if ml.lot_id else False,
+                        'owner_id': ml.owner_id.id if ml.owner_id else False,
                         'qty_delivered': qty_available,
                         'qty_to_return': qty_available,
                         'is_selected': True,
@@ -267,6 +269,7 @@ class SaleReturnWizard(models.TransientModel):
                 'moveId': line.move_id.id if line.move_id else 0,
                 'moveLineId': line.move_line_id.id if line.move_line_id else 0,
                 'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
+                'ownerId': line.owner_id.id if line.owner_id else 0,
                 'pickingId': line.move_id.picking_id.id if line.move_id and line.move_id.picking_id else 0,
                 'sourceLocationId': 0,
                 'originRemissionId': line.origin_remission_id.id if line.origin_remission_id else 0,
@@ -297,6 +300,24 @@ class SaleReturnWizard(models.TransientModel):
             return self._confirm_return_from_selections(sels)
 
         return self._confirm_return_from_lines()
+
+    def _resolve_payload_owner(self, order, move, lot_id, declared_owner_id):
+        """Owner del material devuelto. Para que regrese a su consigna, se usa
+        el owner declarado, luego el del move original, luego se infiere del
+        quant. Para stock propio devuelve False."""
+        if declared_owner_id:
+            return declared_owner_id
+
+        if move and move.move_line_ids[:1].owner_id:
+            return move.move_line_ids[:1].owner_id.id
+
+        if hasattr(order, '_som_resolve_redelivery_owner'):
+            return order._som_resolve_redelivery_owner(
+                move.product_id.id if move else False,
+                lot_id,
+            )
+
+        return False
 
     def _build_return_payloads_from_selections(self, order, sels):
         payloads = []
@@ -363,10 +384,15 @@ class SaleReturnWizard(models.TransientModel):
                     'a una salida hacia cliente. Movimiento: %s.'
                 ) % (move.product_id.display_name, move.display_name))
 
+            lot_id = sel.get('lotId') or False
+            owner_id = self._resolve_payload_owner(
+                order, move, lot_id, sel.get('ownerId') or False)
+
             payloads.append({
                 'move': move,
                 'product_id': sel.get('productId') or move.product_id.id,
-                'lot_id': sel.get('lotId') or False,
+                'lot_id': lot_id,
+                'owner_id': owner_id,
                 'qty': qty,
                 'sale_line_id': sel.get('saleLineId') or (
                     move.sale_line_id.id if move.sale_line_id else False
@@ -441,6 +467,7 @@ class SaleReturnWizard(models.TransientModel):
             'line_ids': [(0, 0, {
                 'product_id': p['product_id'],
                 'lot_id': p['lot_id'],
+                'owner_id': p.get('owner_id') or False,
                 'qty_selected': p['qty'],
                 'qty_done': p['qty'],
                 'qty_returned': p['qty'],
@@ -549,6 +576,7 @@ class SaleReturnWizard(models.TransientModel):
                 'saleLineId': line.sale_line_id.id if line.sale_line_id else 0,
                 'productId': line.product_id.id if line.product_id else 0,
                 'lotId': line.lot_id.id if line.lot_id else 0,
+                'ownerId': line.owner_id.id if line.owner_id else 0,
                 'qty': line.qty_to_return,
                 'qtyDelivered': line.qty_delivered,
                 'originRemissionId': line.origin_remission_id.id if line.origin_remission_id else 0,
@@ -582,6 +610,7 @@ class SaleReturnWizard(models.TransientModel):
             sels.append({
                 'productId': payload['product_id'],
                 'lotId': payload['lot_id'],
+                'ownerId': payload.get('owner_id') or False,
                 'qty': payload['qty'],
                 'saleLineId': payload['sale_line_id'],
                 'moveId': payload['move'].id,
@@ -645,7 +674,15 @@ class SaleReturnWizard(models.TransientModel):
                     source_loc_id = self._resolve_source_location(
                         s['lotId'], product_id, new_picking.location_id.id
                     )
-                    self.env['stock.move.line'].create({
+
+                    # Owner de consigna para que la reentrega vuelva a salir del
+                    # quant consignado correcto. Stock propio => owner vacío.
+                    owner_id = s.get('ownerId') or False
+                    if not owner_id and hasattr(order, '_som_resolve_redelivery_owner'):
+                        owner_id = order._som_resolve_redelivery_owner(
+                            product_id, s['lotId'], source_loc_id)
+
+                    ml_vals = {
                         'move_id': move.id,
                         'product_id': product_id,
                         'lot_id': s['lotId'],
@@ -653,7 +690,11 @@ class SaleReturnWizard(models.TransientModel):
                         'location_id': source_loc_id,
                         'location_dest_id': new_picking.location_dest_id.id,
                         'picking_id': new_picking.id,
-                    })
+                    }
+                    if owner_id:
+                        ml_vals['owner_id'] = owner_id
+
+                    self.env['stock.move.line'].create(ml_vals)
 
         new_picking.action_confirm()
         new_picking.action_assign()
@@ -663,9 +704,16 @@ class SaleReturnWizard(models.TransientModel):
             if sel.get('qty', 0) <= 0:
                 continue
             move = move_map.get(sel.get('saleLineId', 0))
+
+            owner_id = sel.get('ownerId') or False
+            if not owner_id and hasattr(order, '_som_resolve_redelivery_owner'):
+                owner_id = order._som_resolve_redelivery_owner(
+                    sel['productId'], sel.get('lotId') or False)
+
             doc_lines.append((0, 0, {
                 'product_id': sel['productId'],
                 'lot_id': sel.get('lotId') or False,
+                'owner_id': owner_id or False,
                 'qty_selected': sel['qty'],
                 'sale_line_id': sel.get('saleLineId') or False,
                 'move_id': move.id if move else False,
@@ -708,6 +756,8 @@ class SaleReturnWizardLine(models.TransientModel):
     product_id = fields.Many2one(
         'product.product', string='Producto')
     lot_id = fields.Many2one('stock.lot', string='Lote/Placa')
+    owner_id = fields.Many2one(
+        'res.partner', string='Propietario (Consigna)')
     qty_delivered = fields.Float(string='Entregado')
     qty_to_return = fields.Float(string='A Devolver')
 
@@ -738,6 +788,9 @@ class SaleReturnWizardLine(models.TransientModel):
             if not vals.get('lot_id') and vals.get('move_line_id'):
                 ml = self.env['stock.move.line'].browse(vals['move_line_id'])
                 vals['lot_id'] = ml.lot_id.id if ml.lot_id else False
+            if not vals.get('owner_id') and vals.get('move_line_id'):
+                ml = self.env['stock.move.line'].browse(vals['move_line_id'])
+                vals['owner_id'] = ml.owner_id.id if ml.owner_id else False
             if not vals.get('qty_delivered') and vals.get('move_line_id'):
                 ml = self.env['stock.move.line'].browse(vals['move_line_id'])
                 vals['qty_delivered'] = ml.quantity or getattr(ml, 'qty_done', 0.0) or 0.0

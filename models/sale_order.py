@@ -174,6 +174,33 @@ class SaleOrder(models.Model):
             or 0.0
         )
 
+    # ═══════════════════════════════════════════════════════════════════
+    # Consigna — resolución de propietario para reentregas
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _som_resolve_redelivery_owner(self, product_id, lot_id, location_id=None):
+        """Devuelve el owner de consigna de un lote para reinyectarlo en una
+        reentrega. Para stock propio devuelve False y no se altera nada."""
+        if not product_id or not lot_id:
+            return False
+
+        Quant = self.env['stock.quant']
+        domain = [
+            ('product_id', '=', product_id),
+            ('lot_id', '=', lot_id),
+            ('owner_id', '!=', False),
+            ('quantity', '>', 0),
+        ]
+
+        if location_id:
+            q = Quant.search(domain + [('location_id', '=', location_id)], limit=1)
+            if q:
+                return q.owner_id.id
+
+        q = Quant.search(
+            domain + [('location_id.usage', '=', 'internal')], limit=1)
+        return q.owner_id.id if q else False
+
     def _resolve_return_source_for_remission_line(self, remission, doc_line):
         """
         Resuelve el movimiento REAL que debe devolverse.
@@ -450,6 +477,7 @@ class SaleOrder(models.Model):
                             'moveId': move.id,
                             'moveLineId': ml.id,
                             'saleLineId': sale_line.id if sale_line else 0,
+                            'ownerId': ml.owner_id.id if ml.owner_id else 0,
                             'isSelected': False,
                             'qtyAvailable': qty_pending,
                             'qtyToDeliver': 0,
@@ -507,6 +535,7 @@ class SaleOrder(models.Model):
                                 'moveId': move.id,
                                 'moveLineId': 0,
                                 'saleLineId': sale_line.id if sale_line else 0,
+                                'ownerId': quant.owner_id.id if quant.owner_id else 0,
                                 'isSelected': False,
                                 'qtyAvailable': qty_pending,
                                 'qtyToDeliver': 0,
@@ -529,6 +558,7 @@ class SaleOrder(models.Model):
                         'moveId': move.id,
                         'moveLineId': 0,
                         'saleLineId': sale_line.id if sale_line else 0,
+                        'ownerId': 0,
                         'isSelected': False,
                         'qtyAvailable': move_pending,
                         'qtyToDeliver': 0,
@@ -679,6 +709,7 @@ class SaleOrder(models.Model):
                     'moveId': move.id if move else 0,
                     'moveLineId': ml.id if ml else 0,
                     'saleLineId': doc_line.sale_line_id.id if doc_line.sale_line_id else 0,
+                    'ownerId': doc_line.owner_id.id if doc_line.owner_id else 0,
                     'sourceLocationId': ml.location_dest_id.id if ml and ml.location_dest_id else 0,
                     'isSelected': False,
                     'qtyDelivered': qty_available,
@@ -732,6 +763,7 @@ class SaleOrder(models.Model):
                         'moveId': move.id,
                         'moveLineId': ml.id,
                         'saleLineId': move.sale_line_id.id if move.sale_line_id else 0,
+                        'ownerId': ml.owner_id.id if ml.owner_id else 0,
                         'sourceLocationId': ml.location_dest_id.id if ml.location_dest_id else 0,
                         'isSelected': False,
                         'qtyDelivered': qty_available,
