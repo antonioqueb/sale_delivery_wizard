@@ -153,20 +153,4 @@
         <field name="res_model">sale.return.reason</field>
         <field name="view_mode">list,form</field>
     </record>
-
-    <menuitem id="menu_delivery_root"
-              name="Entregas SOM"
-              parent="sale.sale_menu_root"
-              sequence="15"/>
-    <menuitem id="menu_delivery_documents"
-              name="Documentos de Entrega"
-              parent="menu_delivery_root"
-              action="action_sale_delivery_documents"
-              sequence="10"/>
-    <menuitem id="menu_return_reasons"
-              name="Motivos de Devolución"
-              parent="menu_delivery_root"
-              action="action_sale_return_reasons"
-              sequence="20"
-              groups="sale_delivery_wizard.group_delivery_manager"/>
 </odoo>
