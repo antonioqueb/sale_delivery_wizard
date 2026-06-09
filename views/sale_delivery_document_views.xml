@@ -37,7 +37,7 @@
                            statusbar_visible="draft,prepared,confirmed"/>
                 </header>
                 <sheet>
-                    <div class="alert alert-info text-center p-3"
+                    <div class="alert alert-info text-center p-3" role="status"
                          invisible="document_type != 'pick_ticket' or state != 'prepared'">
                         <strong>📝 Pick Ticket abierto</strong> —
                         Puede editarlo presionando <em>"Editar en Wizard"</em>.
@@ -45,7 +45,7 @@
                         en otros Pick Tickets de este pedido.
                     </div>
 
-                    <div class="alert alert-warning text-center p-3"
+                    <div class="alert alert-warning text-center p-3" role="status"
                          invisible="document_type != 'redelivery' or state != 'prepared'">
                         <strong>⏳ Reentrega Pendiente</strong> —
                         Este material fue devuelto y reagendado.
