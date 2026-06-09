@@ -18,7 +18,7 @@
                      ══════════════════════════════════════════════════════ -->
                 <div invisible="wizard_state != 'select_pt'">
                     <div class="alert alert-info mb-3" role="alert">
-                        <i class="fa fa-info-circle me-2"/>
+                        <i class="fa fa-info-circle me-2" title="Información"/>
                         <strong>
                             Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s).
                         </strong>
@@ -43,9 +43,9 @@
                      MODO B: ENTREGA (selección de placas / edición de PT)
                      ══════════════════════════════════════════════════════ -->
                 <div invisible="wizard_state == 'select_pt'">
-                    <div class="alert alert-warning p-2 mb-2 text-center"
+                    <div class="alert alert-warning p-2 mb-2 text-center" role="alert"
                          invisible="not is_editing">
-                        <i class="fa fa-pencil me-1"/>
+                        <i class="fa fa-pencil me-1" title="Editando"/>
                         <strong>Editando Pick Ticket:</strong>
                         <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
                         — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
@@ -55,7 +55,7 @@
                             invisible="pt_count &lt; 1"/>
                     </div>
 
-                    <div class="alert alert-info p-2 mb-2 text-center"
+                    <div class="alert alert-info p-2 mb-2 text-center" role="status"
                          invisible="is_editing or wizard_state != 'pick_ticket'">
                         <strong>Pick Ticket activo:</strong>
                         <field name="pick_ticket_id" readonly="1" class="d-inline"/>
