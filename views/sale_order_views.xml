@@ -163,7 +163,8 @@
                 <field name="x_returned_qty"
                        string="Devuelto"
                        optional="show"
-                       readonly="1"/>
+                       readonly="1"
+                       column_invisible="parent.state != 'sale'"/>
             </xpath>
 
         </field>
