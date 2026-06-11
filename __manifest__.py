@@ -22,6 +22,7 @@
         'stock',
         'sale_stock',
         'sale_stone_selection',
+        'stock_transit_allocation',
     ],
     'data': [
         'security/sale_delivery_groups.xml',
