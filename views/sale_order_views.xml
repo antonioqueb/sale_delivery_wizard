@@ -159,14 +159,6 @@
                 Este XML no borra campos del modelo.
                 Solo evita que aparezcan como columnas en la orden de venta.
             -->
-            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
-                <field name="x_returned_qty"
-                       string="Devuelto"
-                       optional="show"
-                       readonly="1"
-                       column_invisible="parent.state != 'sale'"/>
-            </xpath>
-
         </field>
     </record>
 
