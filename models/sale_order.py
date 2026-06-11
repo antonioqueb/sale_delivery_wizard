@@ -6,6 +6,25 @@ from odoo.exceptions import UserError
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+    @api.model
+    def _get_view(self, view_id=None, view_type='form', **options):
+        """Poda x_returned_qty del grid de Líneas de la orden.
+
+        La columna debe vivir únicamente en la pestaña Logística. Este
+        post-procesado corre después de TODA la herencia de vistas, por lo
+        que elimina la columna aunque la inyecte una vista creada con
+        Studio o a mano en la base de datos. Si el nodo no existe, no hace
+        nada (nunca rompe la carga de la vista).
+        """
+        arch, view = super()._get_view(view_id=view_id, view_type=view_type, **options)
+        if view_type == 'form':
+            for node in arch.xpath(
+                "//page[@name='order_lines']//field[@name='order_line']"
+                "//list/field[@name='x_returned_qty']"
+            ):
+                node.getparent().remove(node)
+        return arch, view
+
     delivery_document_ids = fields.One2many(
         'sale.delivery.document',
         'sale_order_id',
