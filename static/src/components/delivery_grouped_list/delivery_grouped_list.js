@@ -764,7 +764,7 @@ export class DeliveryGroupedList extends Component {
                             <th>Bloque</th>
                             <th>Atado</th>
                             <th class="text-end">Alto</th>
-                            <th class="text-end">Ancho</th>
+                            <th class="text-end">Largo</th>
                             <th class="text-end">m²</th>
                             <th>Tipo</th>
                             <th>Color</th>

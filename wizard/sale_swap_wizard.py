@@ -926,7 +926,7 @@ class SaleSwapWizardLine(models.TransientModel):
     origin_bloque = fields.Char(string='Bloque', readonly=True)
     origin_atado = fields.Char(string='Atado', readonly=True)
     origin_alto = fields.Char(string='Alto', readonly=True)
-    origin_ancho = fields.Char(string='Ancho', readonly=True)
+    origin_ancho = fields.Char(string='Largo', readonly=True)
     origin_grosor = fields.Char(string='Grosor', readonly=True)
 
     target_bloque = fields.Char(
@@ -945,7 +945,7 @@ class SaleSwapWizardLine(models.TransientModel):
         readonly=True,
     )
     target_ancho = fields.Char(
-        string='Ancho Nuevo',
+        string='Largo Nuevo',
         compute='_compute_target_info',
         readonly=True,
     )

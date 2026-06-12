@@ -269,7 +269,7 @@ export class SwapLotSelector extends Component {
                             <input type="number" class="swap-filter-input swap-filter-sm" id="swf-alto" placeholder="0"/>
                         </div>
                         <div class="swap-filter-group">
-                            <label>Ancho mín.</label>
+                            <label>Largo mín.</label>
                             <input type="number" class="swap-filter-input swap-filter-sm" id="swf-ancho" placeholder="0"/>
                         </div>
                         <div class="swap-filter-group">
@@ -416,7 +416,7 @@ export class SwapLotSelector extends Component {
                             <th>Bloque</th>
                             <th>Atado</th>
                             <th class="col-num">Alto</th>
-                            <th class="col-num">Ancho</th>
+                            <th class="col-num">Largo</th>
                             <th class="col-num">Gros.</th>
                             <th class="col-num">m²</th>
                             <th>Tipo</th>

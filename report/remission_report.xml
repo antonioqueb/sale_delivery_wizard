@@ -191,7 +191,7 @@
                                         <th style="width: 37%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">BLOQUE</th>
                                         <th style="width: 10%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">ATADO</th>
                                         <th class="text-center" style="width: 21%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">
-                                            ANCHO X ALTO = M²
+                                            LARGO X ALTO = M²
                                         </th>
                                         <th class="text-center" style="width: 8%; padding: 2px 2px; line-height: 1; color: #ffffff !important; background-color: #111827 !important; font-weight: 800;">UDM</th>
                                     </tr>
