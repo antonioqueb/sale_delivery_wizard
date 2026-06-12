@@ -726,7 +726,7 @@ class SaleReturnWizard(models.TransientModel):
             'document_type': 'redelivery',
             'sale_order_id': order.id,
             'picking_id': new_picking.id,
-            'delivery_address': order.partner_shipping_id.contact_address or '',
+            'delivery_address': order._som_get_delivery_address_text(),
             'special_instructions': _('REENTREGA por devolución.'),
             'line_ids': doc_lines,
         })

@@ -97,6 +97,35 @@ class SaleOrder(models.Model):
         string='Reentregas Pendientes',
     )
 
+    def _som_get_delivery_address_text(self):
+        """Dirección de entrega completa para wizards y reportes.
+
+        Incluye el nombre del contacto de entrega, su dirección completa
+        (si el contacto no tiene calle/ciudad capturadas, usa la dirección
+        del cliente principal) y el teléfono disponible.
+        """
+        self.ensure_one()
+        partner = self.partner_shipping_id or self.partner_id
+        if not partner:
+            return ''
+
+        addr_partner = partner
+        if not (partner.street or partner.street2 or partner.city or partner.zip):
+            commercial = partner.commercial_partner_id
+            if commercial and commercial != partner and (
+                commercial.street or commercial.city or commercial.zip
+            ):
+                addr_partner = commercial
+
+        lines = [partner.name or '']
+        address = (addr_partner._display_address(without_company=True) or '').strip()
+        if address:
+            lines.append(address)
+        phone = partner.phone or partner.mobile or addr_partner.phone or addr_partner.mobile
+        if phone:
+            lines.append(_('Tel: %s') % phone)
+        return '\n'.join(part for part in lines if part).strip()
+
     def _ensure_origin_demand_snapshot(self, source='manual'):
         for order in self:
             lines = order.order_line.filtered(

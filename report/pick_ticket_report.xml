@@ -129,7 +129,7 @@
                                         Dirección de entrega
                                     </div>
 
-                                    <div style="font-size: 11px; line-height: 1.18; color: #374151;">
+                                    <div style="font-size: 11px; line-height: 1.18; color: #374151; white-space: pre-line;">
                                         <t t-if="doc.delivery_address">
                                             <t t-esc="doc.delivery_address"/>
                                         </t>

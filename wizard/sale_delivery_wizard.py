@@ -121,7 +121,7 @@ class SaleDeliveryWizard(models.TransientModel):
             res['sale_order_id'] = order.id
             res['wizard_state'] = 'select_pt'
             res['open_pt_ids'] = [(6, 0, open_pts.ids)]
-            res['delivery_address'] = order.partner_shipping_id.contact_address or ''
+            res['delivery_address'] = order._som_get_delivery_address_text()
             res['special_instructions'] = ''
             res['widget_selections'] = '[]'
             return res
@@ -254,7 +254,7 @@ class SaleDeliveryWizard(models.TransientModel):
         return normalized
 
     def _prepare_default_wizard_vals(self, order, editing_pt_id=None):
-        delivery_address = order.partner_shipping_id.contact_address or ''
+        delivery_address = order._som_get_delivery_address_text()
 
         vals = {
             'sale_order_id': order.id,
