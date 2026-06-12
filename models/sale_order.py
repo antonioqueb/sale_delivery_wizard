@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import RedirectWarning, UserError
 
 
 class SaleOrder(models.Model):
@@ -102,7 +102,11 @@ class SaleOrder(models.Model):
 
         Incluye el nombre del contacto de entrega, su dirección completa
         (si el contacto no tiene calle/ciudad capturadas, usa la dirección
-        del cliente principal) y el teléfono disponible.
+        del cliente principal) y el teléfono.
+
+        Si al contacto le falta dirección o teléfono, levanta un
+        RedirectWarning amigable con botón "Editar contacto" que abre la
+        ficha del contacto de entrega.
         """
         self.ensure_one()
         partner = self.partner_shipping_id or self.partner_id
@@ -117,13 +121,48 @@ class SaleOrder(models.Model):
             ):
                 addr_partner = commercial
 
+        def _field(record, fname):
+            # mobile dejó de existir en Odoo 19; leerlo solo si está definido.
+            return record[fname] if fname in record._fields else False
+
+        phone = (
+            partner.phone or _field(partner, 'mobile')
+            or addr_partner.phone or _field(addr_partner, 'mobile')
+        )
+        has_address = bool(addr_partner.street or addr_partner.city or addr_partner.zip)
+
+        if not has_address or not phone:
+            missing = []
+            if not has_address:
+                missing.append(_('la dirección (calle y ciudad)'))
+            if not phone:
+                missing.append(_('el teléfono'))
+            raise RedirectWarning(
+                _(
+                    'Para hacer la entrega falta completar la información del '
+                    'contacto de entrega "%(contact)s": falta %(missing)s.\n\n'
+                    'Usa el botón "Editar contacto", completa los datos y '
+                    'vuelve a intentar la entrega.',
+                    contact=partner.display_name,
+                    missing=_(' y ').join(missing),
+                ),
+                {
+                    'type': 'ir.actions.act_window',
+                    'name': _('Contacto de entrega'),
+                    'res_model': 'res.partner',
+                    'res_id': partner.id,
+                    'view_mode': 'form',
+                    'views': [(False, 'form')],
+                    'target': 'current',
+                },
+                _('Editar contacto'),
+            )
+
         lines = [partner.name or '']
         address = (addr_partner._display_address(without_company=True) or '').strip()
         if address:
             lines.append(address)
-        phone = partner.phone or partner.mobile or addr_partner.phone or addr_partner.mobile
-        if phone:
-            lines.append(_('Tel: %s') % phone)
+        lines.append(_('Tel: %s') % phone)
         return '\n'.join(part for part in lines if part).strip()
 
     def _ensure_origin_demand_snapshot(self, source='manual'):
