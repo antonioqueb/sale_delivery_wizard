@@ -64,11 +64,16 @@ class SaleSwapWizard(models.TransientModel):
                         'move_line_id': ml.id,
                         'picking_id': picking.id,
                         'sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
+                        # m² del lote de ESTA fila. Solo cantidades a nivel
+                        # move_line; NO se usa move.product_uom_qty como fallback
+                        # porque ese es la demanda total del movimiento (todos los
+                        # lotes / el monto total de la venta) y haría que cada fila
+                        # muestre el total en vez de su dimensión. Mismo criterio
+                        # que _ml_pending_qty en el wizard de entregas.
                         'qty': (
                             ml.quantity
                             or getattr(ml, 'reserved_uom_qty', 0.0)
                             or getattr(ml, 'qty_done', 0.0)
-                            or move.product_uom_qty
                             or 0.0
                         ),
                         'origin_bloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
