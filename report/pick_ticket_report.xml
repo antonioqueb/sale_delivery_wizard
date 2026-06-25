@@ -142,11 +142,11 @@
                         </div>
 
                         <!-- ===================================================== -->
-                        <!-- INSTRUCCIONES ESPECIALES -->
+                        <!-- NOTA INTERNA -->
                         <!-- ===================================================== -->
                         <t t-if="doc.special_instructions">
                             <div style="border-left: 4px solid #f59e0b; background: #fffbeb; padding: 7px 9px; margin: 7px 0 9px; border-radius: 4px; font-size: 11px; line-height: 1.18;">
-                                <strong>Instrucciones especiales:</strong>
+                                <strong>Nota interna:</strong>
                                 <span t-esc="doc.special_instructions"/>
                             </div>
                         </t>
@@ -382,46 +382,10 @@
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td style="padding: 1px 2px; font-weight: 800;">Instrucciones:</td>
-                                            <td style="padding: 1px 2px;">
-                                                <t t-esc="doc.special_instructions or 'Sin instrucciones especiales.'"/>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding: 1px 2px; font-weight: 800;">Validación:</td>
-                                            <td style="padding: 1px 2px;">
-                                                Verificar lote, bloque, ubicación, dimensiones, cantidad física, estado visual del material y coincidencia contra el pedido antes de liberar salida.
-                                            </td>
-                                        </tr>
-                                        <tr>
                                             <td style="padding: 1px 2px; font-weight: 800;">Observaciones:</td>
                                             <td style="padding: 1px 2px; border-bottom: 1px solid #d1d5db; height: 18px;"></td>
                                         </tr>
                                     </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- ===================================================== -->
-                        <!-- TÉRMINOS Y CONDICIONES -->
-                        <!-- ===================================================== -->
-                        <div class="row mt-2">
-                            <div class="col-12">
-                                <div style="border: 1px solid #d1d5db; border-radius: 4px; padding: 6px 8px;">
-                                    <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #374151; margin-bottom: 3px;">
-                                        Términos y condiciones operativas
-                                    </div>
-
-                                    <ol style="margin: 0; padding-left: 16px; font-size: 9px; line-height: 1.12; color: #374151;">
-                                        <li>Este documento es de uso interno para preparación de material; no sustituye factura, remisión ni comprobante fiscal.</li>
-                                        <li>El almacén debe preparar únicamente los lotes indicados en este Pick Ticket, respetando lote, bloque, ubicación, dimensiones y cantidad solicitada.</li>
-                                        <li>Cualquier diferencia física, daño, faltante, ubicación incorrecta o cambio de lote debe reportarse antes de autorizar la salida.</li>
-                                        <li>La casilla de verificación debe marcarse únicamente después de validar físicamente cada lote contra el material preparado.</li>
-                                        <li>Si el material requiere maniobra especial, empaque, protección, flejado o equipo de carga, debe registrarse en observaciones antes de liberar entrega.</li>
-                                        <li>La salida del material requiere revisión de almacén y autorización interna. No debe liberarse material con información incompleta o inconsistente.</li>
-                                        <li>Las condiciones comerciales, pagos, descuentos, cambios, devoluciones o garantías se rigen por el pedido de venta y los acuerdos vigentes con el cliente.</li>
-                                        <li>El responsable de preparación confirma que el material listado fue localizado, revisado y dejado listo para el siguiente paso operativo.</li>
-                                    </ol>
                                 </div>
                             </div>
                         </div>

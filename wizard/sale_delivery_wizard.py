@@ -17,7 +17,7 @@ class SaleDeliveryWizard(models.TransientModel):
     partner_id = fields.Many2one(
         related='sale_order_id.partner_id', string='Cliente')
     delivery_address = fields.Text(string='Dirección de Entrega')
-    special_instructions = fields.Text(string='Instrucciones Especiales')
+    special_instructions = fields.Text(string='Nota Interna')
 
     wizard_state = fields.Selection([
         ('select_pt', 'Seleccionar Pick Ticket'),

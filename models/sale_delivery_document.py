@@ -41,7 +41,7 @@ class SaleDeliveryDocument(models.Model):
     remission_number = fields.Char(
         string='Número de Remisión', readonly=True, copy=False)
     delivery_address = fields.Text(string='Dirección de Entrega')
-    special_instructions = fields.Text(string='Instrucciones Especiales')
+    special_instructions = fields.Text(string='Nota Interna')
     delivery_date = fields.Datetime(string='Fecha de Entrega')
 
     signed_by = fields.Char(string='Firmado por')
