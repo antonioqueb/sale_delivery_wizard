@@ -88,28 +88,28 @@
             <xpath expr="//notebook" position="before">
                 <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
                     <div class="som_kpi">
-                        <span class="som_kpi_value">
+                        <span class="som_kpi_value som_kpi_value--multi">
                             <field name="x_kpi_current_demand_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Solicitado Actual</span>
                     </div>
 
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--success">
+                        <span class="som_kpi_value som_kpi_value--success som_kpi_value--multi">
                             <field name="x_kpi_delivered_net_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Entregado Neto</span>
                     </div>
 
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--warn">
+                        <span class="som_kpi_value som_kpi_value--warn som_kpi_value--multi">
                             <field name="x_kpi_returned_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Devuelto</span>
                     </div>
 
                     <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--accent">
+                        <span class="som_kpi_value som_kpi_value--accent som_kpi_value--multi">
                             <field name="x_kpi_fulfillment_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Cumplimiento</span>

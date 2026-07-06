@@ -240,7 +240,9 @@ class SaleOrder(models.Model):
             parts.append(f"{sqm:,.2f} m²")
         if units:
             parts.append(f"{units:,.6g} pzas")
-        return ' · '.join(parts) or zero
+        # Una línea por material: apilado es inequívoco (con separador
+        # horizontal '100 m² | 8 pzas' parecía una equivalencia).
+        return '\n'.join(parts) or zero
 
     def _compute_delivery_summary(self):
         for order in self:
@@ -308,15 +310,15 @@ class SaleOrder(models.Model):
             # Cumplimiento por grupo: cada unidad mide su propio avance.
             pct_parts = []
             if sqm['demand']:
-                pct_parts.append(f"m² {sqm['delivered'] / sqm['demand'] * 100.0:.1f}%")
+                pct_parts.append(f"m²: {sqm['delivered'] / sqm['demand'] * 100.0:.1f}%")
             if units['demand']:
-                pct_parts.append(f"pzas {units['delivered'] / units['demand'] * 100.0:.1f}%")
+                pct_parts.append(f"pzas: {units['delivered'] / units['demand'] * 100.0:.1f}%")
 
             if len(pct_parts) == 1:
                 # Un solo tipo de material: sin prefijo, solo el porcentaje.
                 pct_parts[0] = pct_parts[0].split(' ', 1)[1]
 
-            order.x_kpi_fulfillment_display = ' · '.join(pct_parts) or '0.0%'
+            order.x_kpi_fulfillment_display = '\n'.join(pct_parts) or '0.0%'
 
     @api.depends(
         'delivery_document_ids',

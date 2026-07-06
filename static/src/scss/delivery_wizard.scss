@@ -254,6 +254,20 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     &.som_kpi_value--success { color: $som-success; }
     &.som_kpi_value--warn { color: $som-warn; }
     &.som_kpi_value--accent { color: $som-accent; }
+
+    // KPIs desglosados por unidad (m² / pzas): UNA LÍNEA POR MATERIAL.
+    // El valor llega con '\n' entre grupos; pre-line lo apila y elimina la
+    // ambigüedad de leer "100 m² | 8 pzas" como si fuera una equivalencia.
+    &.som_kpi_value--multi {
+        font-size: 17px;
+        line-height: 1.3;
+        white-space: pre-line;
+        text-align: center;
+
+        .o_field_widget {
+            white-space: pre-line !important;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
