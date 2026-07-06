@@ -81,41 +81,10 @@
                 </button>
             </xpath>
 
-            <!-- KPIs superiores sin métricas de origen.
-                 Cada indicador se desglosa por unidad real del material
-                 (m² para placas/formatos, pzas para piezas); los servicios
-                 no se controlan y quedan fuera del cálculo. -->
-            <xpath expr="//notebook" position="before">
-                <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--multi">
-                            <field name="x_kpi_current_demand_display" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Solicitado Actual</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--success som_kpi_value--multi">
-                            <field name="x_kpi_delivered_net_display" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Entregado Neto</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--warn som_kpi_value--multi">
-                            <field name="x_kpi_returned_display" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Devuelto</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--accent som_kpi_value--multi">
-                            <field name="x_kpi_fulfillment_display" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Cumplimiento</span>
-                    </div>
-                </div>
-            </xpath>
+            <!-- La franja de KPIs (Solicitado Actual / Entregado Neto /
+                 Devuelto / Cumplimiento) se eliminó por requerimiento
+                 (jul 2026). Los campos x_kpi_* y x_total_* siguen calculándose
+                 en el modelo por si otros módulos o reportes los consumen. -->
 
             <!-- Historial de entregas -->
             <xpath expr="//notebook" position="inside">
