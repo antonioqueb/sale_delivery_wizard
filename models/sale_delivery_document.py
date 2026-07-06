@@ -451,10 +451,98 @@ class SaleDeliveryDocument(models.Model):
     # Remisión
     # ═══════════════════════════════════════════════════════════════════
 
+    def _som_assert_remission_within_demand(self):
+        """CANDADO DURO: una remisión JAMÁS puede entregar más de lo solicitado.
+
+        Regla por línea de venta (o por producto si la línea no viene ligada):
+            cantidad a remisionar + entregado neto previo <= cantidad solicitada
+
+        El entregado neto ya descuenta devoluciones, por lo que reentregar
+        material devuelto sigue permitido. Se valida ANTES de tocar stock y
+        antes de que este documento pase a confirmado (así no se cuenta a sí
+        mismo). Cubre también el caso de listas de pendientes desactualizadas:
+        aunque el wizard ofrezca lotes ya entregados, el servidor lo bloquea.
+        """
+        self.ensure_one()
+
+        if self.document_type != 'remission':
+            return
+
+        by_sale_line = {}
+        by_product_orphan = {}
+
+        for doc_line in self.line_ids:
+            qty = doc_line.qty_selected or doc_line.qty_done or 0.0
+            if qty <= 0:
+                continue
+            if doc_line.sale_line_id:
+                by_sale_line.setdefault(doc_line.sale_line_id, 0.0)
+                by_sale_line[doc_line.sale_line_id] += qty
+            elif doc_line.product_id:
+                by_product_orphan.setdefault(doc_line.product_id, 0.0)
+                by_product_orphan[doc_line.product_id] += qty
+
+        errors = []
+        tolerance = 0.0001
+
+        for sale_line, qty in by_sale_line.items():
+            demand = sale_line.product_uom_qty or 0.0
+            delivered = sale_line.x_delivered_net_qty or 0.0
+            remaining = demand - delivered
+            if qty > remaining + tolerance:
+                errors.append(_(
+                    '• %(product)s: solicitado %(demand).3f, ya entregado '
+                    '(neto) %(delivered).3f, intento de entrega %(qty).3f — '
+                    'máximo permitido: %(remaining).3f.'
+                ) % {
+                    'product': sale_line.product_id.display_name,
+                    'demand': demand,
+                    'delivered': delivered,
+                    'qty': qty,
+                    'remaining': max(remaining, 0.0),
+                })
+
+        for product, qty in by_product_orphan.items():
+            lines = self.sale_order_id.order_line.filtered(
+                lambda l: l.product_id == product and not l.display_type
+            )
+            demand = sum(lines.mapped('product_uom_qty'))
+            delivered = sum(lines.mapped('x_delivered_net_qty'))
+            remaining = demand - delivered
+            if qty > remaining + tolerance:
+                errors.append(_(
+                    '• %(product)s (sin línea de venta ligada): solicitado '
+                    '%(demand).3f, ya entregado (neto) %(delivered).3f, '
+                    'intento de entrega %(qty).3f — máximo permitido: '
+                    '%(remaining).3f.'
+                ) % {
+                    'product': product.display_name,
+                    'demand': demand,
+                    'delivered': delivered,
+                    'qty': qty,
+                    'remaining': max(remaining, 0.0),
+                })
+
+        if errors:
+            raise UserError(_(
+                'No se puede confirmar la remisión: entregaría MÁS de lo '
+                'solicitado en la orden %(order)s.\n\n%(detail)s\n\n'
+                'Revisa las cantidades seleccionadas. Si la lista de '
+                'pendientes muestra material ya entregado, ciérrala y vuelve '
+                'a abrir la entrega.'
+            ) % {
+                'order': self.sale_order_id.name,
+                'detail': '\n'.join(errors),
+            })
+
     def _action_confirm_remission(self):
         self.ensure_one()
         if not self.picking_id:
             raise UserError(_('No hay picking asociado para confirmar la remisión.'))
+
+        # Candado anti-sobre-entrega: valida contra lo solicitado ANTES de
+        # tocar cualquier picking.
+        self._som_assert_remission_within_demand()
 
         picking = self.picking_id
 

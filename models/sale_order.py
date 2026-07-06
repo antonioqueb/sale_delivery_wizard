@@ -526,6 +526,12 @@ class SaleOrder(models.Model):
 
         if mode == 'delivery':
             groups = self._build_delivery_groups(editing_pt_id=editing_pt_id)
+            # Acotar lo ofrecido a lo REALMENTE pendiente por línea de venta:
+            # sin esto, en flujos de 2 pasos (PICK→OUT) el material ya
+            # entregado reaparecía como pendiente (los quants viven en una
+            # ubicación interna de salida y los lotes nunca salen de lot_ids),
+            # permitiendo entregar más del 100%.
+            groups = self._som_cap_delivery_groups_to_remaining(groups)
             return self._apply_pick_ticket_selection(
                 groups, editing_pt_id=editing_pt_id)
         if mode == 'return':
@@ -533,6 +539,91 @@ class SaleOrder(models.Model):
         if mode == 'swap':
             return self._build_swap_groups()
         return []
+
+    def _som_cap_delivery_groups_to_remaining(self, groups):
+        """Limita las líneas ofrecidas en el wizard de entrega a lo pendiente
+        real por línea de venta: solicitado - entregado neto.
+
+        Cierra dos debilidades históricas:
+        1. Lotes ya entregados que reaparecían como pendientes (quants en
+           ubicaciones internas de salida, lot_ids sin depurar, move lines
+           recreadas por sincronizaciones) → se descartan u ofrecen solo por
+           el restante.
+        2. Sobre-entrega desde el wizard: lo ofrecido nunca suma más que lo
+           pendiente (el candado final vive además en la confirmación de la
+           remisión).
+        """
+        self.ensure_one()
+        tolerance = 0.0001
+
+        remaining_by_line = {}
+        remaining_by_product = {}
+
+        for line in self.order_line:
+            if line.display_type or not line.product_id:
+                continue
+            if line.product_id.type == 'service':
+                continue
+            rem = max(
+                (line.product_uom_qty or 0.0) - (line.x_delivered_net_qty or 0.0),
+                0.0,
+            )
+            remaining_by_line[line.id] = rem
+            pid = line.product_id.id
+            remaining_by_product[pid] = remaining_by_product.get(pid, 0.0) + rem
+
+        capped_groups = []
+
+        for group in groups:
+            new_lines = []
+
+            for ld in group.get('lines', []):
+                avail = ld.get('qtyAvailable', 0.0) or 0.0
+                if avail <= tolerance:
+                    continue
+
+                slid = ld.get('saleLineId') or 0
+                pid = ld.get('productId') or 0
+
+                if slid and slid in remaining_by_line:
+                    pool = remaining_by_line[slid]
+                else:
+                    pool = remaining_by_product.get(pid, 0.0)
+
+                allowed = min(avail, pool)
+                if allowed <= tolerance:
+                    # Nada pendiente para esta línea: material ya entregado.
+                    continue
+
+                ld['qtyAvailable'] = allowed
+                if ld.get('qtyToDeliver', 0.0) > allowed:
+                    ld['qtyToDeliver'] = allowed
+
+                # Descontar del pool para que la SUMA de líneas ofrecidas
+                # tampoco exceda lo pendiente (lotes duplicados PICK/OUT).
+                if slid and slid in remaining_by_line:
+                    remaining_by_line[slid] -= allowed
+                if pid in remaining_by_product:
+                    remaining_by_product[pid] = max(
+                        remaining_by_product[pid] - allowed, 0.0,
+                    )
+
+                new_lines.append(ld)
+
+            if not new_lines:
+                continue
+
+            group['lines'] = new_lines
+            group['lineCount'] = len(new_lines)
+            group['selectedCount'] = sum(
+                1 for ld in new_lines if ld.get('isSelected')
+            )
+            group['totalQty'] = sum(
+                (ld.get('qtyToDeliver', 0.0) or 0.0) for ld in new_lines
+            )
+            capped_groups.append(group)
+
+        return capped_groups
 
     def _apply_pick_ticket_selection(self, groups, editing_pt_id=None):
         self.ensure_one()
