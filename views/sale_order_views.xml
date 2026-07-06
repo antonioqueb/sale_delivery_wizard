@@ -81,36 +81,36 @@
                 </button>
             </xpath>
 
-            <!-- KPIs superiores sin métricas de origen -->
+            <!-- KPIs superiores sin métricas de origen.
+                 Cada indicador se desglosa por unidad real del material
+                 (m² para placas/formatos, pzas para piezas); los servicios
+                 no se controlan y quedan fuera del cálculo. -->
             <xpath expr="//notebook" position="before">
                 <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
                     <div class="som_kpi">
                         <span class="som_kpi_value">
-                            <field name="x_total_current_demand_qty" class="d-inline"/>
+                            <field name="x_kpi_current_demand_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Solicitado Actual</span>
                     </div>
 
                     <div class="som_kpi">
                         <span class="som_kpi_value som_kpi_value--success">
-                            <field name="x_total_delivered_net_qty" class="d-inline"/>
+                            <field name="x_kpi_delivered_net_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Entregado Neto</span>
                     </div>
 
                     <div class="som_kpi">
                         <span class="som_kpi_value som_kpi_value--warn">
-                            <field name="x_total_returned_qty" class="d-inline"/>
+                            <field name="x_kpi_returned_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Devuelto</span>
                     </div>
 
                     <div class="som_kpi">
                         <span class="som_kpi_value som_kpi_value--accent">
-                            <field name="x_fulfillment_net_pct"
-                                   widget="float"
-                                   digits="[3,1]"
-                                   class="d-inline"/>%
+                            <field name="x_kpi_fulfillment_display" class="d-inline"/>
                         </span>
                         <span class="som_kpi_label">Cumplimiento</span>
                     </div>

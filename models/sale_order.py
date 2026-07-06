@@ -68,6 +68,28 @@ class SaleOrder(models.Model):
         string='Fulfillment Neto %',
     )
 
+    # ── KPIs legibles separados por unidad (m² vs piezas) ────────────────
+    # Sumar 100 m² + 8 piezas en un solo número (108.52) no representa nada:
+    # cada indicador se desglosa por la unidad real del material
+    # (Placa/Formato → m², Pieza → pzas). Los servicios quedan fuera: su
+    # entrega no se controla.
+    x_kpi_current_demand_display = fields.Char(
+        compute='_compute_delivery_summary',
+        string='Solicitado Actual (por unidad)',
+    )
+    x_kpi_delivered_net_display = fields.Char(
+        compute='_compute_delivery_summary',
+        string='Entregado Neto (por unidad)',
+    )
+    x_kpi_returned_display = fields.Char(
+        compute='_compute_delivery_summary',
+        string='Devuelto (por unidad)',
+    )
+    x_kpi_fulfillment_display = fields.Char(
+        compute='_compute_delivery_summary',
+        string='Cumplimiento (por unidad)',
+    )
+
     x_delivery_document_count = fields.Integer(
         compute='_compute_document_counts',
         string='Documentos',
@@ -188,6 +210,38 @@ class SaleOrder(models.Model):
         'delivery_document_ids.line_ids.qty_done',
         'delivery_document_ids.line_ids.qty_returned',
     )
+    @api.model
+    def _som_line_unit_group(self, line):
+        """Grupo de unidad de la línea: 'sqm' (m²) o 'units' (piezas).
+
+        Placa y Formato se venden en metros cuadrados; Pieza en unidades.
+        Si el producto no declara x_unidad_del_producto, se infiere por la
+        unidad de medida de la línea.
+        """
+        tmpl = line.product_id.product_tmpl_id
+        unidad = str(getattr(tmpl, 'x_unidad_del_producto', '') or '').strip().lower()
+
+        if unidad in ('placa', 'formato'):
+            return 'sqm'
+        if unidad == 'pieza':
+            return 'units'
+
+        uom = line.product_uom_id if 'product_uom_id' in line._fields else getattr(line, 'product_uom', False)
+        uom_name = (uom.name or '').lower() if uom else ''
+        if 'm²' in uom_name or 'm2' in uom_name:
+            return 'sqm'
+        return 'units'
+
+    @api.model
+    def _som_fmt_qty_by_unit(self, sqm, units, zero='0'):
+        """Formatea '100.00 m² · 8 pzas' mostrando solo los grupos con valor."""
+        parts = []
+        if sqm:
+            parts.append(f"{sqm:,.2f} m²")
+        if units:
+            parts.append(f"{units:,.6g} pzas")
+        return ' · '.join(parts) or zero
+
     def _compute_delivery_summary(self):
         for order in self:
             lines = order.order_line.filtered(
@@ -219,6 +273,50 @@ class SaleOrder(models.Model):
             order.x_fulfillment_net_pct = (
                 (delivered_net / demand * 100.0) if demand else 0.0
             )
+
+            # ── Desglose por unidad (m² vs piezas) para el strip de KPIs ──
+            group_totals = {
+                'sqm': {'demand': 0.0, 'current': 0.0, 'delivered': 0.0, 'returned': 0.0},
+                'units': {'demand': 0.0, 'current': 0.0, 'delivered': 0.0, 'returned': 0.0},
+            }
+
+            for line in lines:
+                group = self._som_line_unit_group(line)
+                line_demand = (
+                    line.x_origin_demand_qty
+                    if line.x_origin_demand_locked and line.x_origin_demand_qty > 0
+                    else line.product_uom_qty
+                )
+                group_totals[group]['demand'] += line_demand
+                group_totals[group]['current'] += line.product_uom_qty or 0.0
+                group_totals[group]['delivered'] += line.x_delivered_net_qty or 0.0
+                group_totals[group]['returned'] += line.x_returned_qty or 0.0
+
+            sqm = group_totals['sqm']
+            units = group_totals['units']
+
+            order.x_kpi_current_demand_display = self._som_fmt_qty_by_unit(
+                sqm['current'], units['current'],
+            )
+            order.x_kpi_delivered_net_display = self._som_fmt_qty_by_unit(
+                max(sqm['delivered'], 0.0), max(units['delivered'], 0.0),
+            )
+            order.x_kpi_returned_display = self._som_fmt_qty_by_unit(
+                sqm['returned'], units['returned'],
+            )
+
+            # Cumplimiento por grupo: cada unidad mide su propio avance.
+            pct_parts = []
+            if sqm['demand']:
+                pct_parts.append(f"m² {sqm['delivered'] / sqm['demand'] * 100.0:.1f}%")
+            if units['demand']:
+                pct_parts.append(f"pzas {units['delivered'] / units['demand'] * 100.0:.1f}%")
+
+            if len(pct_parts) == 1:
+                # Un solo tipo de material: sin prefijo, solo el porcentaje.
+                pct_parts[0] = pct_parts[0].split(' ', 1)[1]
+
+            order.x_kpi_fulfillment_display = ' · '.join(pct_parts) or '0.0%'
 
     @api.depends(
         'delivery_document_ids',
