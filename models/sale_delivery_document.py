@@ -367,6 +367,80 @@ class SaleDeliveryDocument(models.Model):
             label=_('transferencia'),
         )
 
+    def _som_create_move_line_for_doc_line(self, picking, doc_line, location=False):
+        """Crea explícitamente la move line del lote elegido cuando el picking
+        no la tiene.
+
+        Caso real: entrega parcial de una línea Torre de Control — el backorder
+        nace sin reserva porque la asignación nativa (FIFO) está deshabilitada
+        para esas líneas. Como la remisión trae lote, cantidad y ubicación
+        elegidos por el usuario, se reserva EXACTAMENTE eso.
+        """
+        MoveLine = self.env['stock.move.line']
+
+        if not picking or picking.state in ('done', 'cancel'):
+            return MoveLine
+
+        move = False
+        if (
+            doc_line.move_id
+            and doc_line.move_id.picking_id == picking
+            and doc_line.move_id.state not in ('done', 'cancel')
+        ):
+            move = doc_line.move_id
+        if not move:
+            move = picking.move_ids.filtered(
+                lambda m: m.product_id == doc_line.product_id
+                and m.state not in ('done', 'cancel')
+            )[:1]
+        if not move:
+            return MoveLine
+
+        # Ubicación origen: la forzada por el llamador (p. ej. Salida en el
+        # OUT), la capturada en la remisión o donde realmente vive el lote.
+        location = location or doc_line.source_location_id
+        if not location and doc_line.lot_id:
+            quant = self.env['stock.quant'].sudo().search([
+                ('product_id', '=', doc_line.product_id.id),
+                ('lot_id', '=', doc_line.lot_id.id),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '>', 0),
+            ], limit=1)
+            location = quant.location_id if quant else False
+        if not location:
+            location = move.location_id
+
+        qty_field = 'quantity' if 'quantity' in MoveLine._fields else 'reserved_uom_qty'
+        uom = (
+            move.product_uom
+            if 'product_uom' in move._fields and move.product_uom
+            else doc_line.product_id.uom_id
+        )
+
+        vals = {
+            'move_id': move.id,
+            'picking_id': picking.id,
+            'company_id': picking.company_id.id,
+            'product_id': doc_line.product_id.id,
+            'product_uom_id': uom.id,
+            'lot_id': doc_line.lot_id.id if doc_line.lot_id else False,
+            'location_id': location.id,
+            'location_dest_id': move.location_dest_id.id,
+            qty_field: doc_line.qty_selected or 0.0,
+        }
+
+        move_line = MoveLine.create(vals)
+
+        _logger.info(
+            '[REMISSION] Move line creada explícitamente: picking=%s lote=%s '
+            'qty=%s (backorder sin reserva nativa / línea Torre de Control).',
+            picking.name,
+            doc_line.lot_id.name if doc_line.lot_id else 'N/A',
+            doc_line.qty_selected,
+        )
+
+        return move_line
+
     def _resolve_doc_move_lines_for_picking(self, picking):
         self.ensure_one()
 
@@ -402,6 +476,16 @@ class SaleDeliveryDocument(models.Model):
                 candidate_mls = doc_line.move_id.move_line_ids.filtered(
                     lambda ml: ml.picking_id == picking
                     and ml.move_id.state not in ('done', 'cancel')
+                )
+
+            if not candidate_mls:
+                # ENTREGAS PARCIALES: el backorder de una línea gestionada por
+                # Torre de Control queda SIN reserva nativa (la omitimos a
+                # propósito para que el FIFO no meta lotes ajenos). Aquí la
+                # entrega es explícita — el usuario ya eligió lote y cantidad —
+                # así que la move line se crea directamente con ese lote.
+                candidate_mls = self._som_create_move_line_for_doc_line(
+                    picking, doc_line,
                 )
 
             if not candidate_mls:
@@ -574,19 +658,54 @@ class SaleDeliveryDocument(models.Model):
                     out_picking.action_confirm()
                 out_picking.action_assign()
 
-            if out_picking.state == 'assigned':
+            if out_picking.state not in ('done', 'cancel'):
                 out_doc_ml_ids = set()
                 out_doc_ml_qty = {}
+                covered_lot_ids = set()
 
                 for move in out_picking.move_ids:
                     for ml in move.move_line_ids:
+                        if ml.move_id.state in ('done', 'cancel'):
+                            continue
                         lot_id = ml.lot_id.id if ml.lot_id else False
                         if lot_id and lot_id in doc_lot_ids:
+                            covered_lot_ids.add(lot_id)
                             out_doc_ml_ids.add(ml.id)
                             out_doc_ml_qty[ml.id] = doc_lot_qty.get(
                                 lot_id,
                                 self._som_get_move_line_pending_qty(ml),
                             )
+
+                # Lotes remisionados sin move line en el OUT: pasa en entregas
+                # parciales de líneas Torre de Control (la reserva encadenada
+                # nativa está deshabilitada a propósito). Se crean explícitas
+                # desde la ubicación origen del movimiento de salida.
+                for doc_line in self.line_ids:
+                    lot = doc_line.lot_id
+                    if not lot or lot.id not in doc_lot_ids or lot.id in covered_lot_ids:
+                        continue
+                    if (doc_line.qty_selected or 0.0) <= 0:
+                        continue
+
+                    out_move = out_picking.move_ids.filtered(
+                        lambda m: m.product_id == doc_line.product_id
+                        and m.state not in ('done', 'cancel')
+                    )[:1]
+                    if not out_move:
+                        continue
+
+                    new_ml = self._som_create_move_line_for_doc_line(
+                        out_picking,
+                        doc_line,
+                        location=out_move.location_id,
+                    )
+                    if new_ml:
+                        covered_lot_ids.add(lot.id)
+                        out_doc_ml_ids.add(new_ml.id)
+                        out_doc_ml_qty[new_ml.id] = doc_lot_qty.get(
+                            lot.id,
+                            doc_line.qty_selected or 0.0,
+                        )
 
                 if out_doc_ml_ids:
                     self._validate_picking_partial(
@@ -594,12 +713,12 @@ class SaleDeliveryDocument(models.Model):
                         out_doc_ml_ids,
                         out_doc_ml_qty,
                     )
-            else:
-                _logger.warning(
-                    'OUT %s not assignable (state: %s).',
-                    out_picking.name,
-                    out_picking.state,
-                )
+                else:
+                    _logger.warning(
+                        'OUT %s sin move lines para los lotes remisionados (state: %s).',
+                        out_picking.name,
+                        out_picking.state,
+                    )
         else:
             _logger.info(
                 'No OUT picking found. Single-step or push rule not triggered.'
