@@ -1024,6 +1024,28 @@ class SaleDeliveryWizard(models.TransientModel):
         sels = self._normalize_selections_from_live_move_lines(sels)
         return self._generate_remission_from_selections(sels)
 
+    def _som_drop_dead_move_refs_in_sels(self, sel_lines):
+        """Anula referencias a moves/move lines que YA NO EXISTEN.
+
+        Al confirmar el primer documento de una remisión multi-picking, la
+        validación dispara el sync de placas que borra y recrea move lines;
+        el segundo documento aún referenciaba las viejas y la FK de
+        sale.delivery.document.line reventaba. Las referencias son solo
+        pistas: la resolución del documento las reconstruye.
+        """
+        MoveLine = self.env['stock.move.line']
+        Move = self.env['stock.move']
+
+        for sel in sel_lines:
+            ml_id = sel.get('moveLineId') or 0
+            if ml_id and not MoveLine.browse(ml_id).exists():
+                sel['moveLineId'] = 0
+            mv_id = sel.get('moveId') or 0
+            if mv_id and not Move.browse(mv_id).exists():
+                sel['moveId'] = 0
+
+        return sel_lines
+
     def _generate_remission_from_selections(self, sels):
         order = self.sale_order_id
 
@@ -1048,6 +1070,9 @@ class SaleDeliveryWizard(models.TransientModel):
         docs = self.env['sale.delivery.document']
         for picking_id, sel_lines in picking_sels.items():
             picking = self.env['stock.picking'].browse(picking_id) if picking_id else False
+            # La confirmación del documento anterior pudo borrar/recrear move
+            # lines (sync de placas): descartar referencias muertas.
+            sel_lines = self._som_drop_dead_move_refs_in_sels(sel_lines)
             doc = self.env['sale.delivery.document'].create({
                 'document_type': 'remission',
                 'sale_order_id': order.id,
@@ -1115,8 +1140,8 @@ class SaleDeliveryWizard(models.TransientModel):
                 'special_instructions': self.special_instructions,
                 'line_ids': [(0, 0, {
                     'sale_line_id': line.sale_line_id.id,
-                    'move_id': line.move_id.id,
-                    'move_line_id': line.move_line_id.id,
+                    'move_id': line.move_id.id if line.move_id.exists() else False,
+                    'move_line_id': line.move_line_id.id if line.move_line_id.exists() else False,
                     'product_id': line.product_id.id,
                     'lot_id': line.lot_id.id,
                     'qty_selected': line.qty_to_deliver,
