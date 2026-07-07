@@ -541,9 +541,13 @@ class SaleDeliveryDocument(models.Model):
             )
 
             if not candidate_mls and doc_line.move_id:
+                # OJO: filtrar por lote — sin esto, la cantidad de un lote se
+                # sumaba a la move line de OTRO lote del mismo move (se llegó a
+                # entregar 6-02 sobre la línea de 6-01).
                 candidate_mls = doc_line.move_id.move_line_ids.filtered(
                     lambda ml: ml.picking_id == picking
                     and ml.move_id.state not in ('done', 'cancel')
+                    and (not doc_line.lot_id or ml.lot_id == doc_line.lot_id)
                 )
 
             if not candidate_mls:
@@ -697,6 +701,33 @@ class SaleDeliveryDocument(models.Model):
         self._som_assert_remission_within_demand()
 
         picking = self.picking_id
+
+        # ENTREGAS PARCIALES ENCADENADAS: si el picking del documento ya quedó
+        # HECHO por una remisión anterior, la operación viva es su backorder.
+        # Sin esta redirección, el doc moría con "no se pudieron resolver las
+        # líneas" al apuntar a un picking cerrado.
+        if picking.state == 'done':
+            live = picking
+            seen_ids = set()
+            while live and live.state == 'done' and live.id not in seen_ids:
+                seen_ids.add(live.id)
+                nxt = self.env['stock.picking'].search([
+                    ('backorder_id', '=', live.id),
+                    ('state', '!=', 'cancel'),
+                ], limit=1)
+                if not nxt:
+                    break
+                live = nxt
+
+            if live and live.state not in ('done', 'cancel') and live != picking:
+                _logger.info(
+                    '[REMISSION] Picking %s ya está hecho; redirigiendo la '
+                    'remisión al backorder vivo %s.',
+                    picking.name,
+                    live.name,
+                )
+                self.picking_id = live.id
+                picking = live
 
         if picking.state in ('draft', 'confirmed', 'waiting'):
             if picking.state == 'draft':
