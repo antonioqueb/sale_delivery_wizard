@@ -290,8 +290,17 @@ class SaleDeliveryDocument(models.Model):
     def _som_process_validate_result(self, picking, result, label=None):
         label = label or _('transferencia')
 
-        if isinstance(result, dict):
+        # button_validate puede devolver una CADENA de wizards (backorder →
+        # sms/confirmaciones). Se procesan en bucle acotado, no solo el primero.
+        for _attempt in range(4):
+            if not isinstance(result, dict):
+                break
+
             res_model = result.get('res_model')
+            _logger.info(
+                '[REMISSION] button_validate de %s devolvió wizard %s (intento %s)',
+                picking.name, res_model, _attempt + 1,
+            )
 
             if res_model == 'stock.backorder.confirmation':
                 backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
@@ -299,7 +308,7 @@ class SaleDeliveryDocument(models.Model):
                 ).create({
                     'pick_ids': [(4, picking.id)],
                 })
-                backorder_wiz.process()
+                result = backorder_wiz.process()
 
             elif res_model == 'stock.immediate.transfer':
                 immediate_wiz = self.env['stock.immediate.transfer'].with_context(
@@ -307,11 +316,31 @@ class SaleDeliveryDocument(models.Model):
                 ).create({
                     'pick_ids': [(4, picking.id)],
                 })
-                immediate_wiz.process()
+                result = immediate_wiz.process()
+
+            else:
+                _logger.warning(
+                    '[REMISSION] Wizard no manejado al validar %s: %s',
+                    picking.name, res_model,
+                )
+                break
 
         picking.invalidate_recordset()
 
         if picking.state != 'done':
+            # Diagnóstico detallado para no depurar a ciegas.
+            for move in picking.move_ids:
+                _logger.warning(
+                    '[REMISSION][DIAG] %s move=%s prod=%s demanda=%.4f '
+                    'state=%s picked=%s mls=%s',
+                    picking.name,
+                    move.id,
+                    move.product_id.display_name,
+                    move.product_uom_qty or 0.0,
+                    move.state,
+                    getattr(move, 'picked', 'n/a'),
+                    [(ml.id, ml.lot_id.name if ml.lot_id else '-', self._som_get_move_line_done_qty(ml)) for ml in move.move_line_ids],
+                )
             raise UserError(_(
                 'La %s %s no quedó validada. Estado actual: %s. '
                 'Revise cantidades, lote y disponibilidad antes de confirmar.'
@@ -320,6 +349,14 @@ class SaleDeliveryDocument(models.Model):
         return True
 
     def _validate_picking_partial(self, picking, doc_ml_ids, doc_ml_qty):
+        # Silenciar las sincronizaciones de placas mientras se fijan cantidades
+        # y se valida: cada write disparaba [STONE SYNC] y podía reescribir las
+        # cantidades recién puestas a media validación.
+        picking = picking.with_context(
+            skip_stone_sync_picking=True,
+            skip_stone_sync_so=True,
+        )
+
         if picking.state == 'done':
             _logger.info('Picking %s already done, skipping.', picking.name)
             return True
@@ -359,6 +396,18 @@ class SaleDeliveryDocument(models.Model):
                     )
                 else:
                     self._som_set_move_line_done_qty(ml, 0.0)
+
+        # Odoo 17+: 'picked' decide qué moves se validan y cuáles van a
+        # backorder. Se marca por move según si conserva cantidad de esta
+        # remisión; sin esto la validación puede quedarse en 'assigned'.
+        if 'picked' in picking.move_ids._fields:
+            for move in picking.move_ids:
+                has_doc_qty = any(
+                    ml.id in doc_ml_ids and (doc_ml_qty.get(ml.id, 0.0) or 0.0) > 0
+                    for ml in move.move_line_ids
+                )
+                if move.picked != has_doc_qty:
+                    move.picked = has_doc_qty
 
         result = picking.with_context(skip_backorder=False).button_validate()
         return self._som_process_validate_result(
