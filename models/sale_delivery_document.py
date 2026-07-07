@@ -305,10 +305,29 @@ class SaleDeliveryDocument(models.Model):
             if res_model == 'stock.backorder.confirmation':
                 backorder_wiz = self.env['stock.backorder.confirmation'].with_context(
                     button_validate_picking_ids=picking.ids,
+                    skip_sms=True,
                 ).create({
                     'pick_ids': [(4, picking.id)],
                 })
                 result = backorder_wiz.process()
+
+            elif res_model == 'confirm.stock.sms':
+                # Confirmación de SMS al cliente: la remisión es un flujo
+                # interno con su propio documento — no se envía SMS.
+                sms_wiz = self.env['confirm.stock.sms'].with_context(
+                    button_validate_picking_ids=picking.ids,
+                    skip_sms=True,
+                ).create({
+                    'pick_ids': [(4, picking.id)],
+                })
+                if hasattr(sms_wiz, 'dont_send_sms'):
+                    result = sms_wiz.dont_send_sms()
+                elif hasattr(sms_wiz, 'send_sms'):
+                    result = sms_wiz.send_sms()
+                else:
+                    result = picking.with_context(
+                        skip_backorder=True, skip_sms=True,
+                    ).button_validate()
 
             elif res_model == 'stock.immediate.transfer':
                 immediate_wiz = self.env['stock.immediate.transfer'].with_context(
@@ -409,7 +428,7 @@ class SaleDeliveryDocument(models.Model):
                 if move.picked != has_doc_qty:
                     move.picked = has_doc_qty
 
-        result = picking.with_context(skip_backorder=False).button_validate()
+        result = picking.with_context(skip_backorder=False, skip_sms=True).button_validate()
         return self._som_process_validate_result(
             picking,
             result,
