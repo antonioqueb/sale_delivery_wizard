@@ -797,6 +797,11 @@ class SaleDeliveryWizard(models.TransientModel):
             'delivery_address': self.delivery_address,
             'special_instructions': self.special_instructions,
         })
+        # CRÍTICO: forzar el INSERT de las líneas AHORA, mientras las move
+        # lines referenciadas siguen vivas. La validación posterior las borra
+        # y recrea; si el INSERT se difiere al flush final, la FK revienta
+        # (ondelete='set null' solo protege referencias YA insertadas).
+        self.env['sale.delivery.document.line'].flush_model()
         pt.message_post(body=_(
             'Pick Ticket actualizado por %s — %d línea(s)',
             self.env.user.name, len(new_lines)))
@@ -1090,6 +1095,9 @@ class SaleDeliveryWizard(models.TransientModel):
                     'source_location_id': sel.get('sourceLocationId') or False,
                 }) for sel in sel_lines if sel.get('qty', 0) > 0],
             })
+            # INSERT inmediato de las líneas del doc: la confirmación borra y
+            # recrea move lines y un flush diferido violaría la FK.
+            self.env['sale.delivery.document.line'].flush_model()
             doc.action_confirm()
             docs |= doc
 
@@ -1149,6 +1157,7 @@ class SaleDeliveryWizard(models.TransientModel):
                     'source_location_id': line.source_location_id.id,
                 }) for line in lines],
             })
+            self.env['sale.delivery.document.line'].flush_model()
             doc.action_confirm()
             docs |= doc
 
