@@ -537,7 +537,7 @@ class SaleReturnWizard(models.TransientModel):
                         'Se validó la devolución física y se creó una reentrega pendiente.'
                     ),
                     'type': 'success',
-                    'sticky': True,
+                    'sticky': False,
                     'next': {'type': 'ir.actions.act_window_close'},
                 },
             }
