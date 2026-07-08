@@ -1033,6 +1033,7 @@ class SaleSwapWizard(models.TransientModel):
                 'message': message,
                 'type': 'success',
                 'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
             },
         }
 

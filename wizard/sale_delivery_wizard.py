@@ -1029,6 +1029,14 @@ class SaleDeliveryWizard(models.TransientModel):
         sels = self._normalize_selections_from_live_move_lines(sels)
         return self._generate_remission_from_selections(sels)
 
+    def _som_remission_report_action(self, docs):
+        """Imprime la(s) remisión(es) en automático y cierra el wizard."""
+        action = self.env.ref(
+            'sale_delivery_wizard.action_report_remission'
+        ).report_action(docs)
+        action['close_on_report_download'] = True
+        return action
+
     def _som_drop_dead_move_refs_in_sels(self, sel_lines):
         """Anula referencias a moves/move lines que YA NO EXISTEN.
 
@@ -1105,20 +1113,7 @@ class SaleDeliveryWizard(models.TransientModel):
         if active_pt and active_pt.state == 'prepared':
             active_pt.write({'state': 'confirmed'})
 
-        action = {
-            'type': 'ir.actions.act_window',
-            'name': _('Remisiones'),
-            'res_model': 'sale.delivery.document',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', docs.ids)],
-            'target': 'current',
-        }
-        if len(docs) == 1:
-            action.update({
-                'view_mode': 'form',
-                'res_id': docs.id,
-            })
-        return action
+        return self._som_remission_report_action(docs)
 
     def _generate_remission_from_lines(self):
         order = self.sale_order_id
@@ -1161,20 +1156,7 @@ class SaleDeliveryWizard(models.TransientModel):
             doc.action_confirm()
             docs |= doc
 
-        action = {
-            'type': 'ir.actions.act_window',
-            'name': _('Remisiones'),
-            'res_model': 'sale.delivery.document',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', docs.ids)],
-            'target': 'current',
-        }
-        if len(docs) == 1:
-            action.update({
-                'view_mode': 'form',
-                'res_id': docs.id,
-            })
-        return action
+        return self._som_remission_report_action(docs)
 
 
 class SaleDeliveryWizardLine(models.TransientModel):

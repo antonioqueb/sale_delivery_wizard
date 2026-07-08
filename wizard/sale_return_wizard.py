@@ -538,6 +538,7 @@ class SaleReturnWizard(models.TransientModel):
                     ),
                     'type': 'success',
                     'sticky': True,
+                    'next': {'type': 'ir.actions.act_window_close'},
                 },
             }
 
@@ -551,6 +552,7 @@ class SaleReturnWizard(models.TransientModel):
                 ) % (len(docs), action_label),
                 'type': 'success',
                 'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
             },
         }
 
