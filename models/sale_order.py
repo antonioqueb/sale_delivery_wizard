@@ -574,6 +574,12 @@ class SaleOrder(models.Model):
 
         capped_groups = []
 
+        # Un LOTE FÍSICO solo puede ofrecerse UNA vez: en flujos de 2 pasos el
+        # mismo lote aparece con move lines en el PICK y también en el OUT, y
+        # el wizard lo listaba duplicado (10 placas → 13 líneas). Se conserva
+        # la primera aparición y se descartan las repetidas de otros pickings.
+        seen_lots = set()
+
         for group in groups:
             new_lines = []
 
@@ -581,6 +587,12 @@ class SaleOrder(models.Model):
                 avail = ld.get('qtyAvailable', 0.0) or 0.0
                 if avail <= tolerance:
                     continue
+
+                lot_key = (ld.get('productId') or 0, ld.get('lotId') or 0)
+                if lot_key[1]:
+                    if lot_key in seen_lots:
+                        continue
+                    seen_lots.add(lot_key)
 
                 slid = ld.get('saleLineId') or 0
                 pid = ld.get('productId') or 0
