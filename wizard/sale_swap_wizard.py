@@ -83,8 +83,80 @@ class SaleSwapWizard(models.TransientModel):
                         'origin_grosor': str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else '',
                     }))
 
+        # ── Fallback: placas asignadas SIN reserva nativa ──
+        # El guard de Torre de Control omite el FIFO para líneas con lotes
+        # manuales, así que los moves pendientes pueden no tener move lines;
+        # esas placas siguen pendientes de entrega y deben ser swapeables.
+        seen = {
+            (cmd[2]['product_id'], cmd[2]['origin_lot_id'])
+            for cmd in raw_lines
+        }
+
+        delivered_lot_ids = set()
+        for picking in order.picking_ids:
+            if picking.state != 'done' or picking.picking_type_code != 'outgoing':
+                continue
+            for ml in picking.move_line_ids:
+                if ml.lot_id:
+                    delivered_lot_ids.add(ml.lot_id.id)
+
+        for sol in order.order_line:
+            if not sol.lot_ids:
+                continue
+
+            live_moves = sol.move_ids.filtered(
+                lambda m: m.state in (
+                    'assigned', 'confirmed', 'waiting', 'partially_available')
+                and m.picking_id
+                and m.picking_id.state in ('assigned', 'confirmed', 'waiting')
+                and m.picking_id.picking_type_code in ('internal', 'outgoing')
+            )
+            if not live_moves:
+                continue
+
+            ref_move = live_moves.sorted(
+                lambda m: (
+                    0 if m.picking_id.picking_type_code == 'internal' else 1,
+                    m.id,
+                )
+            )[0]
+
+            for lot in sol.lot_ids:
+                key = (sol.product_id.id, lot.id)
+                if key in seen or lot.id in delivered_lot_ids:
+                    continue
+                seen.add(key)
+
+                raw_lines.append((0, 0, {
+                    'product_id': sol.product_id.id,
+                    'origin_lot_id': lot.id,
+                    'move_line_id': False,
+                    'picking_id': ref_move.picking_id.id,
+                    'sale_line_id': sol.id,
+                    'qty': self._som_lot_free_qty(lot, sol.product_id),
+                    'origin_bloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
+                    'origin_atado': lot.x_atado or '' if hasattr(lot, 'x_atado') else '',
+                    'origin_alto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
+                    'origin_ancho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
+                    'origin_grosor': str(lot.x_grosor) if hasattr(lot, 'x_grosor') and lot.x_grosor else '',
+                }))
+
         res['line_ids'] = self._group_lines_by_product(raw_lines)
         return res
+
+    @api.model
+    def _som_lot_free_qty(self, lot, product):
+        quants = self.env['stock.quant'].search([
+            ('lot_id', '=', lot.id),
+            ('product_id', '=', product.id),
+            ('location_id.usage', '=', 'internal'),
+        ])
+        qty = sum(q.quantity or 0.0 for q in quants)
+        if qty:
+            return qty
+        alto = getattr(lot, 'x_alto', 0.0) or 0.0
+        ancho = getattr(lot, 'x_ancho', 0.0) or 0.0
+        return round(alto * ancho, 4) if alto and ancho else 0.0
 
     def _group_lines_by_product(self, raw_lines):
         grouped = OrderedDict()
@@ -329,12 +401,16 @@ class SaleSwapWizard(models.TransientModel):
             target_lot_id = int(item.get('targetLotId') or 0)
             move_line_id = int(item.get('moveLineId') or 0)
 
-            if not target_lot_id or not move_line_id:
+            if not target_lot_id:
                 continue
 
-            move_line = self.env['stock.move.line'].browse(move_line_id)
-            if not move_line.exists():
-                continue
+            move_line = (
+                self.env['stock.move.line'].browse(move_line_id)
+                if move_line_id else self.env['stock.move.line']
+            )
+            if move_line_id and not move_line.exists():
+                # La reserva pudo recrearse; se resuelve/crea al confirmar.
+                move_line = self.env['stock.move.line']
 
             target_lot = self.env['stock.lot'].browse(target_lot_id)
             if not target_lot.exists():
@@ -346,6 +422,8 @@ class SaleSwapWizard(models.TransientModel):
                 if origin_lot_id
                 else move_line.lot_id
             )
+            if not origin_lot:
+                continue
 
             product_id = int(item.get('productId') or 0)
             product = (
@@ -394,7 +472,7 @@ class SaleSwapWizard(models.TransientModel):
         for line in lines:
             move_line = line.move_line_id
 
-            if not move_line:
+            if not move_line and not line.origin_lot_id:
                 continue
 
             result.append({
@@ -652,23 +730,98 @@ class SaleSwapWizard(models.TransientModel):
             move.product_uom_qty = total_qty
 
     def _update_sale_line_lots_after_swap(self, sale_line, origin_lot, target_lot):
+        """Reemplaza origen→destino en sale_line.lot_ids de forma quirúrgica.
+
+        Antes esto era un NO-OP que confiaba en el sync ML→SO de
+        sale_stone_selection; ese sync ya NO puede agregar lotes (regla anti
+        auto-asignación), así que el swap — que SÍ es una decisión explícita
+        del vendedor — escribe el cambio directamente. Se usan comandos (3)/(4)
+        (nunca un reemplazo total) y skip_stone_sync_picking para no disparar
+        el sync inverso SO→Picking que reinyectaba lotes residuales.
         """
-        NO-OP intencional.
+        if not sale_line or not sale_line.exists():
+            return
 
-        sale_stone_selection ya sincroniza sale_line.lot_ids automáticamente
-        cuando cambia el move_line (ver [STONE SYNC] Sincronizando movimientos
-        hacia SO en stock_move_line.py de ese módulo).
+        commands = []
+        if origin_lot and origin_lot in sale_line.lot_ids:
+            commands.append((3, origin_lot.id))
+        if target_lot and target_lot not in sale_line.lot_ids:
+            commands.append((4, target_lot.id))
 
-        Si escribimos aquí sobre sale_line.lot_ids, disparamos el sync inverso
-        (SO → Picking) que ve lotes residuales históricos en la lista y trata
-        de "rellenar" el picking agregando lotes que NO estaban en la selección
-        original del swap. Esos lotes acaban inyectados al picking y aparecen
-        sorpresivamente al momento de entregar.
+        if commands:
+            sale_line.with_context(
+                skip_stone_sync_picking=True,
+                skip_stone_sync_so=True,
+            ).write({'lot_ids': commands})
 
-        El picking (move_line) es la fuente de verdad después del swap. La
-        propagación al SO se hace sola.
+    def _som_create_origin_move_line(self, sale_line, product, origin_lot, qty):
+        """Crea la move line del lote origen cuando no existe reserva nativa.
+
+        El guard de Torre de Control omite el FIFO para líneas con lotes
+        manuales, así que los moves pendientes pueden estar sin move lines.
+        Mismo mecanismo explícito que usa el wizard de entregas.
         """
-        return
+        if not sale_line or not sale_line.exists():
+            raise UserError(_(
+                'La placa %s no tiene línea de venta asociada; no se puede '
+                'preparar el swap.'
+            ) % (origin_lot.name if origin_lot else 'S/L'))
+
+        moves = sale_line.move_ids.filtered(
+            lambda m: m.state in (
+                'assigned', 'confirmed', 'waiting', 'partially_available')
+            and m.product_id == product
+            and m.picking_id
+            and m.picking_id.state in ('assigned', 'confirmed', 'waiting')
+            and m.picking_id.picking_type_code in ('internal', 'outgoing')
+        ).sorted(
+            lambda m: (
+                0 if m.picking_id.picking_type_code == 'internal' else 1,
+                m.id,
+            )
+        )
+        if not moves:
+            raise UserError(_(
+                'No hay operación pendiente donde ejecutar el swap del lote %s.'
+            ) % (origin_lot.name if origin_lot else 'S/L'))
+
+        move = moves[0]
+
+        origin_quant = self._find_available_target_quant(origin_lot, product)
+        location = origin_quant.location_id if origin_quant else move.location_id
+
+        if not qty:
+            qty = (
+                self._safe_quant_available_qty(origin_quant)
+                if origin_quant else 0.0
+            ) or self._som_lot_free_qty(origin_lot, product)
+
+        MoveLine = self.env['stock.move.line']
+        vals = {
+            'move_id': move.id,
+            'picking_id': move.picking_id.id,
+            'product_id': product.id,
+            'product_uom_id': move.product_uom.id,
+            'lot_id': origin_lot.id,
+            'location_id': location.id,
+            'location_dest_id': move.location_dest_id.id,
+            'company_id': move.company_id.id,
+        }
+        if 'quantity' in MoveLine._fields:
+            vals['quantity'] = qty or 0.0
+        elif 'reserved_uom_qty' in MoveLine._fields:
+            vals['reserved_uom_qty'] = qty or 0.0
+
+        move_line = MoveLine.create(vals)
+
+        _logger.info(
+            '[SWAP] Move line origen creada explícitamente: picking=%s '
+            'lote=%s qty=%s (línea sin reserva nativa).',
+            move.picking_id.name,
+            origin_lot.name if origin_lot else 'S/L',
+            qty,
+        )
+        return move_line
 
     def action_confirm_swap(self):
         """
@@ -682,6 +835,11 @@ class SaleSwapWizard(models.TransientModel):
           sale_stone_selection automáticamente al detectar cambio de move_line).
         """
         self.ensure_one()
+
+        # Silenciar el sync ML→SO durante el swap: la propagación a
+        # sale_line.lot_ids se hace de forma quirúrgica por línea (el sync ya
+        # no puede AGREGAR lotes por la regla anti auto-asignación).
+        self = self.with_context(skip_stone_sync_so=True)
 
         lines_with_target = self._get_swap_lines_from_widget_selections()
 
@@ -707,9 +865,11 @@ class SaleSwapWizard(models.TransientModel):
             original_qty = data.get('qty') or 0.0
 
             if not move_line or not move_line.exists():
-                raise UserError(_(
-                    'No se encontró la línea de movimiento pendiente para ejecutar el swap.'
-                ))
+                move_line = self._som_create_origin_move_line(
+                    sale_line, product, origin_lot, original_qty)
+                data['move_line'] = move_line
+                if not original_qty:
+                    original_qty = self._get_move_line_qty(move_line)
 
             move = move_line.move_id
             move_state = move.state if move else False
@@ -829,10 +989,8 @@ class SaleSwapWizard(models.TransientModel):
                 sale_line=sale_line,
             )
 
-            # NOTA: NO llamamos a _update_sale_line_lots_after_swap aquí.
-            # sale_stone_selection ya propaga el cambio del move_line hacia
-            # sale_line.lot_ids automáticamente. Llamarlo dispara el sync
-            # inverso SO→Picking que reinyecta lotes residuales históricos.
+            self._update_sale_line_lots_after_swap(
+                sale_line, origin_lot, target_lot)
 
             self.sale_order_id.message_post(body=_(
                 'Swap ejecutado: %s → %s en picking %s. '
