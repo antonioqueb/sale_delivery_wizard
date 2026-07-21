@@ -288,8 +288,9 @@ class SaleSwapWizard(models.TransientModel):
             # del MISMO cliente del pedido sí es intercambiable.
             if getattr(quant, 'x_tiene_hold', False):
                 hold = getattr(quant, 'x_hold_activo_id', False)
-                if hold and hold.partner_id and order_partner \
-                        and hold.partner_id != order_partner:
+                if (hold and hold.partner_id and order_partner
+                        and hold.partner_id.commercial_partner_id
+                        != order_partner.commercial_partner_id):
                     continue
             return quant
 
