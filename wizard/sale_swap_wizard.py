@@ -279,9 +279,19 @@ class SaleSwapWizard(models.TransientModel):
             ('quantity', '>', 0),
         ], order='quantity desc, id asc')
 
+        order_partner = self.sale_order_id.partner_id if self.sale_order_id else False
+
         for quant in quants:
-            if self._safe_quant_available_qty(quant) > 0:
-                return quant
+            if self._safe_quant_available_qty(quant) <= 0:
+                continue
+            # Lote apartado para OTRO cliente: invisible para el swap. Un hold
+            # del MISMO cliente del pedido sí es intercambiable.
+            if getattr(quant, 'x_tiene_hold', False):
+                hold = getattr(quant, 'x_hold_activo_id', False)
+                if hold and hold.partner_id and order_partner \
+                        and hold.partner_id != order_partner:
+                    continue
+            return quant
 
         return Quant.browse()
 
