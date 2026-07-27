@@ -378,7 +378,10 @@ export class DeliveryGroupedList extends Component {
 
         for (const group of this.state.groups) {
             const key = this._groupKey(group);
-            next[key] = this.state.collapsed[key] || false;
+            // Los grupos NUEVOS inician COLAPSADOS: el usuario abre solo el
+            // que le interesa (o usa "Expandir todo"). Los que ya abrió/cerró
+            // a mano conservan su estado durante la sesión del wizard.
+            next[key] = key in this.state.collapsed ? this.state.collapsed[key] : true;
         }
 
         this.state.collapsed = next;

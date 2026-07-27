@@ -44,6 +44,31 @@ class SaleDeliveryDocument(models.Model):
     special_instructions = fields.Text(string='Nota Interna')
     delivery_date = fields.Datetime(string='Fecha de Entrega')
 
+    vehicle_id = fields.Many2one(
+        'fleet.vehicle', string='Vehículo', copy=False,
+        help='Vehículo de la flota con el que salió esta entrega.')
+    vehicle_driver_id = fields.Many2one(
+        'res.partner', string='Chofer', copy=False,
+        help='Chofer del viaje (por defecto el del vehículo, editable).')
+    vehicle_capacity_sqm = fields.Float(
+        string='Capacidad del vehículo (m²)', digits=(12, 2), copy=False,
+        help='Snapshot de la capacidad al momento de la remisión: los '
+             'indicadores históricos de ocupación no cambian aunque después '
+             'se edite la capacidad del vehículo en flotas.')
+    vehicle_occupancy_percent = fields.Float(
+        string='Ocupación del vehículo (%)',
+        compute='_compute_vehicle_occupancy_percent',
+        digits=(5, 1),
+        help='m² entregados ÷ capacidad del vehículo. Indicador por viaje.')
+
+    @api.depends('total_qty', 'vehicle_capacity_sqm')
+    def _compute_vehicle_occupancy_percent(self):
+        for doc in self:
+            capacity = doc.vehicle_capacity_sqm or 0.0
+            doc.vehicle_occupancy_percent = (
+                (doc.total_qty / capacity) * 100.0 if capacity > 0 else 0.0
+            )
+
     signed_by = fields.Char(string='Firmado por')
     signature_image = fields.Binary(string='Firma', attachment=True)
 

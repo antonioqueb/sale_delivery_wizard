@@ -71,6 +71,10 @@
                             <field name="delivery_date"/>
                             <field name="delivery_address"/>
                             <field name="special_instructions"/>
+                            <field name="vehicle_id" options="{'no_create': True}"/>
+                            <field name="vehicle_driver_id" options="{'no_create': True}"/>
+                            <field name="vehicle_capacity_sqm" invisible="not vehicle_id"/>
+                            <field name="vehicle_occupancy_percent" invisible="not vehicle_id"/>
                             <field name="return_reason_id"
                                    invisible="document_type != 'return'"/>
                             <field name="return_action"

@@ -377,6 +377,13 @@
                                             <t t-esc="doc.delivery_address or '-'"/>
                                         </div>
                                     </div>
+                                    <div class="som-info-row" t-if="doc.vehicle_id">
+                                        <div class="som-info-label" style="width: 18%;">Vehículo</div>
+                                        <div class="som-info-value">
+                                            <t t-esc="doc.vehicle_id.display_name"/>
+                                            <t t-if="doc.vehicle_driver_id"> — Chofer: <t t-esc="doc.vehicle_driver_id.name"/></t>
+                                        </div>
+                                    </div>
                                     <div class="som-info-row">
                                         <div class="som-info-label" style="width: 18%;">Validación</div>
                                         <div class="som-info-value" style="font-weight: 400;">

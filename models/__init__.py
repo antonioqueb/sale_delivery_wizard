@@ -1,3 +1,4 @@
+from . import fleet_vehicle
 from . import sale_return_reason
 from . import sale_delivery_document
 from . import sale_delivery_document_line

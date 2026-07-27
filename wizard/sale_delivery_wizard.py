@@ -19,6 +19,30 @@ class SaleDeliveryWizard(models.TransientModel):
     delivery_address = fields.Text(string='Dirección de Entrega')
     special_instructions = fields.Text(string='Nota Interna')
 
+    vehicle_id = fields.Many2one(
+        'fleet.vehicle',
+        string='Vehículo',
+        help='Vehículo de la flota con el que sale esta entrega. Al elegirlo '
+             'se propone su chofer por defecto (editable).',
+    )
+    vehicle_driver_id = fields.Many2one(
+        'res.partner',
+        string='Chofer',
+        help='Chofer del viaje. Se llena con el chofer del vehículo, pero '
+             'puede cambiarse manualmente.',
+    )
+    vehicle_capacity_sqm = fields.Float(
+        related='vehicle_id.x_capacity_sqm',
+        string='Capacidad (m²)',
+        readonly=True,
+    )
+
+    @api.onchange('vehicle_id')
+    def _onchange_vehicle_id_set_driver(self):
+        for wizard in self:
+            if wizard.vehicle_id and wizard.vehicle_id.driver_id:
+                wizard.vehicle_driver_id = wizard.vehicle_id.driver_id
+
     wizard_state = fields.Selection([
         ('select_pt', 'Seleccionar Pick Ticket'),
         ('select', 'Selección'),
@@ -1092,6 +1116,9 @@ class SaleDeliveryWizard(models.TransientModel):
                 'picking_id': picking.id if picking else False,
                 'delivery_address': self.delivery_address,
                 'special_instructions': self.special_instructions,
+                'vehicle_id': self.vehicle_id.id or False,
+                'vehicle_driver_id': self.vehicle_driver_id.id or False,
+                'vehicle_capacity_sqm': self.vehicle_id.x_capacity_sqm if self.vehicle_id else 0.0,
                 'line_ids': [(0, 0, {
                     'sale_line_id': sel.get('saleLineId') or False,
                     'move_id': sel.get('moveId') or False,
@@ -1141,6 +1168,9 @@ class SaleDeliveryWizard(models.TransientModel):
                 'picking_id': picking.id if picking else False,
                 'delivery_address': self.delivery_address,
                 'special_instructions': self.special_instructions,
+                'vehicle_id': self.vehicle_id.id or False,
+                'vehicle_driver_id': self.vehicle_driver_id.id or False,
+                'vehicle_capacity_sqm': self.vehicle_id.x_capacity_sqm if self.vehicle_id else 0.0,
                 'line_ids': [(0, 0, {
                     'sale_line_id': line.sale_line_id.id,
                     'move_id': line.move_id.id if line.move_id.exists() else False,

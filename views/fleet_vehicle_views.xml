@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="fleet_vehicle_view_form_capacity" model="ir.ui.view">
+        <field name="name">fleet.vehicle.form.capacity.sqm</field>
+        <field name="model">fleet.vehicle</field>
+        <field name="inherit_id" ref="fleet.fleet_vehicle_view_form"/>
+        <field name="arch" type="xml">
+            <field name="driver_id" position="after">
+                <field name="x_capacity_sqm"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="fleet_vehicle_view_tree_capacity" model="ir.ui.view">
+        <field name="name">fleet.vehicle.list.capacity.sqm</field>
+        <field name="model">fleet.vehicle</field>
+        <field name="inherit_id" ref="fleet.fleet_vehicle_view_tree"/>
+        <field name="arch" type="xml">
+            <field name="driver_id" position="after">
+                <field name="x_capacity_sqm" optional="show"/>
+            </field>
+        </field>
+    </record>
+</odoo>

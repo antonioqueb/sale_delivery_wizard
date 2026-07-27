@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.2.6.0',
+    'version': '19.0.2.7.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -23,6 +23,8 @@
         'sale_stock',
         'sale_stone_selection',
         'stock_transit_allocation',
+        # fleet: capacidad m² por vehículo + vehículo/chofer en remisiones.
+        'fleet',
     ],
     'data': [
         'security/sale_delivery_groups.xml',
@@ -31,6 +33,7 @@
         'data/sale_return_reason_data.xml',
         'views/sale_order_views.xml',
         'views/sale_delivery_document_views.xml',
+        'views/fleet_vehicle_views.xml',
         'wizard/sale_delivery_wizard_views.xml',
         'wizard/sale_return_wizard_views.xml',
         'wizard/sale_swap_wizard_views.xml',

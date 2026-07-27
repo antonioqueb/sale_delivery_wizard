@@ -71,6 +71,12 @@
                             <field name="delivery_address"/>
                             <field name="special_instructions"
                                    placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
+                            <field name="vehicle_id" options="{'no_create': True}"/>
+                            <field name="vehicle_driver_id"
+                                   options="{'no_create': True}"
+                                   placeholder="Se propone el chofer del vehículo"/>
+                            <field name="vehicle_capacity_sqm"
+                                   invisible="not vehicle_id"/>
                         </group>
                     </group>
 
