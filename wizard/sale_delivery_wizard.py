@@ -36,6 +36,21 @@ class SaleDeliveryWizard(models.TransientModel):
         string='Capacidad (m²)',
         readonly=True,
     )
+    vehicle_occupancy_percent = fields.Float(
+        string='Ocupación',
+        compute='_compute_vehicle_occupancy_percent',
+        digits=(5, 1),
+        help='m² seleccionados ÷ capacidad del vehículo, en vivo mientras '
+             'seleccionas placas.',
+    )
+
+    @api.depends('total_selected', 'vehicle_id.x_capacity_sqm')
+    def _compute_vehicle_occupancy_percent(self):
+        for wizard in self:
+            capacity = wizard.vehicle_id.x_capacity_sqm if wizard.vehicle_id else 0.0
+            wizard.vehicle_occupancy_percent = (
+                (wizard.total_selected / capacity) * 100.0 if capacity > 0 else 0.0
+            )
 
     @api.onchange('vehicle_id')
     def _onchange_vehicle_id_set_driver(self):

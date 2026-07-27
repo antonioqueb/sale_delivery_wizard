@@ -320,3 +320,214 @@ $som-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
         border-radius: 0 $som-radius $som-radius 0;
     }
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// WIZARD WORKSPACE (rediseño 2026-07): contexto, pasos, bandas, tarjetas,
+// ocupación de vehículo y tiles de totales. Usa los tokens $som existentes.
+// ═══════════════════════════════════════════════════════════════════════════
+
+.sale_delivery_wizard_form {
+
+    .sdw-context {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 2px 0 12px;
+        border-bottom: 1px solid $som-border;
+        margin-bottom: 14px;
+
+        .sdw-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border: 1px solid $som-border-strong;
+            border-radius: $som-radius-pill;
+            background: $som-surface-raised;
+            font-weight: 600;
+            color: $som-ink-soft;
+
+            .fa { color: $som-ink-faint; }
+
+            &.sdw-chip-order {
+                background: $som-accent-soft;
+                border-color: $som-accent;
+                color: $som-accent-hover;
+                .fa { color: $som-accent; }
+            }
+        }
+
+        .sdw-steps {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: auto;
+
+            .sdw-step {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                font-weight: 600;
+                color: $som-ink-faint;
+
+                .sdw-step-n {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    border: 1.5px solid $som-border-strong;
+                    font-size: 11px;
+                }
+
+                &.sdw-step-active {
+                    color: $som-accent-hover;
+                    .sdw-step-n {
+                        background: $som-accent;
+                        border-color: $som-accent;
+                        color: #fff;
+                    }
+                }
+
+                &.sdw-step-done {
+                    color: $som-success;
+                    .fa { font-size: 12px; }
+                }
+            }
+
+            .sdw-step-sep { color: $som-border-strong; }
+        }
+    }
+
+    .sdw-band {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-radius: $som-radius;
+        margin-bottom: 12px;
+        border: 1px solid transparent;
+
+        > .fa { font-size: 18px; }
+
+        .sdw-band-title { font-weight: 700; line-height: 1.25; }
+        .sdw-band-desc { font-size: 12px; opacity: 0.8; }
+        .sdw-band-action { margin-left: auto; white-space: nowrap; }
+
+        &.sdw-band-info {
+            background: $som-accent-soft;
+            border-color: rgba(37, 99, 235, 0.25);
+            color: $som-accent-hover;
+        }
+        &.sdw-band-ok {
+            background: $som-success-soft;
+            border-color: rgba(5, 150, 105, 0.25);
+            color: $som-success;
+        }
+        &.sdw-band-warn {
+            background: $som-warn-soft;
+            border-color: rgba(217, 119, 6, 0.3);
+            color: $som-warn;
+        }
+    }
+
+    .sdw-card {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        padding: 14px 16px;
+        border: 1px solid $som-border;
+        border-radius: $som-radius-lg;
+        background: $som-surface;
+        box-shadow: $som-shadow-sm;
+        margin-bottom: 14px;
+
+        .sdw-card-col {
+            flex: 1 1 320px;
+            min-width: 280px;
+        }
+
+        .sdw-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+            color: $som-ink-muted;
+            margin-bottom: 10px;
+
+            .fa { color: $som-accent; }
+        }
+
+        .sdw-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: $som-ink-soft;
+            margin: 8px 0 2px;
+        }
+
+        textarea { min-height: 44px; }
+    }
+
+    .sdw-occupancy {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px dashed $som-border-strong;
+        border-radius: $som-radius;
+        background: $som-surface-raised;
+
+        .sdw-occupancy-head {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: 600;
+            color: $som-ink-soft;
+            margin-bottom: 6px;
+
+            .sdw-occupancy-cap { color: $som-ink-muted; font-weight: 500; }
+        }
+    }
+
+    .sdw-tiles {
+        display: flex;
+        gap: 12px;
+        margin-top: 14px;
+
+        .sdw-tile {
+            flex: 0 1 220px;
+            padding: 10px 16px;
+            border: 1px solid $som-border;
+            border-radius: $som-radius;
+            background: $som-surface-raised;
+
+            .sdw-tile-label {
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                color: $som-ink-muted;
+            }
+
+            .sdw-tile-value {
+                font-size: 20px;
+                font-weight: 700;
+                color: $som-ink;
+
+                .sdw-tile-unit { font-size: 12px; color: $som-ink-muted; font-weight: 600; }
+            }
+
+            &.sdw-tile-primary {
+                background: $som-accent-soft;
+                border-color: rgba(37, 99, 235, 0.3);
+
+                .sdw-tile-label { color: $som-accent-hover; }
+                .sdw-tile-value { color: $som-accent-hover; }
+            }
+        }
+    }
+}

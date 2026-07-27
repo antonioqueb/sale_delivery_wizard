@@ -14,25 +14,57 @@
                 <field name="pt_count" invisible="1"/>
 
                 <!-- ══════════════════════════════════════════════════════
+                     CONTEXTO: pedido + cliente (siempre visible)
+                     ══════════════════════════════════════════════════════ -->
+                <div class="sdw-context">
+                    <span class="sdw-chip sdw-chip-order">
+                        <i class="fa fa-file-text-o" title="Pedido"/>
+                        <field name="sale_order_id" readonly="1" options="{'no_open': True}"/>
+                    </span>
+                    <span class="sdw-chip">
+                        <i class="fa fa-user-o" title="Cliente"/>
+                        <field name="partner_id" readonly="1" options="{'no_open': True}"/>
+                    </span>
+
+                    <!-- Pasos del flujo (solo en modo entrega) -->
+                    <div class="sdw-steps" invisible="wizard_state == 'select_pt'">
+                        <span class="sdw-step sdw-step-active"
+                              invisible="wizard_state != 'select' and not is_editing">
+                            <span class="sdw-step-n">1</span> Selección de placas
+                        </span>
+                        <span class="sdw-step sdw-step-done"
+                              invisible="wizard_state == 'select' or is_editing">
+                            <i class="fa fa-check" title="Completado"/> Selección de placas
+                        </span>
+                        <i class="fa fa-angle-right sdw-step-sep" title="Siguiente paso"/>
+                        <span class="sdw-step sdw-step-active"
+                              invisible="wizard_state != 'pick_ticket' or is_editing">
+                            <span class="sdw-step-n">2</span> Pick Ticket
+                        </span>
+                        <span class="sdw-step"
+                              invisible="wizard_state == 'pick_ticket' and not is_editing">
+                            <span class="sdw-step-n">2</span> Pick Ticket
+                        </span>
+                        <i class="fa fa-angle-right sdw-step-sep" title="Siguiente paso"/>
+                        <span class="sdw-step">
+                            <span class="sdw-step-n">3</span> Remisión
+                        </span>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════════════════════════════
                      MODO A: SELECCIÓN DE PICK TICKET (2+ PTs abiertos)
                      ══════════════════════════════════════════════════════ -->
                 <div invisible="wizard_state != 'select_pt'">
-                    <div class="alert alert-info mb-3" role="alert">
-                        <i class="fa fa-info-circle me-2" title="Información"/>
-                        <strong>
-                            Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s).
-                        </strong>
-                        Haga click sobre el que desea editar, o cree uno nuevo.
+                    <div class="sdw-band sdw-band-info">
+                        <i class="fa fa-clone" title="Pick Tickets"/>
+                        <div>
+                            <div class="sdw-band-title">
+                                Este pedido tiene <field name="pt_count" readonly="1" class="d-inline"/> Pick Ticket(s) abierto(s)
+                            </div>
+                            <div class="sdw-band-desc">Haz click sobre el que quieras editar, o crea uno nuevo.</div>
+                        </div>
                     </div>
-
-                    <group>
-                        <group>
-                            <field name="sale_order_id" readonly="1"/>
-                            <field name="partner_id" readonly="1"/>
-                        </group>
-                    </group>
-
-                    <separator string="Pick Tickets Abiertos"/>
 
                     <field name="open_pt_ids"
                            widget="pt_selector_cards"
@@ -43,55 +75,90 @@
                      MODO B: ENTREGA (selección de placas / edición de PT)
                      ══════════════════════════════════════════════════════ -->
                 <div invisible="wizard_state == 'select_pt'">
-                    <div class="alert alert-warning p-2 mb-2 text-center" role="alert"
-                         invisible="not is_editing">
-                        <i class="fa fa-pencil me-1" title="Editando"/>
-                        <strong>Editando Pick Ticket:</strong>
-                        <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
-                        — Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.
+
+                    <div class="sdw-band sdw-band-warn" invisible="not is_editing">
+                        <i class="fa fa-pencil" title="Editando"/>
+                        <div>
+                            <div class="sdw-band-title">
+                                Editando <field name="editing_pick_ticket_id" readonly="1" class="d-inline"/>
+                            </div>
+                            <div class="sdw-band-desc">Los cambios sobrescribirán este Pick Ticket sin crear uno nuevo.</div>
+                        </div>
                         <button name="action_back_to_pt_selector"
                             type="object" string="← Regresar al selector"
-                            class="btn btn-link btn-sm ms-2"
+                            class="btn btn-link btn-sm sdw-band-action"
                             invisible="pt_count &lt; 1"/>
                     </div>
 
-                    <div class="alert alert-info p-2 mb-2 text-center" role="status"
-                         invisible="is_editing or wizard_state != 'pick_ticket'">
-                        <strong>Pick Ticket activo:</strong>
-                        <field name="pick_ticket_id" readonly="1" class="d-inline"/>
-                        — La remisión se generará con base en este Pick Ticket.
+                    <div class="sdw-band sdw-band-ok" invisible="is_editing or wizard_state != 'pick_ticket'">
+                        <i class="fa fa-check-circle" title="Pick Ticket activo"/>
+                        <div>
+                            <div class="sdw-band-title">
+                                Pick Ticket activo: <field name="pick_ticket_id" readonly="1" class="d-inline"/>
+                            </div>
+                            <div class="sdw-band-desc">La remisión se generará con base en este Pick Ticket.</div>
+                        </div>
                     </div>
 
-                    <group>
-                        <group>
-                            <field name="sale_order_id" readonly="1"/>
-                            <field name="partner_id" readonly="1"/>
-                        </group>
-                        <group>
-                            <field name="delivery_address"/>
+                    <!-- Tarjeta: Entrega + Transporte -->
+                    <div class="sdw-card">
+                        <div class="sdw-card-col">
+                            <div class="sdw-card-title">
+                                <i class="fa fa-map-marker" title="Entrega"/> Entrega
+                            </div>
+                            <label for="delivery_address" class="sdw-label"/>
+                            <field name="delivery_address" placeholder="Dirección de entrega"/>
+                            <label for="special_instructions" class="sdw-label"/>
                             <field name="special_instructions"
                                    placeholder="Ej: Entrada por puerta trasera, puerta roja"/>
-                            <field name="vehicle_id" options="{'no_create': True}"/>
+                        </div>
+                        <div class="sdw-card-col">
+                            <div class="sdw-card-title">
+                                <i class="fa fa-truck" title="Transporte"/> Transporte
+                            </div>
+                            <label for="vehicle_id" class="sdw-label"/>
+                            <field name="vehicle_id" options="{'no_create': True}"
+                                   placeholder="Selecciona el vehículo del viaje"/>
+                            <label for="vehicle_driver_id" class="sdw-label"/>
                             <field name="vehicle_driver_id"
                                    options="{'no_create': True}"
                                    placeholder="Se propone el chofer del vehículo"/>
-                            <field name="vehicle_capacity_sqm"
-                                   invisible="not vehicle_id"/>
-                        </group>
-                    </group>
+                            <div class="sdw-occupancy" invisible="not vehicle_id">
+                                <div class="sdw-occupancy-head">
+                                    <span>Ocupación del vehículo</span>
+                                    <span class="sdw-occupancy-cap">
+                                        Capacidad: <field name="vehicle_capacity_sqm" readonly="1" class="d-inline"/> m²
+                                    </span>
+                                </div>
+                                <field name="vehicle_occupancy_percent"
+                                       widget="progressbar"
+                                       nolabel="1"/>
+                            </div>
+                        </div>
+                    </div>
 
+                    <!-- Selector de placas (componente propio, intacto) -->
                     <field name="line_ids" widget="delivery_grouped_list" nolabel="1"/>
 
-                    <group>
-                        <group>
-                            <field name="total_selected" string="Total a Entregar"/>
-                            <field name="total_available" string="Total Disponible"/>
-                        </group>
-                    </group>
+                    <!-- Totales -->
+                    <div class="sdw-tiles">
+                        <div class="sdw-tile sdw-tile-primary">
+                            <div class="sdw-tile-label">Total a entregar</div>
+                            <div class="sdw-tile-value">
+                                <field name="total_selected" readonly="1"/> <span class="sdw-tile-unit">m²</span>
+                            </div>
+                        </div>
+                        <div class="sdw-tile">
+                            <div class="sdw-tile-label">Total disponible</div>
+                            <div class="sdw-tile-value">
+                                <field name="total_available" readonly="1"/> <span class="sdw-tile-unit">m²</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ══════════════════════════════════════════════════════
-                     FOOTER
+                     FOOTER (misma lógica de siempre, reordenado)
                      ══════════════════════════════════════════════════════ -->
                 <footer>
                     <!-- MODO SELECTOR: solo crear nuevo (el click en card abre) -->
@@ -99,6 +166,12 @@
                             string="➕ Crear Pick Ticket Nuevo"
                             type="object" class="btn-primary"
                             invisible="wizard_state != 'select_pt'"/>
+
+                    <!-- Secundarios a la izquierda -->
+                    <button name="action_print_pick_ticket"
+                            string="🖨 Imprimir Pick Ticket"
+                            type="object" class="btn-secondary me-auto"
+                            invisible="wizard_state == 'select_pt' or (wizard_state == 'select' and not is_editing)"/>
 
                     <!-- MODO ENTREGA: botones de PT / remisión -->
                     <button name="action_generate_pick_ticket"
@@ -116,11 +189,6 @@
                             type="object" class="btn-secondary"
                             invisible="wizard_state != 'pick_ticket' or is_editing"
                             confirm="Se actualizará el Pick Ticket actual con la selección actual. ¿Continuar?"/>
-
-                    <button name="action_print_pick_ticket"
-                            string="Imprimir Pick Ticket"
-                            type="object" class="btn-secondary"
-                            invisible="wizard_state == 'select_pt' or (wizard_state == 'select' and not is_editing)"/>
 
                     <!-- Solo visible con un Pick Ticket activo: sin PT no hay
                          remisión (el servidor también lo bloquea). -->
