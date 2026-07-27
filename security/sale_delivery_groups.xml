@@ -1,20 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="module_category_delivery_som" model="ir.module.category">
+        <field name="name">Entregas SOM</field>
+        <field name="description">Gestión y autorización de entregas SOM.</field>
+        <field name="sequence">87</field>
+    </record>
+
+    <!-- Selector 1: nivel operativo (Usuario → Autorizador → Gerente). -->
+    <record id="privilege_delivery_som" model="res.groups.privilege">
+        <field name="name">Entregas</field>
+        <field name="category_id" ref="module_category_delivery_som"/>
+        <field name="sequence">10</field>
+    </record>
+
+    <!-- Selector 2: chofer (solo lectura), independiente del nivel operativo. -->
+    <record id="privilege_delivery_driver" model="res.groups.privilege">
+        <field name="name">Chofer</field>
+        <field name="category_id" ref="module_category_delivery_som"/>
+        <field name="sequence">20</field>
+    </record>
+
+    <!-- El prefijo "Entregas SOM /" en los nombres ya no hace falta: la
+         sección del selector da el contexto. Los XML ids no cambian. -->
     <record id="group_delivery_user" model="res.groups">
-        <field name="name">Entregas SOM / Usuario de Entregas</field>
+        <field name="name">Usuario de Entregas</field>
+        <field name="privilege_id" ref="privilege_delivery_som"/>
     </record>
 
     <record id="group_delivery_authorizer" model="res.groups">
-        <field name="name">Entregas SOM / Autorizador de Entregas</field>
+        <field name="name">Autorizador de Entregas</field>
+        <field name="privilege_id" ref="privilege_delivery_som"/>
         <field name="implied_ids" eval="[(4, ref('group_delivery_user'))]"/>
     </record>
 
     <record id="group_delivery_manager" model="res.groups">
-        <field name="name">Entregas SOM / Gerente de Entregas</field>
+        <field name="name">Gerente de Entregas</field>
+        <field name="privilege_id" ref="privilege_delivery_som"/>
         <field name="implied_ids" eval="[(4, ref('group_delivery_authorizer'))]"/>
     </record>
 
     <record id="group_delivery_driver" model="res.groups">
-        <field name="name">Entregas SOM / Chofer (Solo Lectura)</field>
+        <field name="name">Chofer (Solo Lectura)</field>
+        <field name="privilege_id" ref="privilege_delivery_driver"/>
     </record>
 </odoo>
