@@ -195,21 +195,6 @@ class SaleOrder(models.Model):
             lines._ensure_origin_demand_snapshot(source=source)
         return True
 
-    @api.depends(
-        'order_line.product_uom_qty',
-        'order_line.qty_delivered',
-        'order_line.x_returned_qty',
-        'order_line.x_delivered_net_qty',
-        'order_line.x_origin_demand_qty',
-        'order_line.x_origin_demand_locked',
-        'order_line.x_overdelivered_origin_qty',
-        'delivery_document_ids.state',
-        'delivery_document_ids.document_type',
-        'delivery_document_ids.return_picking_id.state',
-        'delivery_document_ids.line_ids.qty_selected',
-        'delivery_document_ids.line_ids.qty_done',
-        'delivery_document_ids.line_ids.qty_returned',
-    )
     @api.model
     def _som_line_unit_group(self, line):
         """Grupo de unidad de la línea: 'sqm' (m²) o 'units' (piezas).
@@ -244,6 +229,21 @@ class SaleOrder(models.Model):
         # horizontal '100 m² | 8 pzas' parecía una equivalencia).
         return '\n'.join(parts) or zero
 
+    @api.depends(
+        'order_line.product_uom_qty',
+        'order_line.qty_delivered',
+        'order_line.x_returned_qty',
+        'order_line.x_delivered_net_qty',
+        'order_line.x_origin_demand_qty',
+        'order_line.x_origin_demand_locked',
+        'order_line.x_overdelivered_origin_qty',
+        'delivery_document_ids.state',
+        'delivery_document_ids.document_type',
+        'delivery_document_ids.return_picking_id.state',
+        'delivery_document_ids.line_ids.qty_selected',
+        'delivery_document_ids.line_ids.qty_done',
+        'delivery_document_ids.line_ids.qty_returned',
+    )
     def _compute_delivery_summary(self):
         for order in self:
             lines = order.order_line.filtered(
