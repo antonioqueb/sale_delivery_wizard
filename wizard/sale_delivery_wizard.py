@@ -912,6 +912,17 @@ class SaleDeliveryWizard(models.TransientModel):
 
         active_pt = self.editing_pick_ticket_id or self.pick_ticket_id
 
+        # REGLA DE NEGOCIO: sin Pick Ticket no hay remisión. El PT es el
+        # documento con el que el almacén recolecta el material; permitir la
+        # remisión directa saltaba ese control operativo (los fallbacks de
+        # abajo generaban remisiones sin PT).
+        if not active_pt or active_pt.state == 'cancelled':
+            raise UserError(_(
+                'No puedes generar una remisión sin Pick Ticket.\n\n'
+                'Genera primero el Pick Ticket (con él recolecta el almacén) '
+                'y después la remisión.'
+            ))
+
         if (active_pt
                 and active_pt.state == 'prepared'
                 and active_pt.line_ids):

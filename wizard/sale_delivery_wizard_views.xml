@@ -122,10 +122,12 @@
                             type="object" class="btn-secondary"
                             invisible="wizard_state == 'select_pt' or (wizard_state == 'select' and not is_editing)"/>
 
+                    <!-- Solo visible con un Pick Ticket activo: sin PT no hay
+                         remisión (el servidor también lo bloquea). -->
                     <button name="action_generate_remission"
                             string="Generar Remisión"
                             type="object" class="btn-primary"
-                            invisible="wizard_state == 'select_pt'"/>
+                            invisible="wizard_state == 'select_pt' or (not pick_ticket_id and not editing_pick_ticket_id)"/>
 
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
