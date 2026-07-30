@@ -38,6 +38,9 @@ class SaleDeliveryDocument(models.Model):
         domain=[('document_type', '=', 'pick_ticket')],
     )
     signed_at = fields.Datetime(string='Firmado el', readonly=True, copy=False)
+    delivered_by = fields.Char(string='Entregó (nombre)', copy=False)
+    delivered_signature_image = fields.Binary(
+        string='Firma de quien entrega', attachment=True, copy=False)
     signed_latitude = fields.Float(string='Latitud de Firma', digits=(10, 7), readonly=True, copy=False)
     signed_longitude = fields.Float(string='Longitud de Firma', digits=(10, 7), readonly=True, copy=False)
 
@@ -198,9 +201,16 @@ class SaleDeliveryDocument(models.Model):
         vals = {}
         signed = bool(payload.get('signature'))
         if signed:
+            # Garantía: la entrega firmada requiere AMBAS firmas
+            if not payload.get('delivery_signature'):
+                raise UserError(_(
+                    'Falta la firma de quien ENTREGA. Ambas firmas son '
+                    'obligatorias para cerrar la entrega.'))
             vals.update({
                 'signature_image': payload['signature'],
                 'signed_by': payload.get('signed_by') or '',
+                'delivered_signature_image': payload['delivery_signature'],
+                'delivered_by': payload.get('delivered_by') or '',
                 'signed_at': fields.Datetime.now(),
                 'signed_latitude': payload.get('latitude') or 0.0,
                 'signed_longitude': payload.get('longitude') or 0.0,
@@ -248,9 +258,17 @@ class SaleDeliveryDocument(models.Model):
                 raise_if_not_found=False)
             if not template:
                 return False
-            template.send_mail(self.id, force_send=True)
+            # La evidencia fotográfica de la entrega viaja en el correo
+            # junto con la remisión firmada en PDF
+            email_values = {}
+            if self.attachment_ids:
+                email_values['attachment_ids'] = [(6, 0, self.attachment_ids.ids)]
+            template.send_mail(self.id, force_send=True,
+                               email_values=email_values or None)
             self.message_post(body=_(
-                'Remisión firmada enviada por correo a %s.') % partner.email)
+                'Remisión firmada enviada por correo a %(mail)s '
+                '(con %(n)d fotos de evidencia).') % {
+                'mail': partner.email, 'n': len(self.attachment_ids)})
             return True
         except Exception as e:
             _logger.warning('Correo de remisión firmada falló (%s): %s',

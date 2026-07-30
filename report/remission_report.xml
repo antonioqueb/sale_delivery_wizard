@@ -411,35 +411,34 @@
                         <!-- FIRMAS -->
                         <!-- ===================================================== -->
                         <div class="row mt-3 som-avoid-break">
-                            <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #222; margin-top: 38px; padding-top: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase;">
+                            <!-- Títulos SIEMPRE fijos arriba; la firma va DEBAJO -->
+                            <div class="col-6 text-center">
+                                <div style="border-top: 1px solid #222; margin-top: 30px; padding-top: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase;">
                                     Entregó
                                 </div>
                                 <div class="som-small som-muted">
-                                    Nombre y firma
+                                    <t t-esc="doc.delivered_by or 'Nombre y firma'"/>
+                                </div>
+                                <div style="height: 52px; margin-top: 4px;">
+                                    <t t-if="doc.delivered_signature_image">
+                                        <img t-att-src="image_data_uri(doc.delivered_signature_image)"
+                                             style="max-height: 50px; max-width: 190px;"/>
+                                    </t>
                                 </div>
                             </div>
 
-                            <div class="col-4 text-center">
-                                <div style="border-top: 1px solid #222; margin-top: 38px; padding-top: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase;">
-                                    Transportó
-                                </div>
-                                <div class="som-small som-muted">
-                                    Nombre y firma
-                                </div>
-                            </div>
-
-                            <div class="col-4 text-center">
-                                <t t-if="doc.signature_image">
-                                    <img t-att-src="image_data_uri(doc.signature_image)"
-                                         style="max-height: 46px; max-width: 170px; margin-bottom: 4px;"/>
-                                    <br/>
-                                </t>
-                                <div style="border-top: 1px solid #222; margin-top: 38px; padding-top: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase;">
+                            <div class="col-6 text-center">
+                                <div style="border-top: 1px solid #222; margin-top: 30px; padding-top: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase;">
                                     Recibió
                                 </div>
                                 <div class="som-small som-muted">
                                     <t t-esc="doc.signed_by or 'Nombre y firma'"/>
+                                </div>
+                                <div style="height: 52px; margin-top: 4px;">
+                                    <t t-if="doc.signature_image">
+                                        <img t-att-src="image_data_uri(doc.signature_image)"
+                                             style="max-height: 50px; max-width: 190px;"/>
+                                    </t>
                                 </div>
                             </div>
                         </div>
