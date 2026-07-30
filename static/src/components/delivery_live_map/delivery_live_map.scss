@@ -1,0 +1,30 @@
+// Mapa de entregas: ocupa TODO el área de la acción, sin títulos ni marcos.
+.o_delivery_live_map {
+    width: 100%;
+    height: 100%;
+    min-height: 480px;
+    display: flex;
+
+    .o_delivery_live_map_canvas {
+        flex: 1 1 auto;
+        width: 100%;
+        height: 100%;
+        min-height: 480px;
+    }
+
+    // Los emojis de los marcadores no deben recortarse.
+    .leaflet-div-icon {
+        background: transparent;
+        border: none;
+    }
+}
+
+// El contenedor de la client action debe dar altura completa.
+.o_action_manager .o_action:has(.o_delivery_live_map) {
+    display: flex;
+    flex-direction: column;
+
+    > * {
+        flex: 1 1 auto;
+    }
+}

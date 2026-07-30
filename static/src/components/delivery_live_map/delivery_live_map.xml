@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="sale_delivery_wizard.DeliveryLiveMap">
+        <div class="o_delivery_live_map">
+            <div class="o_delivery_live_map_canvas" t-ref="map"/>
+        </div>
+    </t>
+</templates>

@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.3.0.0',
+    'version': '19.0.3.1.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -44,6 +44,12 @@
     ],
     'assets': {
         'web.assets_backend': [
+            # Leaflet vendorizado (sin CDN) para el mapa de entregas
+            'sale_delivery_wizard/static/lib/leaflet/leaflet.css',
+            'sale_delivery_wizard/static/lib/leaflet/leaflet.js',
+            'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.scss',
+            'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.xml',
+            'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.js',
             'sale_delivery_wizard/static/src/scss/delivery_wizard.scss',
             'sale_delivery_wizard/static/src/scss/swap_lot_selector.scss',
             'sale_delivery_wizard/static/src/components/delivery_grouped_list/delivery_grouped_list.scss',

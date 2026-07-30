@@ -1,34 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Mapa de entregas: solo el mapa, a pantalla completa, en vivo.
-         Sin header, sin título, sin botón de actualizar: el JS embebido
-         en map_html se refresca solo por polling. -->
-    <record id="view_delivery_live_map_form" model="ir.ui.view">
-        <field name="name">sale.delivery.live.map.form</field>
-        <field name="model">sale.delivery.live.map</field>
-        <field name="arch" type="xml">
-            <form create="false" edit="false" delete="false">
-                <field name="map_html" widget="html" readonly="1" nolabel="1"
-                       options="{'style-inline': true}"/>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_delivery_live_map" model="ir.actions.act_window">
+    <!-- Mapa de entregas: client action OWL (delivery_live_map.js) con
+         Leaflet vendorizado. Siempre muestra el mapa (Monterrey, MX) aunque
+         no haya choferes activos; los datos llegan por polling, sin botón
+         de actualizar, sin títulos y sin HTML embebido. -->
+    <record id="action_delivery_live_map_client" model="ir.actions.client">
         <field name="name">Mapa en Vivo</field>
-        <field name="res_model">sale.delivery.live.map</field>
-        <field name="view_mode">form</field>
-        <field name="target">current</field>
-        <field name="context">{'default_map_mode': 'live'}</field>
+        <field name="tag">sale_delivery_wizard.live_map</field>
+        <field name="params" eval="{'mode': 'live'}"/>
     </record>
 
-    <!-- Rutas: histórico de TODAS las rutas registradas, mismo mapa -->
-    <record id="action_delivery_route_history" model="ir.actions.act_window">
+    <record id="action_delivery_route_history_client" model="ir.actions.client">
         <field name="name">Rutas</field>
-        <field name="res_model">sale.delivery.live.map</field>
-        <field name="view_mode">form</field>
-        <field name="target">current</field>
-        <field name="context">{'default_map_mode': 'history'}</field>
+        <field name="tag">sale_delivery_wizard.live_map</field>
+        <field name="params" eval="{'mode': 'history'}"/>
     </record>
 
     <!-- Puntos GPS crudos (para auditoría/análisis) -->
@@ -59,10 +44,10 @@
               sequence="34" groups="sale_delivery_wizard.group_delivery_user"/>
     <menuitem id="menu_delivery_live_map" name="Mapa en Vivo"
               parent="menu_delivery_live_root"
-              action="action_delivery_live_map" sequence="1"/>
+              action="action_delivery_live_map_client" sequence="1"/>
     <menuitem id="menu_delivery_route_history" name="Rutas"
               parent="menu_delivery_live_root"
-              action="action_delivery_route_history" sequence="2"/>
+              action="action_delivery_route_history_client" sequence="2"/>
     <menuitem id="menu_delivery_route_points" name="Puntos de Ruta"
               parent="menu_delivery_live_root"
               action="action_delivery_route_points" sequence="3"

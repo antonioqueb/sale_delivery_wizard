@@ -12,7 +12,6 @@ Flujo de salidas desde el teléfono:
 También define el registro de puntos GPS (sale.delivery.route.point) y el
 mapa en vivo de entregas (sale.delivery.live.map).
 """
-import json
 import logging
 
 from odoo import api, fields, models, _
@@ -309,44 +308,19 @@ class SaleDeliveryRoutePoint(models.Model):
 
 
 class SaleDeliveryLiveMap(models.TransientModel):
-    """Mapa de entregas EN VIVO — Leaflet embebido que se alimenta solo:
-    el HTML es un cascarón fijo y los datos llegan por polling JSON
-    (get_route_data), sin botón de actualizar ni recargas de página.
+    """Servicio de datos del mapa de entregas.
 
-    Dos modos (map_mode):
-      - 'live':    última posición y ruta de las entregas activas (12 h).
-      - 'history': todas las rutas registradas (submenú Rutas).
+    La UI es una client action OWL (delivery_live_map.js) con Leaflet
+    vendorizado; este modelo solo expone get_route_data(), que el
+    componente consulta por polling (en vivo cada 15 s, histórico 60 s).
     """
     _name = 'sale.delivery.live.map'
     _description = 'Mapa de Entregas'
 
-    map_html = fields.Html(string='Mapa', sanitize=False, readonly=True)
-    active_count = fields.Integer(string='Entregas activas', readonly=True)
-    map_mode = fields.Selection([
-        ('live', 'En vivo'),
-        ('history', 'Histórico'),
-    ], string='Modo', default='live', readonly=True)
-
-    @api.depends('map_mode')
-    def _compute_display_name(self):
-        # Sin esto, el breadcrumb mostraba el nombre técnico del transient
-        # (sale.delivery.live.map,<id>).
-        for rec in self:
-            rec.display_name = (
-                'Rutas' if rec.map_mode == 'history' else 'Mapa en Vivo')
-
-    @api.model
-    def default_get(self, fields_list):
-        res = super().default_get(fields_list)
-        mode = self.env.context.get('default_map_mode') or 'live'
-        res['map_mode'] = mode
-        res['map_html'] = self._build_map_shell(mode)
-        res['active_count'] = 0
-        return res
-
     @api.model
     def get_route_data(self, mode='live'):
-        """Datos para el mapa (lo llama el JS embebido por polling)."""
+        """Rutas para el mapa. mode='live': entregas con actividad GPS en
+        las últimas 12 h; mode='history': todas las rutas registradas."""
         Point = self.env['sale.delivery.route.point'].sudo()
         domain = []
         if mode != 'history':
@@ -393,87 +367,3 @@ class SaleDeliveryLiveMap(models.TransientModel):
                     'inicio', 'llegada', 'firma', 'fin')],
             })
         return {'mode': mode, 'routes': result}
-
-    @api.model
-    def _build_map_shell(self, mode='live'):
-        """Cascarón HTML fijo: mapa grande centrado en Monterrey. Los datos
-        se pintan y refrescan solos vía get_route_data — nunca hay que
-        regenerar este HTML."""
-        map_id = 'delivery_map_%s' % mode
-        # En vivo: refresco cada 15 s. Histórico: cada 60 s.
-        interval = 15000 if mode == 'live' else 60000
-        return """
-<div style="width:100%%;height:calc(100vh - 165px);min-height:540px;position:relative;overflow:hidden;">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <div id="%(map_id)s" style="width:100%%;height:100%%;"></div>
-  <script>
-    (function() {
-      var el = document.getElementById('%(map_id)s');
-      if (!el || el._leaflet_id) { return; }
-      var MODE = '%(mode)s';
-      var map = L.map('%(map_id)s', {scrollWheelZoom: true})
-                 .setView([25.6866, -100.3161], 12);  /* Monterrey, MX */
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
-      }).addTo(map);
-      var layer = L.layerGroup().addTo(map);
-      var fitted = false;
-      var timer = null;
-      function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
-          return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-        });
-      }
-      function draw(data) {
-        layer.clearLayers();
-        var bounds = [];
-        (data.routes || []).forEach(function(r) {
-          bounds = bounds.concat(r.latlngs);
-          L.polyline(r.latlngs, {color: r.color, weight: 4, opacity: 0.75}).addTo(layer);
-          var emoji = r.finished ? '\\ud83c\\udfc1' : '\\ud83d\\ude9a';
-          L.marker([r.last.lat, r.last.lng], {icon: L.divIcon({
-              html: '<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
-              className: '', iconSize: [26, 26]})})
-            .addTo(layer)
-            .bindPopup('<b>' + esc(r.label) + '</b><br/>' + esc(r.partner) +
-                       '<br/>\\u00daltimo reporte: ' + esc(r.last.time) +
-                       '<br/><a href="https://maps.google.com/?q=' + r.last.lat + ',' + r.last.lng +
-                       '" target="_blank">Abrir en Google Maps</a>');
-          (r.events || []).forEach(function(ev) {
-            if (MODE === 'live' && (ev.type === 'inicio' || ev.type === 'fin')) { return; }
-            var icons = {inicio: '\\ud83d\\udfe2', llegada: '\\ud83d\\udccd',
-                         firma: '\\u270d\\ufe0f', fin: '\\ud83c\\udfc1'};
-            L.marker([ev.lat, ev.lng], {icon: L.divIcon({
-                html: '<div style="font-size:18px">' + (icons[ev.type] || '\\u2022') + '</div>',
-                className: '', iconSize: [18, 18]})})
-              .addTo(layer)
-              .bindTooltip(esc(ev.type) + ' ' + esc(ev.time));
-          });
-        });
-        if (!fitted && bounds.length) {
-          map.fitBounds(bounds, {padding: [40, 40], maxZoom: 13});
-          fitted = true;
-        }
-      }
-      function load() {
-        if (!document.getElementById('%(map_id)s')) {
-          if (timer) { clearInterval(timer); }
-          return;
-        }
-        fetch('/web/dataset/call_kw/sale.delivery.live.map/get_route_data', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {
-            model: 'sale.delivery.live.map', method: 'get_route_data',
-            args: [MODE], kwargs: {}}})
-        }).then(function(r) { return r.json(); })
-          .then(function(res) { if (res && res.result) { draw(res.result); } })
-          .catch(function() {});
-      }
-      load();
-      timer = setInterval(load, %(interval)s);
-    })();
-  </script>
-</div>""" % {'map_id': map_id, 'mode': mode, 'interval': interval}
