@@ -1,5 +1,6 @@
 // Mapa de entregas: ocupa TODO el área de la acción, sin títulos ni marcos.
 .o_delivery_live_map {
+    position: relative;
     width: 100%;
     height: 100%;
     min-height: 480px;
@@ -12,10 +13,169 @@
         min-height: 480px;
     }
 
-    // Los emojis de los marcadores no deben recortarse.
     .leaflet-div-icon {
         background: transparent;
         border: none;
+    }
+
+    // Marcadores: sin filtros CSS caros (el drop-shadow por marcador
+    // castigaba el zoom); una sombra de texto ligera basta.
+    .o_dlm_truck {
+        font-size: 28px;
+        line-height: 1;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+        cursor: pointer;
+    }
+    .o_dlm_event {
+        font-size: 17px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    // ── Panel de accesos directos (viajes del día) ──────────────
+    .o_dlm_panel {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 900; // sobre los panes de Leaflet
+        width: 250px;
+        max-height: calc(100% - 24px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.96);
+        border-radius: 12px;
+        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.18);
+        overflow: hidden;
+        font-size: 13px;
+    }
+    .o_dlm_panel_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid #e5e9f0;
+    }
+    .o_dlm_panel_title {
+        font-weight: 700;
+        color: #1f2937;
+    }
+    .o_dlm_fit_all {
+        border: 1px solid #d3d9e3;
+        background: #fff;
+        border-radius: 8px;
+        padding: 2px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #374151;
+
+        &:hover {
+            background: #f1f5f9;
+        }
+    }
+    .o_dlm_panel_body {
+        overflow-y: auto;
+    }
+    .o_dlm_trip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f1f4f8;
+
+        &:hover {
+            background: #f5f8fc;
+        }
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+    .o_dlm_dot {
+        flex: 0 0 auto;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, 0.12);
+    }
+    .o_dlm_trip_info {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .o_dlm_trip_label {
+        font-weight: 600;
+        color: #111827;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_dlm_trip_sub {
+        color: #6b7280;
+        font-size: 12px;
+    }
+    .o_dlm_trip_state {
+        flex: 0 0 auto;
+        font-size: 15px;
+    }
+}
+
+// ── Popups del mapa (info del viaje) ────────────────────────────
+.o_dlm_popup {
+    min-width: 220px;
+    font-size: 13px;
+
+    .o_dlm_pop_title {
+        font-weight: 700;
+        font-size: 14px;
+        margin-bottom: 6px;
+        color: #111827;
+    }
+    .o_dlm_pop_rows > div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 1px 0;
+
+        span {
+            color: #6b7280;
+        }
+        b {
+            text-align: right;
+        }
+    }
+    .o_dlm_pop_sec {
+        margin-top: 7px;
+        font-weight: 700;
+        font-size: 12px;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .o_dlm_mat {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 1px 0;
+
+        span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+    .o_dlm_metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        margin-top: 7px;
+        padding-top: 6px;
+        border-top: 1px solid #e5e9f0;
+        color: #374151;
+    }
+    .o_dlm_pop_muted {
+        margin-top: 6px;
+        color: #9ca3af;
+        font-size: 12px;
     }
 }
 

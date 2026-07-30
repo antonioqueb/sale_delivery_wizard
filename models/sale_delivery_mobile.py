@@ -13,6 +13,10 @@ También define el registro de puntos GPS (sale.delivery.route.point) y el
 mapa en vivo de entregas (sale.delivery.live.map).
 """
 import logging
+import math
+from datetime import datetime, time as dtime
+
+import pytz
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -311,20 +315,39 @@ class SaleDeliveryLiveMap(models.TransientModel):
     """Servicio de datos del mapa de entregas.
 
     La UI es una client action OWL (delivery_live_map.js) con Leaflet
-    vendorizado; este modelo solo expone get_route_data(), que el
-    componente consulta por polling (en vivo cada 15 s, histórico 60 s).
+    vendorizado. Este modelo expone get_route_data() con métricas por
+    viaje: distancia real (haversine), velocidad promedio y pico (km/h),
+    tiempo detenido, PT/OV/cliente y materiales entregados.
     """
     _name = 'sale.delivery.live.map'
     _description = 'Mapa de Entregas'
 
+    @staticmethod
+    def _hav_m(lat1, lon1, lat2, lon2):
+        """Distancia haversine en metros."""
+        rlat1, rlon1, rlat2, rlon2 = map(
+            math.radians, (lat1, lon1, lat2, lon2))
+        h = (math.sin((rlat2 - rlat1) / 2) ** 2
+             + math.cos(rlat1) * math.cos(rlat2)
+             * math.sin((rlon2 - rlon1) / 2) ** 2)
+        return 2 * 6371000.0 * math.asin(math.sqrt(h))
+
     @api.model
     def get_route_data(self, mode='live'):
-        """Rutas para el mapa. mode='live': entregas con actividad GPS en
-        las últimas 12 h; mode='history': todas las rutas registradas."""
+        """Rutas para el mapa.
+
+        mode='live':    TODOS los viajes del día (zona horaria del usuario),
+                        actualizándose en tiempo real hasta terminar.
+        mode='history': todas las rutas registradas.
+        """
         Point = self.env['sale.delivery.route.point'].sudo()
         domain = []
         if mode != 'history':
-            since = fields.Datetime.subtract(fields.Datetime.now(), hours=12)
+            # Desde la medianoche del usuario: todos los viajes de HOY.
+            tz = pytz.timezone(self.env.user.tz or 'America/Monterrey')
+            today = fields.Date.context_today(self)
+            start_local = tz.localize(datetime.combine(today, dtime.min))
+            since = start_local.astimezone(pytz.utc).replace(tzinfo=None)
             domain = [('timestamp', '>=', since)]
         points = Point.search(domain, order='timestamp asc', limit=20000)
 
@@ -344,15 +367,82 @@ class SaleDeliveryLiveMap(models.TransientModel):
             doc = self.env['sale.delivery.document'].sudo().browse(doc_id)
             last = pts[-1]
             finished = any(p.event_type == 'fin' for p in pts)
+
+            # ── Métricas del viaje ──────────────────────────────────
+            # Distancia y velocidades por segmentos GPS consecutivos.
+            # Umbral 3 km/h y 8 m: por debajo se considera DETENIDO (el
+            # GPS "respira" parado y sumaría metros/velocidades falsas).
+            total_m = 0.0
+            moving_s = 0.0
+            stopped_s = 0.0
+            peak_kmh = 0.0
+            kept = []          # polyline simplificada (>=12 m entre puntos)
+            last_kept = None
+            prev = None
+            for p in pts:
+                if prev is not None:
+                    dt = (p.timestamp - prev.timestamp).total_seconds()
+                    if 0 < dt <= 900:
+                        dm = self._hav_m(prev.latitude, prev.longitude,
+                                         p.latitude, p.longitude)
+                        kmh = (dm / dt) * 3.6
+                        if kmh <= 160:  # descarta saltos GPS irreales
+                            if kmh >= 3.0 and dm >= 8.0:
+                                total_m += dm
+                                moving_s += dt
+                                peak_kmh = max(peak_kmh, kmh)
+                            else:
+                                stopped_s += dt
+                    rec_kmh = (p.speed or 0.0) * 3.6
+                    if 3.0 <= rec_kmh <= 160.0:
+                        peak_kmh = max(peak_kmh, rec_kmh)
+                if (last_kept is None
+                        or p.event_type != 'ping'
+                        or self._hav_m(last_kept[0], last_kept[1],
+                                       p.latitude, p.longitude) >= 12.0):
+                    kept.append([p.latitude, p.longitude])
+                    last_kept = (p.latitude, p.longitude)
+                prev = p
+            end_ll = [pts[-1].latitude, pts[-1].longitude]
+            if not kept or kept[-1] != end_ll:
+                kept.append(end_ll)
+
+            avg_kmh = (total_m / moving_s) * 3.6 if moving_s else 0.0
+            duration_s = (pts[-1].timestamp - pts[0].timestamp).total_seconds()
+
+            # ── Qué se entregó (desde el documento) ─────────────────
+            mats = {}
+            for line in doc.line_ids:
+                if not line.product_id:
+                    continue
+                key = line.product_id.display_name
+                mats[key] = mats.get(key, 0.0) + (line.qty_selected or 0.0)
+            materials = [
+                {'product': k, 'qty': round(v, 2)}
+                for k, v in list(mats.items())[:25]
+            ]
+
             driver = doc.vehicle_driver_id.name or last.user_id.name or ''
             result.append({
                 'id': doc_id,
                 'label': '%s · %s' % (
                     doc.remission_number or doc.name or '', driver),
+                'doc_name': doc.remission_number or doc.name or '',
+                'pt_folio': doc.pick_ticket_id.name or '',
+                'sale_order': doc.sale_order_id.name or '',
                 'partner': doc.partner_id.name or '',
+                'driver': driver,
+                'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
                 'color': colors[idx % len(colors)],
                 'finished': finished,
-                'latlngs': [[p.latitude, p.longitude] for p in pts],
+                'latlngs': kept,
+                'distance_km': round(total_m / 1000.0, 1),
+                'avg_kmh': round(avg_kmh),
+                'peak_kmh': round(peak_kmh),
+                'stopped_min': round(stopped_s / 60.0),
+                'duration_min': round(duration_s / 60.0),
+                'start_time': fmt(pts[0].timestamp),
+                'materials': materials,
                 'last': {
                     'lat': last.latitude,
                     'lng': last.longitude,

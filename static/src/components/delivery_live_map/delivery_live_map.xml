@@ -3,6 +3,25 @@
     <t t-name="sale_delivery_wizard.DeliveryLiveMap">
         <div class="o_delivery_live_map">
             <div class="o_delivery_live_map_canvas" t-ref="map"/>
+            <div class="o_dlm_panel" t-if="state.routes.length">
+                <div class="o_dlm_panel_head">
+                    <span class="o_dlm_panel_title" t-esc="state.title"/>
+                    <button class="o_dlm_fit_all" t-on-click="fitAll" title="Ver todos los viajes">⤢ Todos</button>
+                </div>
+                <div class="o_dlm_panel_body">
+                    <div class="o_dlm_trip" t-foreach="state.routes" t-as="r" t-key="r.id"
+                         t-on-click="() => this.focusRoute(r.id)">
+                        <span class="o_dlm_dot" t-attf-style="background: {{ r.color }}"/>
+                        <div class="o_dlm_trip_info">
+                            <div class="o_dlm_trip_label" t-esc="r.label"/>
+                            <div class="o_dlm_trip_sub">
+                                <t t-esc="r.km"/> km · <t t-esc="r.status"/>
+                            </div>
+                        </div>
+                        <span class="o_dlm_trip_state" t-esc="r.finished ? '🏁' : '🚚'"/>
+                    </div>
+                </div>
+            </div>
         </div>
     </t>
 </templates>
