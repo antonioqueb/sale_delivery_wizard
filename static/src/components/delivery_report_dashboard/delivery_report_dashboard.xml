@@ -29,7 +29,11 @@
                     </div>
                     <div class="o_drp_kpi">
                         <div class="v"><t t-esc="state.data.kpis.m2"/><small>m²</small></div>
-                        <div class="l">📦 Entregado</div>
+                        <div class="l">📦 Entregado en m²</div>
+                    </div>
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.units"/><small>pzas</small></div>
+                        <div class="l">🧩 Entregado en piezas</div>
                     </div>
                     <div class="o_drp_kpi">
                         <div class="v"><t t-esc="state.data.kpis.km"/><small>km</small></div>
@@ -55,7 +59,7 @@
 
                 <!-- Fila 1: serie diaria (ancha) -->
                 <div class="o_drp_card o_drp_wide">
-                    <div class="o_drp_card_title">Entregas por día — viajes y m²</div>
+                    <div class="o_drp_card_title">Entregas por día — viajes, m² y piezas</div>
                     <div class="o_drp_chart tall"><canvas t-ref="chartDaily"/></div>
                 </div>
 
@@ -97,6 +101,7 @@
                                     <th class="num">Capacidad m²</th>
                                     <th class="num">Viajes</th>
                                     <th class="num">m² entregados</th>
+                                    <th class="num">Piezas</th>
                                     <th class="num">% capacidad</th>
                                     <th class="num">km (GPS)</th>
                                     <th class="num">km (odómetro)</th>
@@ -111,6 +116,7 @@
                                     <td class="num"><t t-esc="v.capacity"/></td>
                                     <td class="num"><t t-esc="v.trips"/></td>
                                     <td class="num"><t t-esc="v.m2"/></td>
+                                    <td class="num"><t t-esc="v.units"/></td>
                                     <td class="num">
                                         <span t-att-class="'pct ' + (v.avg_util >= 70 ? 'good' : (v.avg_util >= 45 ? 'warn' : 'bad'))">
                                             <t t-esc="v.avg_util"/>%
@@ -137,6 +143,7 @@
                                     <th>Chofer</th>
                                     <th class="num">Viajes</th>
                                     <th class="num">m² entregados</th>
+                                    <th class="num">Piezas</th>
                                     <th class="num">km</th>
                                     <th class="num">⌀ km/h</th>
                                     <th class="num">Pico km/h</th>
@@ -148,6 +155,7 @@
                                     <td><t t-esc="dr.name"/></td>
                                     <td class="num"><t t-esc="dr.trips"/></td>
                                     <td class="num"><t t-esc="dr.m2"/></td>
+                                    <td class="num"><t t-esc="dr.units"/></td>
                                     <td class="num"><t t-esc="dr.km"/></td>
                                     <td class="num"><t t-esc="dr.avg_kmh"/></td>
                                     <td class="num">

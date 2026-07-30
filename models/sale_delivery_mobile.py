@@ -341,6 +341,23 @@ class SaleDeliveryLiveMap(models.TransientModel):
     _description = 'Mapa de Entregas'
 
     @staticmethod
+    def _is_area_uom(name):
+        n = (name or '')
+        return 'm²' in n or 'm2' in n.lower()
+
+    def _doc_qty_split(self, doc):
+        """(m² , piezas/unidades) de un documento de entrega, según la
+        unidad de medida del producto de cada línea — NO todo es m²."""
+        area = units = 0.0
+        for l in doc.line_ids:
+            qty = l.qty_done or l.qty_selected or 0.0
+            if l.product_id and self._is_area_uom(l.product_id.uom_id.name):
+                area += qty
+            else:
+                units += qty
+        return area, units
+
+    @staticmethod
     def _hav_m(lat1, lon1, lat2, lon2):
         """Distancia haversine en metros."""
         rlat1, rlon1, rlat2, rlon2 = map(
@@ -474,7 +491,75 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 } for p in pts if p.event_type in (
                     'inicio', 'llegada', 'firma', 'fin')],
             })
-        return {'mode': mode, 'routes': result}
+
+        # ── TODAS las operaciones del día, tengan o no GPS ──────
+        # Un viaje sin puntos (permiso de ubicación negado, cola offline
+        # sin señal, salida hecha desde la web) NO debe desaparecer del
+        # mapa: si tiene coordenadas de firma se marca ahí; si no, se
+        # lista en el panel como 'sin GPS'.
+        if mode != 'history':
+            Doc = self.env['sale.delivery.document'].sudo()
+            todays = Doc.search([
+                ('document_type', '=', 'remission'),
+                ('state', '!=', 'cancelled'),
+                ('create_date', '>=', since),
+            ], order='create_date asc')
+            seen_ids = set(routes.keys())
+            no_gps = []
+            for doc in todays:
+                if doc.id in seen_ids:
+                    continue
+                driver = (doc.vehicle_driver_id.name
+                          or doc.create_uid.name or '')
+                label = '%s · %s' % (
+                    doc.remission_number or doc.name or '', driver)
+                if doc.signed_latitude and doc.signed_longitude:
+                    idx = len(result)
+                    result.append({
+                        'id': doc.id,
+                        'label': label,
+                        'doc_name': doc.remission_number or doc.name or '',
+                        'pt_folio': doc.pick_ticket_id.name or '',
+                        'sale_order': doc.sale_order_id.name or '',
+                        'partner': doc.partner_id.name or '',
+                        'driver': driver,
+                        'vehicle': doc.vehicle_id.display_name
+                                   if doc.vehicle_id else '',
+                        'color': colors[idx % len(colors)],
+                        'finished': bool(doc.signed_at),
+                        'latlngs': [[doc.signed_latitude,
+                                     doc.signed_longitude]],
+                        'distance_km': 0,
+                        'avg_kmh': 0,
+                        'peak_kmh': 0,
+                        'stopped_min': 0,
+                        'duration_min': 0,
+                        'start_time': fmt(doc.create_date),
+                        'materials': [],
+                        'no_gps': True,
+                        'last': {
+                            'lat': doc.signed_latitude,
+                            'lng': doc.signed_longitude,
+                            'time': fmt(doc.signed_at or doc.create_date),
+                        },
+                        'events': [{
+                            'lat': doc.signed_latitude,
+                            'lng': doc.signed_longitude,
+                            'type': 'firma',
+                            'time': fmt(doc.signed_at or doc.create_date),
+                        }] if doc.signed_at else [],
+                    })
+                else:
+                    no_gps.append({
+                        'id': doc.id,
+                        'label': label,
+                        'partner': doc.partner_id.name or '',
+                        'finished': bool(doc.signed_at),
+                        'created': fmt(doc.create_date),
+                    })
+            return {'mode': mode, 'routes': result, 'no_gps': no_gps}
+
+        return {'mode': mode, 'routes': result, 'no_gps': []}
 
     # ══════════════════════════════════════════════════════════════
     # REPORTERÍA — dashboard de operación de entregas
@@ -519,10 +604,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
         Doc = self.env['sale.delivery.document'].sudo()
 
         def doc_m2(doc):
-            total = 0.0
-            for line in doc.line_ids:
-                total += line.qty_done or line.qty_selected or 0.0
-            return total
+            return self._doc_qty_split(doc)
 
         remissions = Doc.search([
             ('document_type', '=', 'remission'),
@@ -557,7 +639,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
         daily = {}
         d = start_date
         while d <= today:
-            daily[d.isoformat()] = {'date': d.strftime('%d/%m'), 'trips': 0, 'm2': 0.0}
+            daily[d.isoformat()] = {'date': d.strftime('%d/%m'), 'trips': 0, 'm2': 0.0, 'units': 0.0}
             d += timedelta(days=1)
 
         # ── Agregación por vehículo / chofer / cliente ──────────
@@ -565,16 +647,19 @@ class SaleDeliveryLiveMap(models.TransientModel):
         drivers = {}
         customers = {}
         total_m2 = 0.0
+        total_units = 0.0
         util_samples = []
 
         for doc in remissions:
-            m2 = doc_m2(doc)
+            m2, units = doc_m2(doc)
             total_m2 += m2
+            total_units += units
             local_day = fields.Datetime.context_timestamp(
                 self, doc.create_date).date().isoformat()
             if local_day in daily:
                 daily[local_day]['trips'] += 1
                 daily[local_day]['m2'] += m2
+                daily[local_day]['units'] += units
 
             g = gps.get(doc.id, {})
 
@@ -584,11 +669,12 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'name': veh.display_name if veh else 'Sin vehículo',
                 'capacity': veh.x_capacity_sqm if veh else 0.0,
                 'odometer': veh.odometer if veh else 0.0,
-                'trips': 0, 'm2': 0.0, 'km': 0.0,
+                'trips': 0, 'm2': 0.0, 'units': 0.0, 'km': 0.0,
                 'util': [], 'stopped_s': 0.0, 'moving_s': 0.0,
             })
             v['trips'] += 1
             v['m2'] += m2
+            v['units'] += units
             v['km'] += g.get('km', 0.0)
             v['stopped_s'] += g.get('stopped_s', 0.0)
             v['moving_s'] += g.get('moving_s', 0.0)
@@ -601,11 +687,12 @@ class SaleDeliveryLiveMap(models.TransientModel):
             dkey = drv.id or 0
             dr = drivers.setdefault(dkey, {
                 'name': drv.display_name if drv else 'Sin chofer',
-                'trips': 0, 'm2': 0.0, 'km': 0.0,
+                'trips': 0, 'm2': 0.0, 'units': 0.0, 'km': 0.0,
                 'moving_s': 0.0, 'stopped_s': 0.0, 'peak': 0.0,
             })
             dr['trips'] += 1
             dr['m2'] += m2
+            dr['units'] += units
             dr['km'] += g.get('km', 0.0)
             dr['moving_s'] += g.get('moving_s', 0.0)
             dr['stopped_s'] += g.get('stopped_s', 0.0)
@@ -613,8 +700,10 @@ class SaleDeliveryLiveMap(models.TransientModel):
 
             if doc.partner_id:
                 c = customers.setdefault(doc.partner_id.id, {
-                    'name': doc.partner_id.name, 'm2': 0.0, 'trips': 0})
+                    'name': doc.partner_id.name, 'm2': 0.0, 'units': 0.0,
+                    'trips': 0})
                 c['m2'] += m2
+                c['units'] += units
                 c['trips'] += 1
 
         # ── Odómetro del periodo (módulo de flota) ──────────────
@@ -635,9 +724,11 @@ class SaleDeliveryLiveMap(models.TransientModel):
         # ── Devoluciones por motivo ─────────────────────────────
         reasons = {}
         returned_m2 = 0.0
+        returned_units = 0.0
         for doc in returns:
-            m2 = doc_m2(doc)
+            m2, r_units = doc_m2(doc)
             returned_m2 += m2
+            returned_units += r_units
             name = doc.return_reason_id.name or 'Sin motivo'
             r = reasons.setdefault(name, {'reason': name, 'count': 0, 'm2': 0.0})
             r['count'] += 1
@@ -651,6 +742,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'capacity': round(v['capacity'], 1),
                 'trips': v['trips'],
                 'm2': round(v['m2'], 1),
+                'units': round(v['units'], 1),
                 'km': round(v['km'], 1),
                 'avg_util': round(avg_util),
                 'odometer': round(v['odometer']),
@@ -664,6 +756,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'name': d['name'],
                 'trips': d['trips'],
                 'm2': round(d['m2'], 1),
+                'units': round(d['units'], 1),
                 'km': round(d['km'], 1),
                 'avg_kmh': round((d['km'] * 1000 / d['moving_s']) * 3.6) if d['moving_s'] else 0,
                 'peak_kmh': round(d['peak']),
@@ -680,6 +773,8 @@ class SaleDeliveryLiveMap(models.TransientModel):
             'kpis': {
                 'trips': trips,
                 'm2': round(total_m2, 1),
+                'units': round(total_units, 1),
+                'returned_units': round(returned_units, 1),
                 'km': round(total_km, 1),
                 'avg_util': round(sum(util_samples) / len(util_samples)) if util_samples else 0,
                 'returns': len(returns),
@@ -715,9 +810,13 @@ class SaleDeliveryLiveMap(models.TransientModel):
 
         Doc = self.env['sale.delivery.document'].sudo()
 
-        def doc_m2(doc):
-            return sum(
-                (l.qty_done or l.qty_selected or 0.0) for l in doc.line_ids)
+        def qty_label(area, units):
+            parts = []
+            if area:
+                parts.append('%g m²' % round(area, 1))
+            if units:
+                parts.append('%g pzas' % round(units, 1))
+            return ' · '.join(parts) or '0'
 
         def fmt_dt(ts):
             if not ts:
@@ -728,17 +827,23 @@ class SaleDeliveryLiveMap(models.TransientModel):
         def base_card(doc):
             order = doc.sale_order_id
             auth = getattr(order, 'delivery_auth_state', '') or ''
+            # Materiales con SU unidad (no todo es m²)
             mat_map = {}
             for l in doc.line_ids:
                 if not l.product_id:
                     continue
-                key = l.product_id.display_name
+                uom = l.product_id.uom_id.name or ''
+                key = (l.product_id.display_name, uom)
                 mat_map[key] = mat_map.get(key, 0.0) + (
                     l.qty_done or l.qty_selected or 0.0)
             materials = sorted(
-                ({'product': k, 'm2': round(q, 1)} for k, q in mat_map.items()),
-                key=lambda x: -x['m2'],
+                (
+                    {'product': k[0], 'qty': round(q, 1), 'uom': k[1]}
+                    for k, q in mat_map.items()
+                ),
+                key=lambda x: -x['qty'],
             )[:20]
+            area, units = self._doc_qty_split(doc)
             return {
                 'id': doc.id,
                 'doc_type': doc.document_type,
@@ -750,7 +855,9 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
                 'driver': doc.vehicle_driver_id.display_name
                           if doc.vehicle_driver_id else '',
-                'm2': round(doc_m2(doc), 1),
+                'm2': round(area, 1),
+                'units': round(units, 1),
+                'qty_label': qty_label(area, units),
                 'lines': len(doc.line_ids),
                 'created': fmt_dt(doc.create_date),
                 'is_today': bool(doc.create_date and doc.create_date >= today_start),
@@ -803,7 +910,11 @@ class SaleDeliveryLiveMap(models.TransientModel):
             })
             if doc.vehicle_driver_id and not t['driver']:
                 t['driver'] = doc.vehicle_driver_id.display_name
-            t['m2'] += doc_m2(doc)
+            d_area, d_units = self._doc_qty_split(doc)
+            # La barra de carga compara contra capacidad en m²: solo suma
+            # superficie; las piezas se muestran aparte en la etiqueta.
+            t['m2'] += d_area
+            t['units'] = t.get('units', 0.0) + d_units
             label = (doc.remission_number or doc.name or '')
             if doc.document_type == 'pick_ticket':
                 status = 'PT ' + ('listo' if doc.state == 'prepared' else 'pendiente')
@@ -814,11 +925,12 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'doc_type': doc.document_type,
                 'label': label,
                 'status': status,
-                'm2': round(doc_m2(doc), 1),
+                'qty_label': qty_label(d_area, d_units),
             })
         truck_list = []
         for t in trucks.values():
             t['m2'] = round(t['m2'], 1)
+            t['units'] = round(t.get('units', 0.0), 1)
             t['pct'] = round(t['m2'] * 100.0 / t['capacity']) if t['capacity'] else 0
             truck_list.append(t)
         truck_list.sort(key=lambda x: -x['m2'])
@@ -833,9 +945,13 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'ready': len(ready),
                 'm2_to_deliver': round(
                     sum(c['m2'] for c in pending + ready), 1),
+                'units_to_deliver': round(
+                    sum(c['units'] for c in pending + ready), 1),
                 'in_route': len(in_route),
                 'delivered': len(delivered),
                 'delivered_m2': round(sum(c['m2'] for c in delivered), 1),
+                'delivered_units': round(
+                    sum(c['units'] for c in delivered), 1),
                 'no_vehicle': len(no_vehicle),
                 'trucks': len(truck_list),
             },

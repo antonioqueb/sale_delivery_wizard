@@ -108,6 +108,17 @@ export class DeliveryReportDashboard extends Component {
                         pointRadius: 2,
                     },
                     {
+                        type: "line",
+                        label: "Piezas entregadas",
+                        data: d.daily.map((x) => Math.round((x.units || 0) * 10) / 10),
+                        borderColor: "#F5A623",
+                        backgroundColor: "rgba(245,166,35,.12)",
+                        fill: false,
+                        tension: 0.35,
+                        yAxisID: "y1",
+                        pointRadius: 2,
+                    },
+                    {
                         label: "Viajes",
                         data: d.daily.map((x) => x.trips),
                         backgroundColor: "rgba(11,87,208,.75)",
@@ -164,7 +175,7 @@ export class DeliveryReportDashboard extends Component {
                         callbacks: {
                             label: (ctx) => {
                                 const v = vehs[ctx.dataIndex];
-                                return ` ${v.avg_util}% de ${v.capacity} m² · ${v.trips} viajes · ${v.m2} m²`;
+                                return ` ${v.avg_util}% de ${v.capacity} m² · ${v.trips} viajes · ${v.m2} m²` + (v.units ? ` · ${v.units} pzas` : "");
                             },
                         },
                     },
@@ -202,7 +213,7 @@ export class DeliveryReportDashboard extends Component {
                         callbacks: {
                             label: (ctx) => {
                                 const x = drvs[ctx.dataIndex];
-                                return ` ${x.m2} m² · ${x.trips} viajes · ${x.km} km · ⌀ ${x.avg_kmh} km/h`;
+                                return ` ${x.m2} m²` + (x.units ? ` · ${x.units} pzas` : "") + ` · ${x.trips} viajes · ${x.km} km · ⌀ ${x.avg_kmh} km/h`;
                             },
                         },
                     },
@@ -256,7 +267,9 @@ export class DeliveryReportDashboard extends Component {
                     tooltip: {
                         callbacks: {
                             label: (ctx) =>
-                                ` ${custs[ctx.dataIndex].m2} m² · ${custs[ctx.dataIndex].trips} viajes`,
+                                ` ${custs[ctx.dataIndex].m2} m²` +
+                                (custs[ctx.dataIndex].units ? ` · ${custs[ctx.dataIndex].units} pzas` : "") +
+                                ` · ${custs[ctx.dataIndex].trips} viajes`,
                         },
                     },
                 },

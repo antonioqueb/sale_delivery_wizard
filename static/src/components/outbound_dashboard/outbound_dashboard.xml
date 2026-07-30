@@ -68,16 +68,16 @@
                 <t t-esc="card.partner"/>
             </div>
             <div class="o_out_card_stats">
-                <span><b t-esc="card.m2"/> m²</span>
-                <span><b t-esc="card.lines"/> placas</span>
+                <span><b t-esc="card.qty_label"/></span>
+                <span><b t-esc="card.lines"/> líneas</span>
                 <span t-if="card.order" class="link" t-on-click.stop="() => this.openOrder(card.order_id)">
                     <t t-esc="card.order"/>
                 </span>
             </div>
             <div class="o_out_mats" t-if="card.materials and card.materials.length">
-                <div class="m" t-foreach="card.materials.slice(0, 3)" t-as="mt" t-key="mt.product">
+                <div class="m" t-foreach="card.materials.slice(0, 3)" t-as="mt" t-key="mt.product + mt.uom">
                     <span t-att-title="mt.product" t-esc="mt.product"/>
-                    <b><t t-esc="mt.m2"/> m²</b>
+                    <b><t t-esc="mt.qty"/> <t t-esc="mt.uom"/></b>
                 </div>
                 <div class="more" t-if="card.materials.length > 3">
                     +<t t-esc="card.materials.length - 3"/> materiales más
@@ -135,7 +135,7 @@
                     </div>
                     <div class="o_out_kpi blue">
                         <div class="ic"><t t-call="sale_delivery_wizard.icon_area"/></div>
-                        <div><div class="v"><t t-esc="state.data.kpis.m2_to_deliver"/><small>m²</small></div><div class="l">Por entregar</div></div>
+                        <div><div class="v"><t t-esc="state.data.kpis.m2_to_deliver"/><small>m²</small></div><div class="l">Por entregar<t t-if="state.data.kpis.units_to_deliver"> · +<t t-esc="state.data.kpis.units_to_deliver"/> pzas</t></div></div>
                     </div>
                     <div class="o_out_kpi sky">
                         <div class="ic"><t t-call="sale_delivery_wizard.icon_truck"/></div>
@@ -147,7 +147,7 @@
                     </div>
                     <div class="o_out_kpi green">
                         <div class="ic"><t t-call="sale_delivery_wizard.icon_sign"/></div>
-                        <div><div class="v"><t t-esc="state.data.kpis.delivered_m2"/><small>m²</small></div><div class="l">Entregados hoy</div></div>
+                        <div><div class="v"><t t-esc="state.data.kpis.delivered_m2"/><small>m²</small></div><div class="l">Entregados hoy<t t-if="state.data.kpis.delivered_units"> · +<t t-esc="state.data.kpis.delivered_units"/> pzas</t></div></div>
                     </div>
                     <div t-attf-class="o_out_kpi {{ state.data.kpis.no_vehicle ? 'red' : 'green' }}">
                         <div class="ic"><t t-call="sale_delivery_wizard.icon_alert2"/></div>
@@ -170,6 +170,7 @@
                                 </div>
                                 <div class="load">
                                     <b t-esc="tk.m2"/> / <t t-esc="tk.capacity ? tk.capacity : '—'"/> m²
+                                    <t t-if="tk.units"> · +<t t-esc="tk.units"/> pzas</t>
                                 </div>
                             </div>
                             <div class="o_out_bar">
@@ -185,7 +186,7 @@
                                      t-on-click="() => this.openPdf(dc.doc_type, dc.id)">
                                     <span class="f" t-esc="dc.label"/>
                                     <span class="s" t-esc="dc.status"/>
-                                    <span class="m"><t t-esc="dc.m2"/> m²</span>
+                                    <span class="m" t-esc="dc.qty_label"/>
                                 </div>
                             </div>
                         </div>

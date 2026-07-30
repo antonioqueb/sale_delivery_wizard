@@ -216,17 +216,21 @@ export class DeliveryLiveMap extends Component {
             allBounds.push(...r.latlngs);
 
             // Ruta SÚPER marcada: casing blanco + trazo grueso de color.
-            L.polyline(r.latlngs, {
-                color: "#ffffff",
-                weight: 9,
-                opacity: 0.9,
-            }).addTo(group);
-            const line = L.polyline(r.latlngs, {
-                color: r.color,
-                weight: 5,
-                opacity: 0.95,
-            }).addTo(group);
-            line.bindPopup(this.routePopup(r), { maxWidth: 380, minWidth: 300, className: "o_dlm_pop" });
+            // Viajes sin trazo (solo coordenada de firma) van directo al
+            // marcador.
+            if (r.latlngs.length > 1) {
+                L.polyline(r.latlngs, {
+                    color: "#ffffff",
+                    weight: 9,
+                    opacity: 0.9,
+                }).addTo(group);
+                const line = L.polyline(r.latlngs, {
+                    color: r.color,
+                    weight: 5,
+                    opacity: 0.95,
+                }).addTo(group);
+                line.bindPopup(this.routePopup(r), { maxWidth: 380, minWidth: 300, className: "o_dlm_pop" });
+            }
 
             // Camioncito (o bandera al terminar) con TODA la información.
             const emoji = r.finished ? "\u{1F3C1}" : "\u{1F69A}";
@@ -278,12 +282,15 @@ export class DeliveryLiveMap extends Component {
                 label: r.label,
                 color: r.color,
                 km: r.distance_km,
-                status: r.finished ? "Terminado" : "En ruta",
+                status: r.no_gps
+                    ? (r.finished ? "Firmada · sin ruta GPS" : "Sin ruta GPS")
+                    : (r.finished ? "Terminado" : "En ruta"),
                 finished: r.finished,
             });
         }
 
         this.state.routes = summaries;
+        this.state.noGps = data.no_gps || [];
 
         if (!this.fitted && allBounds.length) {
             this.map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 13 });
