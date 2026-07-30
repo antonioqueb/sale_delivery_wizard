@@ -114,7 +114,10 @@
                         <page string="Firma y Evidencia">
                             <group>
                                 <field name="signed_by"/>
-                                <field name="signature_image" widget="image"/>
+                                <field name="signature_image" widget="signature"/>
+                            <field name="signed_at" readonly="1"/>
+                            <field name="signed_latitude" readonly="1"/>
+                            <field name="signed_longitude" readonly="1"/>
                             </group>
                             <field name="attachment_ids" widget="many2many_binary"/>
                             <field name="photo_count"/>

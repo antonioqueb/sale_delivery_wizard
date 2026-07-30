@@ -40,6 +40,11 @@
                                         Impreso:
                                         <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                                     </div>
+                                    <!-- Barcode del folio: se escanea desde la app móvil para surtir -->
+                                    <div style="margin-top: 6px;">
+                                        <img t-att-src="'/report/barcode/?barcode_type=Code128&amp;value=%s&amp;width=600&amp;height=90&amp;humanreadable=0' % doc.name"
+                                             style="width: 210px; height: 42px;" alt="Barcode"/>
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -1,0 +1,422 @@
+# -*- coding: utf-8 -*-
+"""Extensión móvil del Delivery Wizard (app STO Scanner).
+
+Flujo de salidas desde el teléfono:
+  1. El chofer/almacenista escanea el barcode del Pick Ticket impreso.
+  2. Escanea una a una las placas físicas contra las líneas del PT.
+  3. Con evidencia fotográfica obligatoria, genera la remisión desde el
+     teléfono (reutilizando la lógica completa del wizard).
+  4. Al entregar: firma en pantalla + foto de descarga + GPS; se inyecta
+     al documento y se envía la remisión firmada por correo al cliente.
+
+También define el registro de puntos GPS (sale.delivery.route.point) y el
+mapa en vivo de entregas (sale.delivery.live.map).
+"""
+import json
+import logging
+
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
+
+
+class SaleDeliveryDocument(models.Model):
+    _inherit = 'sale.delivery.document'
+
+    # Trazabilidad PT ↔ remisión para el flujo móvil (el wizard web no la
+    # guarda; aquí sí, porque el chofer parte del PT escaneado).
+    pick_ticket_id = fields.Many2one(
+        'sale.delivery.document',
+        string='Pick Ticket Origen',
+        readonly=True,
+        copy=False,
+        index=True,
+        domain=[('document_type', '=', 'pick_ticket')],
+    )
+    signed_at = fields.Datetime(string='Firmado el', readonly=True, copy=False)
+    signed_latitude = fields.Float(string='Latitud de Firma', digits=(10, 7), readonly=True, copy=False)
+    signed_longitude = fields.Float(string='Longitud de Firma', digits=(10, 7), readonly=True, copy=False)
+
+    # ──────────────────────────────────────────────
+    # RPC móvil: cargar el pick ticket escaneado
+    # ──────────────────────────────────────────────
+
+    @api.model
+    def app_get_pick_ticket(self, name):
+        """Pick ticket por folio (barcode escaneado). Devuelve cabecera y
+        líneas con lote/producto/cantidad para verificación física."""
+        pt = self.search([
+            ('name', '=', name),
+            ('document_type', '=', 'pick_ticket'),
+        ], limit=1)
+        if not pt:
+            return {'found': False, 'error': _('Pick ticket "%s" no existe') % name}
+        if pt.state == 'cancelled':
+            return {'found': False, 'error': _('El pick ticket %s está cancelado') % pt.name}
+        if pt.state == 'confirmed':
+            return {'found': False, 'error': _(
+                'El pick ticket %s ya fue surtido (remisión generada)') % pt.name}
+
+        lines = []
+        for line in pt.line_ids:
+            lines.append({
+                'line_id': line.id,
+                'lot_id': line.lot_id.id,
+                'lot_name': line.lot_id.name or '',
+                'product_id': line.product_id.id,
+                'product_name': line.product_id.display_name,
+                'qty': line.qty_selected,
+                'location': line._format_short_location() if hasattr(line, '_format_short_location') else (line.source_location_id.complete_name or ''),
+            })
+
+        order = pt.sale_order_id
+        return {
+            'found': True,
+            'id': pt.id,
+            'name': pt.name,
+            'state': pt.state,
+            'sale_order': order.name,
+            'partner': order.partner_id.display_name,
+            'partner_email': order.partner_id.email or '',
+            'delivery_address': pt.delivery_address or '',
+            'special_instructions': pt.special_instructions or '',
+            'vehicle': pt.vehicle_id.display_name if pt.vehicle_id else '',
+            'driver': pt.vehicle_driver_id.display_name if pt.vehicle_driver_id else '',
+            'delivery_auth_state': getattr(order, 'delivery_auth_state', '') or '',
+            'lines': lines,
+        }
+
+    # ──────────────────────────────────────────────
+    # RPC móvil: generar la remisión desde el escaneo
+    # ──────────────────────────────────────────────
+
+    @api.model
+    def app_generate_remission_from_pt(self, pick_ticket_id, scanned_lot_ids):
+        """Genera la(s) remisión(es) desde el teléfono reutilizando la
+        lógica completa del wizard (candados de demanda, autorización de
+        pago, validación de picking, agrupación por picking).
+
+        Exige que TODAS las placas del PT estén escaneadas — el control
+        físico es el punto de esta herramienta.
+        """
+        pt = self.browse(pick_ticket_id)
+        if not pt.exists() or pt.document_type != 'pick_ticket':
+            raise UserError(_('Pick ticket inválido'))
+        if pt.state != 'prepared':
+            raise UserError(_(
+                'El pick ticket %s no está listo para surtir (estado: %s)'
+            ) % (pt.name, pt.state))
+
+        expected = set(pt.line_ids.mapped('lot_id').ids)
+        scanned = set(scanned_lot_ids or [])
+        missing = expected - scanned
+        if missing:
+            names = ', '.join(
+                self.env['stock.lot'].browse(list(missing)).mapped('name'))
+            raise UserError(_(
+                'Faltan placas por escanear: %s.\n'
+                'Escanea físicamente todo el pick ticket antes de generar '
+                'la remisión.') % names)
+        extra = scanned - expected
+        if extra:
+            names = ', '.join(
+                self.env['stock.lot'].browse(list(extra)).mapped('name'))
+            raise UserError(_(
+                'Estas placas NO pertenecen al pick ticket: %s') % names)
+
+        before = self.search([
+            ('sale_order_id', '=', pt.sale_order_id.id),
+            ('document_type', '=', 'remission'),
+        ])
+
+        wizard = self.env['sale.delivery.wizard'].create({
+            'sale_order_id': pt.sale_order_id.id,
+            'pick_ticket_id': pt.id,
+            'delivery_address': pt.delivery_address or '',
+            'special_instructions': pt.special_instructions or '',
+            'vehicle_id': pt.vehicle_id.id or False,
+            'vehicle_driver_id': pt.vehicle_driver_id.id or False,
+        })
+        wizard._generate_remission_from_pick_ticket()
+
+        after = self.search([
+            ('sale_order_id', '=', pt.sale_order_id.id),
+            ('document_type', '=', 'remission'),
+        ])
+        new_docs = after - before
+        new_docs.write({'pick_ticket_id': pt.id})
+
+        for doc in new_docs:
+            doc.message_post(body=_(
+                'Remisión generada desde la app móvil (escaneo físico '
+                'completo del pick ticket %s).') % pt.name)
+
+        return [{
+            'id': d.id,
+            'name': d.remission_number or d.name,
+            'state': d.state,
+        } for d in new_docs]
+
+    # ──────────────────────────────────────────────
+    # RPC móvil: evidencia, firma y correo
+    # ──────────────────────────────────────────────
+
+    @api.model
+    def app_add_delivery_media(self, doc_id, payload):
+        """Adjunta evidencia/firma desde el teléfono.
+
+        payload = {
+          'photos': [{'name': str, 'data': b64}],      # evidencia
+          'signed_by': str,                             # nombre del receptor
+          'signature': b64 PNG,                         # firma táctil
+          'latitude': float, 'longitude': float,        # GPS del momento
+          'send_email': bool,                           # correo al firmar
+        }
+        """
+        doc = self.browse(doc_id)
+        if not doc.exists():
+            raise UserError(_('Documento de entrega inexistente'))
+
+        payload = payload or {}
+        attach_ids = []
+        for photo in payload.get('photos') or []:
+            att = self.env['ir.attachment'].create({
+                'name': photo.get('name') or 'evidencia.jpg',
+                'datas': photo.get('data'),
+                'res_model': 'sale.delivery.document',
+                'res_id': doc.id,
+                'mimetype': 'image/jpeg',
+            })
+            attach_ids.append(att.id)
+        if attach_ids:
+            doc.write({'attachment_ids': [(4, a) for a in attach_ids]})
+
+        vals = {}
+        signed = bool(payload.get('signature'))
+        if signed:
+            vals.update({
+                'signature_image': payload['signature'],
+                'signed_by': payload.get('signed_by') or '',
+                'signed_at': fields.Datetime.now(),
+                'signed_latitude': payload.get('latitude') or 0.0,
+                'signed_longitude': payload.get('longitude') or 0.0,
+            })
+        if vals:
+            doc.write(vals)
+
+        # Bitácora con GPS
+        lat, lng = payload.get('latitude'), payload.get('longitude')
+        gps_txt = ''
+        if lat and lng:
+            gps_txt = _(' — GPS: %(lat).6f, %(lng).6f '
+                        '(https://maps.google.com/?q=%(lat).6f,%(lng).6f)') % {
+                'lat': lat, 'lng': lng}
+        if signed:
+            doc.message_post(body=_(
+                'Entrega FIRMADA desde la app por "%(who)s"%(gps)s. '
+                'Fotos de evidencia: %(n)d.') % {
+                'who': vals.get('signed_by') or '-',
+                'gps': gps_txt, 'n': len(attach_ids)})
+        elif attach_ids:
+            doc.message_post(body=_(
+                'Evidencia de salida cargada desde la app (%(n)d fotos)%(gps)s.'
+            ) % {'n': len(attach_ids), 'gps': gps_txt})
+
+        # Correo automático con la remisión firmada
+        email_sent = False
+        if signed and payload.get('send_email', True):
+            email_sent = doc._app_send_signed_email()
+
+        return {'ok': True, 'photos': len(attach_ids),
+                'signed': signed, 'email_sent': email_sent}
+
+    def _app_send_signed_email(self):
+        """Envía la remisión firmada (PDF con firma) al contacto del pedido."""
+        self.ensure_one()
+        partner = self.sale_order_id.partner_id
+        if not partner.email:
+            self.message_post(body=_(
+                'No se envió correo: el cliente %s no tiene email.') % partner.name)
+            return False
+        try:
+            template = self.env.ref(
+                'sale_delivery_wizard.mail_template_remission_signed',
+                raise_if_not_found=False)
+            if not template:
+                return False
+            template.send_mail(self.id, force_send=True)
+            self.message_post(body=_(
+                'Remisión firmada enviada por correo a %s.') % partner.email)
+            return True
+        except Exception as e:
+            _logger.warning('Correo de remisión firmada falló (%s): %s',
+                            self.name, e)
+            self.message_post(body=_(
+                'El correo de la remisión firmada no pudo enviarse: %s') % e)
+            return False
+
+
+class SaleDeliveryRoutePoint(models.Model):
+    """Punto GPS de una entrega en curso — para rutas, tiempos y el mapa
+    en vivo. Los registra la app móvil solo durante salidas activas."""
+    _name = 'sale.delivery.route.point'
+    _description = 'Punto GPS de Entrega'
+    _order = 'timestamp desc'
+
+    document_id = fields.Many2one(
+        'sale.delivery.document', string='Documento de Entrega',
+        required=True, ondelete='cascade', index=True)
+    user_id = fields.Many2one(
+        'res.users', string='Usuario (chofer)', required=True,
+        default=lambda self: self.env.user, index=True)
+    event_type = fields.Selection([
+        ('inicio', 'Inicio de ruta'),
+        ('ping', 'En ruta'),
+        ('llegada', 'Llegada'),
+        ('firma', 'Firma'),
+        ('fin', 'Fin de ruta'),
+    ], string='Evento', required=True, default='ping', index=True)
+    latitude = fields.Float(string='Latitud', digits=(10, 7), required=True)
+    longitude = fields.Float(string='Longitud', digits=(10, 7), required=True)
+    accuracy = fields.Float(string='Precisión (m)')
+    speed = fields.Float(string='Velocidad (m/s)')
+    timestamp = fields.Datetime(string='Momento', required=True,
+                                default=fields.Datetime.now, index=True)
+
+    @api.model
+    def app_log_points(self, points):
+        """Alta masiva desde la app (cola offline). points = lista de dicts
+        con document_id, event_type, latitude, longitude, accuracy, speed,
+        timestamp (ISO UTC)."""
+        vals_list = []
+        for p in points or []:
+            if not p.get('document_id') or not p.get('latitude'):
+                continue
+            ts = (p.get('timestamp') or '').replace('T', ' ').split('.')[0]
+            vals_list.append({
+                'document_id': p['document_id'],
+                'event_type': p.get('event_type', 'ping'),
+                'latitude': p['latitude'],
+                'longitude': p['longitude'],
+                'accuracy': p.get('accuracy') or 0.0,
+                'speed': p.get('speed') or 0.0,
+                'timestamp': ts or fields.Datetime.now(),
+            })
+        if vals_list:
+            self.sudo().create(vals_list)
+        return {'ok': True, 'logged': len(vals_list)}
+
+
+class SaleDeliveryLiveMap(models.TransientModel):
+    """Mapa en vivo de entregas — mismo patrón que el mapa de Torre de
+    Control (Leaflet vía HTML embebido, tiles CARTO sin API key)."""
+    _name = 'sale.delivery.live.map'
+    _description = 'Mapa en Vivo de Entregas'
+
+    map_html = fields.Html(string='Mapa', sanitize=False, readonly=True)
+    active_count = fields.Integer(string='Entregas activas', readonly=True)
+
+    @api.model
+    def default_get(self, fields_list):
+        res = super().default_get(fields_list)
+        html, count = self._build_live_map()
+        res['map_html'] = html
+        res['active_count'] = count
+        return res
+
+    def action_refresh(self):
+        html, count = self._build_live_map()
+        self.write({'map_html': html, 'active_count': count})
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': self._name,
+            'res_id': self.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+    @api.model
+    def _build_live_map(self):
+        Point = self.env['sale.delivery.route.point'].sudo()
+        # Entregas con actividad GPS en las últimas 12 horas
+        since = fields.Datetime.subtract(fields.Datetime.now(), hours=12)
+        points = Point.search([('timestamp', '>=', since)],
+                              order='timestamp asc', limit=4000)
+
+        routes = {}
+        for pt in points:
+            routes.setdefault(pt.document_id.id, []).append(pt)
+
+        colors = ['#0B57D0', '#00B894', '#E5484D', '#F5A623', '#7C3AED',
+                  '#0891B2', '#DB2777']
+        markers_js, lines_js, bounds = [], [], []
+
+        for idx, (doc_id, pts) in enumerate(routes.items()):
+            doc = self.env['sale.delivery.document'].sudo().browse(doc_id)
+            color = colors[idx % len(colors)]
+            latlngs = [[p.latitude, p.longitude] for p in pts]
+            bounds.extend(latlngs)
+            last = pts[-1]
+            finished = any(p.event_type == 'fin' for p in pts)
+            driver = (doc.vehicle_driver_id.name
+                      or last.user_id.name or '')
+            label = '%s · %s' % (doc.remission_number or doc.name, driver)
+            emoji = '🏁' if finished else '🚚'
+
+            lines_js.append(
+                "L.polyline(%s, {color:'%s', weight:4, opacity:0.75})"
+                ".addTo(map);" % (json.dumps(latlngs), color))
+            markers_js.append(
+                "L.marker(%s, {icon: L.divIcon({html:'<div style=\""
+                "font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))"
+                "\">%s</div>', className:'', iconSize:[26,26]})})"
+                ".addTo(map).bindPopup(%s);" % (
+                    json.dumps([last.latitude, last.longitude]), emoji,
+                    json.dumps(
+                        '<b>%s</b><br/>%s<br/>Último reporte: %s<br/>'
+                        '<a href="https://maps.google.com/?q=%s,%s" '
+                        'target="_blank">Abrir en Google Maps</a>' % (
+                            label, doc.partner_id.name or '',
+                            fields.Datetime.context_timestamp(
+                                self, last.timestamp).strftime('%d/%m %H:%M'),
+                            last.latitude, last.longitude))))
+            # Marcadores de eventos clave (llegada / firma)
+            for p in pts:
+                if p.event_type in ('llegada', 'firma'):
+                    ev_emoji = '📍' if p.event_type == 'llegada' else '✍️'
+                    markers_js.append(
+                        "L.marker(%s, {icon: L.divIcon({html:'<div style=\""
+                        "font-size:18px\">%s</div>', className:'', "
+                        "iconSize:[18,18]})}).addTo(map).bindTooltip(%s);" % (
+                            json.dumps([p.latitude, p.longitude]), ev_emoji,
+                            json.dumps('%s %s' % (
+                                p.event_type.title(),
+                                fields.Datetime.context_timestamp(
+                                    self, p.timestamp).strftime('%H:%M')))))
+
+        bounds_js = (
+            "map.fitBounds(%s, {padding:[40,40], maxZoom: 14});"
+            % json.dumps(bounds)) if bounds else ''
+
+        html = """
+<div style="width:100%%;height:640px;position:relative;border-radius:12px;overflow:hidden;">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <div id="delivery_live_map" style="width:100%%;height:100%%;"></div>
+  <script>
+    (function() {
+      var el = document.getElementById('delivery_live_map');
+      if (!el || el._leaflet_id) { return; }
+      var map = L.map('delivery_live_map', {scrollWheelZoom: false}).setView([25.67, -100.31], 11);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
+      }).addTo(map);
+      %s
+      %s
+      %s
+    })();
+  </script>
+</div>""" % ('\n      '.join(lines_js), '\n      '.join(markers_js), bounds_js)
+
+        return html, len(routes)

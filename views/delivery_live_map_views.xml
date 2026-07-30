@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Mapa en vivo de entregas: choferes, rutas y eventos de las últimas 12h -->
+    <record id="view_delivery_live_map_form" model="ir.ui.view">
+        <field name="name">sale.delivery.live.map.form</field>
+        <field name="model">sale.delivery.live.map</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" delete="false">
+                <header>
+                    <button name="action_refresh" type="object"
+                            string="🔄 Actualizar mapa" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>🚚 Entregas en Vivo</h1>
+                        <p class="text-muted">
+                            Rutas y última posición de cada entrega activa
+                            (últimas 12 horas). Los puntos se registran desde
+                            la app durante las salidas.
+                            Entregas con actividad:
+                            <field name="active_count" readonly="1" nolabel="1" class="fw-bold"/>
+                        </p>
+                    </div>
+                    <field name="map_html" widget="html" readonly="1" nolabel="1"
+                           options="{'style-inline': true}"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_delivery_live_map" model="ir.actions.act_window">
+        <field name="name">Entregas en Vivo</field>
+        <field name="res_model">sale.delivery.live.map</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+    <!-- Puntos GPS crudos (para auditoría/análisis) -->
+    <record id="view_delivery_route_point_list" model="ir.ui.view">
+        <field name="name">sale.delivery.route.point.list</field>
+        <field name="model">sale.delivery.route.point</field>
+        <field name="arch" type="xml">
+            <list create="false">
+                <field name="timestamp"/>
+                <field name="document_id"/>
+                <field name="user_id"/>
+                <field name="event_type"/>
+                <field name="latitude"/>
+                <field name="longitude"/>
+                <field name="speed"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_delivery_route_points" model="ir.actions.act_window">
+        <field name="name">Puntos de Ruta</field>
+        <field name="res_model">sale.delivery.route.point</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <menuitem id="menu_delivery_live_root" name="Entregas"
+              web_icon="sale_delivery_wizard,static/description/icon.png"
+              sequence="34" groups="sale_delivery_wizard.group_delivery_user"/>
+    <menuitem id="menu_delivery_live_map" name="🗺️ Mapa en Vivo"
+              parent="menu_delivery_live_root"
+              action="action_delivery_live_map" sequence="1"/>
+    <menuitem id="menu_delivery_route_points" name="Puntos de Ruta"
+              parent="menu_delivery_live_root"
+              action="action_delivery_route_points" sequence="2"
+              groups="sale_delivery_wizard.group_delivery_manager"/>
+</odoo>

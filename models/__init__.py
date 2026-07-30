@@ -4,3 +4,4 @@ from . import sale_delivery_document
 from . import sale_delivery_document_line
 from . import sale_order
 from . import sale_order_line
+from . import sale_delivery_mobile

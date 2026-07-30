@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Remisión firmada: se envía automáticamente al firmar en la app -->
+        <record id="mail_template_remission_signed" model="mail.template">
+            <field name="name">Entrega: Remisión Firmada</field>
+            <field name="model_id" ref="sale_delivery_wizard.model_sale_delivery_document"/>
+            <field name="subject">Remisión {{ object.remission_number or object.name }} — Entrega firmada</field>
+            <field name="email_from">{{ (object.sale_order_id.user_id.email_formatted or object.company_id.email_formatted or '') }}</field>
+            <field name="partner_to">{{ object.sale_order_id.partner_id.id }}</field>
+            <field name="report_template_ids" eval="[(4, ref('sale_delivery_wizard.action_report_remission'))]"/>
+            <field name="auto_delete" eval="True"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#f4f6fa;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;">
+    <tr><td style="padding:24px 24px 12px;">
+      <div style="background:linear-gradient(135deg,#0B57D0,#2D9CF0);border-radius:12px;padding:22px 24px;color:#fff;">
+        <div style="font-size:12px;letter-spacing:2px;font-weight:bold;opacity:.85;">SOM GROUP</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;">Entrega firmada ✔</div>
+        <div style="font-size:14px;margin-top:4px;opacity:.9;">
+          Remisión <t t-out="object.remission_number or object.name"/>
+        </div>
+      </div>
+    </td></tr>
+    <tr><td style="padding:0 24px;">
+      <div style="background:#ffffff;border-radius:12px;padding:20px 24px;border:1px solid #e1e9f4;">
+        <p style="font-size:14px;color:#333;margin:0 0 12px;">
+          Estimado(a) <t t-out="object.sale_order_id.partner_id.name"/>:
+        </p>
+        <p style="font-size:14px;color:#333;margin:0 0 12px;">
+          Confirmamos la entrega del material de su pedido
+          <b><t t-out="object.sale_order_id.name"/></b>.
+          Adjuntamos la remisión con la firma digital de recepción.
+        </p>
+        <table style="font-size:13.5px;color:#333;width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="padding:6px 0;color:#888;">Recibió</td>
+            <td style="padding:6px 0;font-weight:bold;" t-out="object.signed_by or '-'"/>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;color:#888;">Fecha y hora</td>
+            <td style="padding:6px 0;font-weight:bold;" t-out="format_datetime(object.signed_at or object.delivery_date, tz=user.tz, dt_format='dd/MM/yyyy HH:mm')"/>
+          </tr>
+        </table>
+        <p style="font-size:12.5px;color:#888;margin:16px 0 0;">
+          Este comprobante fue firmado digitalmente en el punto de entrega.
+          Gracias por su preferencia.
+        </p>
+      </div>
+    </td></tr>
+    <tr><td style="padding:14px 24px 24px;text-align:center;">
+      <span style="font-size:11px;color:#9aa4b5;">SOM GROUP · Documento generado automáticamente</span>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+    </data>
+</odoo>

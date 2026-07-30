@@ -16,3 +16,12 @@ access_sale_delivery_document_line_sales,sale.delivery.document.line sales,model
 access_sale_return_reason_sales,sale.return.reason sales,model_sale_return_reason,sales_team.group_sale_salesman,1,0,0,0
 access_sale_delivery_driver,sale.delivery.document driver,model_sale_delivery_document,group_delivery_driver,1,0,0,0
 access_sale_delivery_document_line_driver,sale.delivery.document.line driver,model_sale_delivery_document_line,group_delivery_driver,1,0,0,0
+access_sale_delivery_document_driver_write,sale.delivery.document driver write,model_sale_delivery_document,group_delivery_driver,1,1,0,0
+access_delivery_route_point_user,sale.delivery.route.point user,model_sale_delivery_route_point,group_delivery_user,1,1,1,0
+access_delivery_route_point_driver,sale.delivery.route.point driver,model_sale_delivery_route_point,group_delivery_driver,1,1,1,0
+access_delivery_route_point_manager,sale.delivery.route.point manager,model_sale_delivery_route_point,group_delivery_manager,1,1,1,1
+access_delivery_live_map_user,sale.delivery.live.map user,model_sale_delivery_live_map,group_delivery_user,1,1,1,1
+access_delivery_live_map_manager,sale.delivery.live.map manager,model_sale_delivery_live_map,group_delivery_manager,1,1,1,1
+access_sale_delivery_wizard_driver,sale.delivery.wizard driver,model_sale_delivery_wizard,group_delivery_driver,1,1,1,1
+access_sale_delivery_wizard_line_driver,sale.delivery.wizard.line driver,model_sale_delivery_wizard_line,group_delivery_driver,1,1,1,1
+access_sale_delivery_document_line_driver_w,sale.delivery.document.line driver write,model_sale_delivery_document_line,group_delivery_driver,1,1,1,0
