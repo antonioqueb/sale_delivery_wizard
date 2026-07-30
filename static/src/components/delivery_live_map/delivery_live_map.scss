@@ -119,63 +119,208 @@
     }
 }
 
-// ── Popups del mapa (info del viaje) ────────────────────────────
-.o_dlm_popup {
-    min-width: 220px;
-    font-size: 13px;
-
-    .o_dlm_pop_title {
-        font-weight: 700;
-        font-size: 14px;
-        margin-bottom: 6px;
-        color: #111827;
+// ── Popups del mapa: tarjeta grande y legible ───────────────────
+// El wrapper de Leaflet se limpia para que la tarjeta mande.
+.o_dlm_pop {
+    .leaflet-popup-content-wrapper {
+        border-radius: 14px;
+        padding: 0;
+        box-shadow: 0 10px 34px rgba(15, 23, 42, 0.24);
+        overflow: hidden;
     }
-    .o_dlm_pop_rows > div {
+    .leaflet-popup-content {
+        margin: 0;
+        width: auto !important;
+        min-width: 300px;
+        line-height: 1.35;
+    }
+    .leaflet-popup-close-button {
+        top: 8px !important;
+        right: 10px !important;
+        font-size: 22px !important;
+        color: #64748b !important;
+        z-index: 2;
+    }
+}
+
+.o_dlm_popup {
+    font-size: 14px;
+    color: #1f2937;
+
+    // Encabezado: folio grande + chofer + chip de estado, con la franja
+    // del color de la ruta.
+    .o_dlm_pop_head {
         display: flex;
+        align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 1px 0;
+        padding: 14px 38px 12px 16px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e6eaf1;
+        border-left: 5px solid #0b57d0; // se pisa inline con el color real
+    }
+    .o_dlm_pop_folio {
+        font-size: 17px;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: 0.01em;
+    }
+    .o_dlm_pop_driver {
+        margin-top: 1px;
+        color: #64748b;
+        font-size: 13px;
+    }
+    .o_dlm_chip {
+        flex: 0 0 auto;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+    .o_dlm_chip_live {
+        background: #e8f1ff;
+        color: #0b57d0;
+    }
+    .o_dlm_chip_done {
+        background: #e7f6ec;
+        color: #157347;
+    }
+
+    .o_dlm_pop_body {
+        padding: 12px 16px;
+    }
+
+    // Filas PT / OV / Cliente
+    .o_dlm_rows > div,
+    .o_dlm_row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        padding: 3px 0;
 
         span {
-            color: #6b7280;
+            color: #64748b;
+            flex: 0 0 auto;
         }
         b {
             text-align: right;
+            font-weight: 700;
+            color: #0f172a;
         }
     }
-    .o_dlm_pop_sec {
-        margin-top: 7px;
-        font-weight: 700;
-        font-size: 12px;
-        color: #374151;
+
+    // Títulos de sección
+    .o_dlm_sec {
+        margin: 12px 0 5px;
+        font-size: 11.5px;
+        font-weight: 800;
+        color: #64748b;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.06em;
+    }
+
+    // Material: lista con cantidades alineadas + total
+    .o_dlm_mats {
+        max-height: 150px;
+        overflow-y: auto;
+        border: 1px solid #eef1f6;
+        border-radius: 8px;
+        padding: 4px 10px;
     }
     .o_dlm_mat {
         display: flex;
         justify-content: space-between;
-        gap: 12px;
-        padding: 1px 0;
+        gap: 14px;
+        padding: 3px 0;
+        border-bottom: 1px dashed #eef1f6;
 
+        &:last-child {
+            border-bottom: none;
+        }
         span {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        b {
+            flex: 0 0 auto;
+            font-variant-numeric: tabular-nums;
+        }
     }
-    .o_dlm_metrics {
+    .o_dlm_mat_total {
         display: flex;
-        flex-wrap: wrap;
-        gap: 4px 10px;
-        margin-top: 7px;
-        padding-top: 6px;
-        border-top: 1px solid #e5e9f0;
-        color: #374151;
+        justify-content: space-between;
+        padding: 5px 10px 0;
+        font-weight: 800;
+        color: #0f172a;
+
+        span {
+            color: #64748b;
+            font-weight: 700;
+        }
     }
-    .o_dlm_pop_muted {
-        margin-top: 6px;
-        color: #9ca3af;
-        font-size: 12px;
+
+    // Métricas del viaje: mosaicos grandes
+    .o_dlm_tiles {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        margin-top: 4px;
+    }
+    .o_dlm_tile {
+        background: #f6f8fb;
+        border-radius: 10px;
+        padding: 8px 6px;
+        text-align: center;
+    }
+    .o_dlm_tile_v {
+        font-size: 16px;
+        font-weight: 800;
+        color: #0f172a;
+        font-variant-numeric: tabular-nums;
+
+        small {
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            margin-left: 2px;
+        }
+    }
+    .o_dlm_tile_l {
+        margin-top: 1px;
+        font-size: 10.5px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    // Pie: último reporte + botón Google Maps
+    .o_dlm_pop_foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        background: #f8fafc;
+        border-top: 1px solid #e6eaf1;
+        font-size: 12.5px;
+        color: #64748b;
+    }
+    .o_dlm_gmaps {
+        flex: 0 0 auto;
+        font-weight: 700;
+        text-decoration: none;
+        color: #0b57d0;
+        background: #e8f1ff;
+        padding: 5px 12px;
+        border-radius: 8px;
+
+        &:hover {
+            background: #d8e7ff;
+            text-decoration: none;
+        }
     }
 }
 

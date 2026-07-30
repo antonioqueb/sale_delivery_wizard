@@ -122,14 +122,32 @@ export class DeliveryLiveMap extends Component {
 
     // ── Popups ─────────────────────────────────────────────────────────
 
-    metricsHtml(r) {
+    headerHtml(r, title) {
+        const status = r.finished
+            ? `<span class="o_dlm_chip o_dlm_chip_done">🏁 Terminado</span>`
+            : `<span class="o_dlm_chip o_dlm_chip_live">🚚 En ruta</span>`;
         return (
-            `<div class="o_dlm_metrics">` +
-            `<span>📏 <b>${r.distance_km}</b> km</span>` +
-            `<span>⏱ ${esc(fmtDur(r.duration_min))}</span>` +
-            `<span>⌀ <b>${r.avg_kmh}</b> km/h</span>` +
-            `<span>🚀 pico <b>${r.peak_kmh}</b> km/h</span>` +
-            `<span>⏸ detenido ${esc(fmtDur(r.stopped_min))}</span>` +
+            `<div class="o_dlm_pop_head" style="border-left-color:${r.color}">` +
+            `<div class="o_dlm_pop_head_main">` +
+            `<div class="o_dlm_pop_folio">${esc(title)}</div>` +
+            (r.driver ? `<div class="o_dlm_pop_driver">${esc(r.driver)}${r.vehicle ? " · " + esc(r.vehicle) : ""}</div>` : "") +
+            `</div>${status}</div>`
+        );
+    }
+
+    metricsHtml(r) {
+        const tile = (value, unit, label) =>
+            `<div class="o_dlm_tile"><div class="o_dlm_tile_v">${value}` +
+            (unit ? `<small>${unit}</small>` : "") +
+            `</div><div class="o_dlm_tile_l">${label}</div></div>`;
+        return (
+            `<div class="o_dlm_tiles">` +
+            tile(r.distance_km, "km", "Distancia") +
+            tile(esc(fmtDur(r.duration_min)), "", "Duración") +
+            tile(r.avg_kmh, "km/h", "Vel. promedio") +
+            tile(r.peak_kmh, "km/h", "Vel. pico") +
+            tile(esc(fmtDur(r.stopped_min)), "", "Detenido") +
+            tile(esc(r.start_time.split(" ")[1] || r.start_time), "", "Inicio") +
             `</div>`
         );
     }
@@ -137,37 +155,50 @@ export class DeliveryLiveMap extends Component {
     routePopup(r) {
         return (
             `<div class="o_dlm_popup">` +
-            `<div class="o_dlm_pop_title">${r.finished ? "🏁" : "🚚"} ${esc(r.label)}</div>` +
+            this.headerHtml(r, r.doc_name || r.label) +
+            `<div class="o_dlm_pop_body">` +
             this.metricsHtml(r) +
-            `<div class="o_dlm_pop_muted">Inició ${esc(r.start_time)}</div>` +
-            `</div>`
+            `</div></div>`
         );
     }
 
     truckPopup(r) {
-        const mats = (r.materials || [])
-            .map(
-                (m) =>
-                    `<div class="o_dlm_mat"><span>${esc(m.product)}</span><b>${m.qty}</b></div>`
-            )
-            .join("");
+        const row = (label, value) =>
+            value
+                ? `<div class="o_dlm_row"><span>${label}</span><b>${esc(value)}</b></div>`
+                : "";
+        let mats = "";
+        if ((r.materials || []).length) {
+            const total = r.materials.reduce((s, m) => s + (m.qty || 0), 0);
+            mats =
+                `<div class="o_dlm_sec">📦 Material entregado</div>` +
+                `<div class="o_dlm_mats">` +
+                r.materials
+                    .map(
+                        (m) =>
+                            `<div class="o_dlm_mat"><span title="${esc(m.product)}">${esc(m.product)}</span><b>${m.qty}</b></div>`
+                    )
+                    .join("") +
+                `</div>` +
+                `<div class="o_dlm_mat_total"><span>Total</span><b>${Math.round(total * 100) / 100} m²</b></div>`;
+        }
         return (
             `<div class="o_dlm_popup">` +
-            `<div class="o_dlm_pop_title">${r.finished ? "🏁" : "🚚"} ${esc(r.doc_name)}</div>` +
-            `<div class="o_dlm_pop_rows">` +
-            (r.pt_folio ? `<div><span>PT</span><b>${esc(r.pt_folio)}</b></div>` : "") +
-            (r.sale_order ? `<div><span>Orden de venta</span><b>${esc(r.sale_order)}</b></div>` : "") +
-            (r.partner ? `<div><span>Cliente</span><b>${esc(r.partner)}</b></div>` : "") +
-            (r.driver ? `<div><span>Chofer</span><b>${esc(r.driver)}</b></div>` : "") +
-            (r.vehicle ? `<div><span>Unidad</span><b>${esc(r.vehicle)}</b></div>` : "") +
+            this.headerHtml(r, r.doc_name || r.label) +
+            `<div class="o_dlm_pop_body">` +
+            `<div class="o_dlm_rows">` +
+            row("Pick Ticket", r.pt_folio) +
+            row("Orden de venta", r.sale_order) +
+            row("Cliente", r.partner) +
             `</div>` +
-            (mats
-                ? `<div class="o_dlm_pop_sec">Material entregado</div>${mats}`
-                : "") +
+            mats +
+            `<div class="o_dlm_sec">📊 Viaje</div>` +
             this.metricsHtml(r) +
-            `<div class="o_dlm_pop_muted">Último reporte: ${esc(r.last.time)} · ` +
-            `<a href="https://maps.google.com/?q=${r.last.lat},${r.last.lng}" target="_blank">Google Maps</a></div>` +
-            `</div>`
+            `</div>` +
+            `<div class="o_dlm_pop_foot">` +
+            `<span>Último reporte: ${esc(r.last.time)}</span>` +
+            `<a class="o_dlm_gmaps" href="https://maps.google.com/?q=${r.last.lat},${r.last.lng}" target="_blank">Google Maps ↗</a>` +
+            `</div></div>`
         );
     }
 
@@ -195,7 +226,7 @@ export class DeliveryLiveMap extends Component {
                 weight: 5,
                 opacity: 0.95,
             }).addTo(group);
-            line.bindPopup(this.routePopup(r), { maxWidth: 320 });
+            line.bindPopup(this.routePopup(r), { maxWidth: 380, minWidth: 300, className: "o_dlm_pop" });
 
             // Camioncito (o bandera al terminar) con TODA la información.
             const emoji = r.finished ? "\u{1F3C1}" : "\u{1F69A}";
@@ -209,7 +240,7 @@ export class DeliveryLiveMap extends Component {
                 zIndexOffset: 1000,
             })
                 .addTo(group)
-                .bindPopup(this.truckPopup(r), { maxWidth: 340 });
+                .bindPopup(this.truckPopup(r), { maxWidth: 440, minWidth: 330, className: "o_dlm_pop" });
 
             for (const ev of r.events || []) {
                 if (this.mode === "live" && ev.type === "inicio") {
@@ -235,7 +266,7 @@ export class DeliveryLiveMap extends Component {
                             (r.doc_name ? `<div><span>Remisión</span><b>${esc(r.doc_name)}</b></div>` : "") +
                             (r.sale_order ? `<div><span>OV</span><b>${esc(r.sale_order)}</b></div>` : "") +
                             `</div></div>`,
-                        { maxWidth: 280 }
+                        { maxWidth: 300, className: "o_dlm_pop" }
                     );
             }
 
