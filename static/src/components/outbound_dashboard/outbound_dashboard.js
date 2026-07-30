@@ -49,14 +49,14 @@ export class OutboundDashboard extends Component {
         this.state.loading = false;
     }
 
-    openDoc(id) {
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "sale.delivery.document",
-            res_id: id,
-            views: [[false, "form"]],
-            target: "current",
-        });
+    // Abrir = el PDF del documento en una pestaña nueva (sin descargar):
+    // el almacén trabaja con el papel, no con el formulario de Odoo.
+    openPdf(docType, id) {
+        const report =
+            docType === "pick_ticket"
+                ? "sale_delivery_wizard.report_pick_ticket"
+                : "sale_delivery_wizard.report_remission";
+        window.open(`/report/pdf/${report}/${id}`, "_blank");
     }
 
     openOrder(id) {

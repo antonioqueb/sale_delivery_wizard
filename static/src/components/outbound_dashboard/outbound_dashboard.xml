@@ -74,6 +74,15 @@
                     <t t-esc="card.order"/>
                 </span>
             </div>
+            <div class="o_out_mats" t-if="card.materials and card.materials.length">
+                <div class="m" t-foreach="card.materials.slice(0, 3)" t-as="mt" t-key="mt.product">
+                    <span t-att-title="mt.product" t-esc="mt.product"/>
+                    <b><t t-esc="mt.m2"/> m²</b>
+                </div>
+                <div class="more" t-if="card.materials.length > 3">
+                    +<t t-esc="card.materials.length - 3"/> materiales más
+                </div>
+            </div>
             <div class="o_out_card_meta">
                 <span t-if="card.vehicle" class="o_out_veh">
                     <t t-call="sale_delivery_wizard.icon_truck"/>
@@ -89,8 +98,8 @@
                 Firmada <t t-esc="card.signed_at"/>
             </div>
             <div class="o_out_card_actions">
-                <button class="o_out_btn ghost" t-on-click="() => this.openDoc(card.id)">
-                    Abrir <t t-call="sale_delivery_wizard.icon_open2"/>
+                <button class="o_out_btn ghost" t-on-click="() => this.openPdf(card.doc_type, card.id)">
+                    Ver PDF <t t-call="sale_delivery_wizard.icon_open2"/>
                 </button>
             </div>
         </div>
@@ -173,7 +182,7 @@
                             </div>
                             <div class="o_out_truck_docs">
                                 <div class="doc" t-foreach="tk.docs" t-as="dc" t-key="dc.id"
-                                     t-on-click="() => this.openDoc(dc.id)">
+                                     t-on-click="() => this.openPdf(dc.doc_type, dc.id)">
                                     <span class="f" t-esc="dc.label"/>
                                     <span class="s" t-esc="dc.status"/>
                                     <span class="m"><t t-esc="dc.m2"/> m²</span>

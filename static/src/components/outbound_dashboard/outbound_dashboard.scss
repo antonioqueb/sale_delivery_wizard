@@ -306,6 +306,40 @@ $out-mut: #64748b;
             &:hover { text-decoration: underline; }
         }
     }
+    // Resumen de materiales del documento (top 3 + contador)
+    .o_out_mats {
+        margin-top: 7px;
+        border: 1px solid #eef1f6;
+        border-radius: 8px;
+        padding: 4px 9px;
+
+        .m {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 2px 0;
+            font-size: 11.8px;
+
+            span {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                color: #334155;
+            }
+            b {
+                flex: 0 0 auto;
+                color: $out-ink;
+                font-variant-numeric: tabular-nums;
+            }
+        }
+        .more {
+            padding: 2px 0 1px;
+            font-size: 11px;
+            color: $out-mut;
+            font-weight: 600;
+        }
+    }
+
     .o_out_card_meta { margin-top: 7px; }
     .o_out_veh {
         display: inline-flex;

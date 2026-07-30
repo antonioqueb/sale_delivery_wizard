@@ -728,8 +728,21 @@ class SaleDeliveryLiveMap(models.TransientModel):
         def base_card(doc):
             order = doc.sale_order_id
             auth = getattr(order, 'delivery_auth_state', '') or ''
+            mat_map = {}
+            for l in doc.line_ids:
+                if not l.product_id:
+                    continue
+                key = l.product_id.display_name
+                mat_map[key] = mat_map.get(key, 0.0) + (
+                    l.qty_done or l.qty_selected or 0.0)
+            materials = sorted(
+                ({'product': k, 'm2': round(q, 1)} for k, q in mat_map.items()),
+                key=lambda x: -x['m2'],
+            )[:20]
             return {
                 'id': doc.id,
+                'doc_type': doc.document_type,
+                'materials': materials,
                 'name': doc.name or '',
                 'order': order.name or '',
                 'order_id': order.id or False,
@@ -798,6 +811,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 status = 'Entregada' if doc.signed_at else 'En ruta'
             t['docs'].append({
                 'id': doc.id,
+                'doc_type': doc.document_type,
                 'label': label,
                 'status': status,
                 'm2': round(doc_m2(doc), 1),
