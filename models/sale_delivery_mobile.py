@@ -309,40 +309,50 @@ class SaleDeliveryRoutePoint(models.Model):
 
 
 class SaleDeliveryLiveMap(models.TransientModel):
-    """Mapa en vivo de entregas — mismo patrón que el mapa de Torre de
-    Control (Leaflet vía HTML embebido, tiles CARTO sin API key)."""
+    """Mapa de entregas EN VIVO — Leaflet embebido que se alimenta solo:
+    el HTML es un cascarón fijo y los datos llegan por polling JSON
+    (get_route_data), sin botón de actualizar ni recargas de página.
+
+    Dos modos (map_mode):
+      - 'live':    última posición y ruta de las entregas activas (12 h).
+      - 'history': todas las rutas registradas (submenú Rutas).
+    """
     _name = 'sale.delivery.live.map'
-    _description = 'Mapa en Vivo de Entregas'
+    _description = 'Mapa de Entregas'
 
     map_html = fields.Html(string='Mapa', sanitize=False, readonly=True)
     active_count = fields.Integer(string='Entregas activas', readonly=True)
+    map_mode = fields.Selection([
+        ('live', 'En vivo'),
+        ('history', 'Histórico'),
+    ], string='Modo', default='live', readonly=True)
+
+    @api.depends('map_mode')
+    def _compute_display_name(self):
+        # Sin esto, el breadcrumb mostraba el nombre técnico del transient
+        # (sale.delivery.live.map,<id>).
+        for rec in self:
+            rec.display_name = (
+                'Rutas' if rec.map_mode == 'history' else 'Mapa en Vivo')
 
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-        html, count = self._build_live_map()
-        res['map_html'] = html
-        res['active_count'] = count
+        mode = self.env.context.get('default_map_mode') or 'live'
+        res['map_mode'] = mode
+        res['map_html'] = self._build_map_shell(mode)
+        res['active_count'] = 0
         return res
 
-    def action_refresh(self):
-        html, count = self._build_live_map()
-        self.write({'map_html': html, 'active_count': count})
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': self._name,
-            'res_id': self.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
-
     @api.model
-    def _build_live_map(self):
+    def get_route_data(self, mode='live'):
+        """Datos para el mapa (lo llama el JS embebido por polling)."""
         Point = self.env['sale.delivery.route.point'].sudo()
-        # Entregas con actividad GPS en las últimas 12 horas
-        since = fields.Datetime.subtract(fields.Datetime.now(), hours=12)
-        points = Point.search([('timestamp', '>=', since)],
-                              order='timestamp asc', limit=4000)
+        domain = []
+        if mode != 'history':
+            since = fields.Datetime.subtract(fields.Datetime.now(), hours=12)
+            domain = [('timestamp', '>=', since)]
+        points = Point.search(domain, order='timestamp asc', limit=20000)
 
         routes = {}
         for pt in points:
@@ -350,73 +360,120 @@ class SaleDeliveryLiveMap(models.TransientModel):
 
         colors = ['#0B57D0', '#00B894', '#E5484D', '#F5A623', '#7C3AED',
                   '#0891B2', '#DB2777']
-        markers_js, lines_js, bounds = [], [], []
 
+        def fmt(ts):
+            return fields.Datetime.context_timestamp(
+                self, ts).strftime('%d/%m %H:%M')
+
+        result = []
         for idx, (doc_id, pts) in enumerate(routes.items()):
             doc = self.env['sale.delivery.document'].sudo().browse(doc_id)
-            color = colors[idx % len(colors)]
-            latlngs = [[p.latitude, p.longitude] for p in pts]
-            bounds.extend(latlngs)
             last = pts[-1]
             finished = any(p.event_type == 'fin' for p in pts)
-            driver = (doc.vehicle_driver_id.name
-                      or last.user_id.name or '')
-            label = '%s · %s' % (doc.remission_number or doc.name, driver)
-            emoji = '🏁' if finished else '🚚'
+            driver = doc.vehicle_driver_id.name or last.user_id.name or ''
+            result.append({
+                'id': doc_id,
+                'label': '%s · %s' % (
+                    doc.remission_number or doc.name or '', driver),
+                'partner': doc.partner_id.name or '',
+                'color': colors[idx % len(colors)],
+                'finished': finished,
+                'latlngs': [[p.latitude, p.longitude] for p in pts],
+                'last': {
+                    'lat': last.latitude,
+                    'lng': last.longitude,
+                    'time': fmt(last.timestamp),
+                },
+                'events': [{
+                    'lat': p.latitude,
+                    'lng': p.longitude,
+                    'type': p.event_type,
+                    'time': fmt(p.timestamp),
+                } for p in pts if p.event_type in (
+                    'inicio', 'llegada', 'firma', 'fin')],
+            })
+        return {'mode': mode, 'routes': result}
 
-            lines_js.append(
-                "L.polyline(%s, {color:'%s', weight:4, opacity:0.75})"
-                ".addTo(map);" % (json.dumps(latlngs), color))
-            markers_js.append(
-                "L.marker(%s, {icon: L.divIcon({html:'<div style=\""
-                "font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))"
-                "\">%s</div>', className:'', iconSize:[26,26]})})"
-                ".addTo(map).bindPopup(%s);" % (
-                    json.dumps([last.latitude, last.longitude]), emoji,
-                    json.dumps(
-                        '<b>%s</b><br/>%s<br/>Último reporte: %s<br/>'
-                        '<a href="https://maps.google.com/?q=%s,%s" '
-                        'target="_blank">Abrir en Google Maps</a>' % (
-                            label, doc.partner_id.name or '',
-                            fields.Datetime.context_timestamp(
-                                self, last.timestamp).strftime('%d/%m %H:%M'),
-                            last.latitude, last.longitude))))
-            # Marcadores de eventos clave (llegada / firma)
-            for p in pts:
-                if p.event_type in ('llegada', 'firma'):
-                    ev_emoji = '📍' if p.event_type == 'llegada' else '✍️'
-                    markers_js.append(
-                        "L.marker(%s, {icon: L.divIcon({html:'<div style=\""
-                        "font-size:18px\">%s</div>', className:'', "
-                        "iconSize:[18,18]})}).addTo(map).bindTooltip(%s);" % (
-                            json.dumps([p.latitude, p.longitude]), ev_emoji,
-                            json.dumps('%s %s' % (
-                                p.event_type.title(),
-                                fields.Datetime.context_timestamp(
-                                    self, p.timestamp).strftime('%H:%M')))))
-
-        bounds_js = (
-            "map.fitBounds(%s, {padding:[40,40], maxZoom: 14});"
-            % json.dumps(bounds)) if bounds else ''
-
-        html = """
-<div style="width:100%%;height:640px;position:relative;border-radius:12px;overflow:hidden;">
+    @api.model
+    def _build_map_shell(self, mode='live'):
+        """Cascarón HTML fijo: mapa grande centrado en Monterrey. Los datos
+        se pintan y refrescan solos vía get_route_data — nunca hay que
+        regenerar este HTML."""
+        map_id = 'delivery_map_%s' % mode
+        # En vivo: refresco cada 15 s. Histórico: cada 60 s.
+        interval = 15000 if mode == 'live' else 60000
+        return """
+<div style="width:100%%;height:calc(100vh - 165px);min-height:540px;position:relative;overflow:hidden;">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <div id="delivery_live_map" style="width:100%%;height:100%%;"></div>
+  <div id="%(map_id)s" style="width:100%%;height:100%%;"></div>
   <script>
     (function() {
-      var el = document.getElementById('delivery_live_map');
+      var el = document.getElementById('%(map_id)s');
       if (!el || el._leaflet_id) { return; }
-      var map = L.map('delivery_live_map', {scrollWheelZoom: false}).setView([25.67, -100.31], 11);
+      var MODE = '%(mode)s';
+      var map = L.map('%(map_id)s', {scrollWheelZoom: true})
+                 .setView([25.6866, -100.3161], 12);  /* Monterrey, MX */
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
           attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
       }).addTo(map);
-      %s
-      %s
-      %s
+      var layer = L.layerGroup().addTo(map);
+      var fitted = false;
+      var timer = null;
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+          return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+        });
+      }
+      function draw(data) {
+        layer.clearLayers();
+        var bounds = [];
+        (data.routes || []).forEach(function(r) {
+          bounds = bounds.concat(r.latlngs);
+          L.polyline(r.latlngs, {color: r.color, weight: 4, opacity: 0.75}).addTo(layer);
+          var emoji = r.finished ? '\\ud83c\\udfc1' : '\\ud83d\\ude9a';
+          L.marker([r.last.lat, r.last.lng], {icon: L.divIcon({
+              html: '<div style="font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
+              className: '', iconSize: [26, 26]})})
+            .addTo(layer)
+            .bindPopup('<b>' + esc(r.label) + '</b><br/>' + esc(r.partner) +
+                       '<br/>\\u00daltimo reporte: ' + esc(r.last.time) +
+                       '<br/><a href="https://maps.google.com/?q=' + r.last.lat + ',' + r.last.lng +
+                       '" target="_blank">Abrir en Google Maps</a>');
+          (r.events || []).forEach(function(ev) {
+            if (MODE === 'live' && (ev.type === 'inicio' || ev.type === 'fin')) { return; }
+            var icons = {inicio: '\\ud83d\\udfe2', llegada: '\\ud83d\\udccd',
+                         firma: '\\u270d\\ufe0f', fin: '\\ud83c\\udfc1'};
+            L.marker([ev.lat, ev.lng], {icon: L.divIcon({
+                html: '<div style="font-size:18px">' + (icons[ev.type] || '\\u2022') + '</div>',
+                className: '', iconSize: [18, 18]})})
+              .addTo(layer)
+              .bindTooltip(esc(ev.type) + ' ' + esc(ev.time));
+          });
+        });
+        if (!fitted && bounds.length) {
+          map.fitBounds(bounds, {padding: [40, 40], maxZoom: 13});
+          fitted = true;
+        }
+      }
+      function load() {
+        if (!document.getElementById('%(map_id)s')) {
+          if (timer) { clearInterval(timer); }
+          return;
+        }
+        fetch('/web/dataset/call_kw/sale.delivery.live.map/get_route_data', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({jsonrpc: '2.0', method: 'call', params: {
+            model: 'sale.delivery.live.map', method: 'get_route_data',
+            args: [MODE], kwargs: {}}})
+        }).then(function(r) { return r.json(); })
+          .then(function(res) { if (res && res.result) { draw(res.result); } })
+          .catch(function() {});
+      }
+      load();
+      timer = setInterval(load, %(interval)s);
     })();
   </script>
-</div>""" % ('\n      '.join(lines_js), '\n      '.join(markers_js), bounds_js)
-
-        return html, len(routes)
+</div>""" % {'map_id': map_id, 'mode': mode, 'interval': interval}

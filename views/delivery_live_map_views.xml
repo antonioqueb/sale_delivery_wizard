@@ -1,38 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Mapa en vivo de entregas: choferes, rutas y eventos de las últimas 12h -->
+    <!-- Mapa de entregas: solo el mapa, a pantalla completa, en vivo.
+         Sin header, sin título, sin botón de actualizar: el JS embebido
+         en map_html se refresca solo por polling. -->
     <record id="view_delivery_live_map_form" model="ir.ui.view">
         <field name="name">sale.delivery.live.map.form</field>
         <field name="model">sale.delivery.live.map</field>
         <field name="arch" type="xml">
             <form create="false" edit="false" delete="false">
-                <header>
-                    <button name="action_refresh" type="object"
-                            string="🔄 Actualizar mapa" class="btn-primary"/>
-                </header>
-                <sheet>
-                    <div class="oe_title">
-                        <h1>🚚 Entregas en Vivo</h1>
-                        <p class="text-muted">
-                            Rutas y última posición de cada entrega activa
-                            (últimas 12 horas). Los puntos se registran desde
-                            la app durante las salidas.
-                            Entregas con actividad:
-                            <field name="active_count" readonly="1" nolabel="1" class="fw-bold"/>
-                        </p>
-                    </div>
-                    <field name="map_html" widget="html" readonly="1" nolabel="1"
-                           options="{'style-inline': true}"/>
-                </sheet>
+                <field name="map_html" widget="html" readonly="1" nolabel="1"
+                       options="{'style-inline': true}"/>
             </form>
         </field>
     </record>
 
     <record id="action_delivery_live_map" model="ir.actions.act_window">
-        <field name="name">Entregas en Vivo</field>
+        <field name="name">Mapa en Vivo</field>
         <field name="res_model">sale.delivery.live.map</field>
         <field name="view_mode">form</field>
         <field name="target">current</field>
+        <field name="context">{'default_map_mode': 'live'}</field>
+    </record>
+
+    <!-- Rutas: histórico de TODAS las rutas registradas, mismo mapa -->
+    <record id="action_delivery_route_history" model="ir.actions.act_window">
+        <field name="name">Rutas</field>
+        <field name="res_model">sale.delivery.live.map</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'default_map_mode': 'history'}</field>
     </record>
 
     <!-- Puntos GPS crudos (para auditoría/análisis) -->
@@ -61,11 +57,14 @@
     <menuitem id="menu_delivery_live_root" name="Entregas"
               web_icon="sale_delivery_wizard,static/description/icon.png"
               sequence="34" groups="sale_delivery_wizard.group_delivery_user"/>
-    <menuitem id="menu_delivery_live_map" name="🗺️ Mapa en Vivo"
+    <menuitem id="menu_delivery_live_map" name="Mapa en Vivo"
               parent="menu_delivery_live_root"
               action="action_delivery_live_map" sequence="1"/>
+    <menuitem id="menu_delivery_route_history" name="Rutas"
+              parent="menu_delivery_live_root"
+              action="action_delivery_route_history" sequence="2"/>
     <menuitem id="menu_delivery_route_points" name="Puntos de Ruta"
               parent="menu_delivery_live_root"
-              action="action_delivery_route_points" sequence="2"
+              action="action_delivery_route_points" sequence="3"
               groups="sale_delivery_wizard.group_delivery_manager"/>
 </odoo>
