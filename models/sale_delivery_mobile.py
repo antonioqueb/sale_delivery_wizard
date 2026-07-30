@@ -475,3 +475,226 @@ class SaleDeliveryLiveMap(models.TransientModel):
                     'inicio', 'llegada', 'firma', 'fin')],
             })
         return {'mode': mode, 'routes': result}
+
+    # ══════════════════════════════════════════════════════════════
+    # REPORTERÍA — dashboard de operación de entregas
+    # ══════════════════════════════════════════════════════════════
+
+    def _trip_stats(self, pts):
+        """Métricas GPS de un viaje: (dist_m, moving_s, stopped_s, peak_kmh).
+        Mismos umbrales que el mapa (3 km/h / 8 m anti-jitter, tope 160)."""
+        total_m = moving_s = stopped_s = peak = 0.0
+        prev = None
+        for p in pts:
+            if prev is not None:
+                dt = (p.timestamp - prev.timestamp).total_seconds()
+                if 0 < dt <= 900:
+                    dm = self._hav_m(prev.latitude, prev.longitude,
+                                     p.latitude, p.longitude)
+                    kmh = (dm / dt) * 3.6
+                    if kmh <= 160:
+                        if kmh >= 3.0 and dm >= 8.0:
+                            total_m += dm
+                            moving_s += dt
+                            peak = max(peak, kmh)
+                        else:
+                            stopped_s += dt
+                rec = (p.speed or 0.0) * 3.6
+                if 3.0 <= rec <= 160.0:
+                    peak = max(peak, rec)
+            prev = p
+        return total_m, moving_s, stopped_s, peak
+
+    @api.model
+    def get_report_data(self, days=30):
+        """Agregados para el dashboard de Reportería (rango: hoy - days+1)."""
+        days = max(1, min(int(days or 30), 365))
+        tz = pytz.timezone(self.env.user.tz or 'America/Monterrey')
+        today = fields.Date.context_today(self)
+        from datetime import timedelta
+        start_date = today - timedelta(days=days - 1)
+        start_local = tz.localize(datetime.combine(start_date, dtime.min))
+        since = start_local.astimezone(pytz.utc).replace(tzinfo=None)
+
+        Doc = self.env['sale.delivery.document'].sudo()
+
+        def doc_m2(doc):
+            total = 0.0
+            for line in doc.line_ids:
+                total += line.qty_done or line.qty_selected or 0.0
+            return total
+
+        remissions = Doc.search([
+            ('document_type', '=', 'remission'),
+            ('state', '!=', 'cancelled'),
+            ('create_date', '>=', since),
+        ])
+        returns = Doc.search([
+            ('document_type', '=', 'return'),
+            ('state', '!=', 'cancelled'),
+            ('create_date', '>=', since),
+        ])
+
+        # ── Métricas GPS por documento del periodo ──────────────
+        Point = self.env['sale.delivery.route.point'].sudo()
+        points = Point.search([('timestamp', '>=', since)],
+                              order='timestamp asc', limit=100000)
+        pts_by_doc = {}
+        for p in points:
+            pts_by_doc.setdefault(p.document_id.id, []).append(p)
+        gps = {}
+        for doc_id, pts in pts_by_doc.items():
+            dist_m, moving_s, stopped_s, peak = self._trip_stats(pts)
+            gps[doc_id] = {
+                'km': dist_m / 1000.0,
+                'moving_s': moving_s,
+                'stopped_s': stopped_s,
+                'peak': peak,
+                'duration_s': (pts[-1].timestamp - pts[0].timestamp).total_seconds(),
+            }
+
+        # ── Serie diaria (todas las fechas del rango, con ceros) ──
+        daily = {}
+        d = start_date
+        while d <= today:
+            daily[d.isoformat()] = {'date': d.strftime('%d/%m'), 'trips': 0, 'm2': 0.0}
+            d += timedelta(days=1)
+
+        # ── Agregación por vehículo / chofer / cliente ──────────
+        vehicles = {}
+        drivers = {}
+        customers = {}
+        total_m2 = 0.0
+        util_samples = []
+
+        for doc in remissions:
+            m2 = doc_m2(doc)
+            total_m2 += m2
+            local_day = fields.Datetime.context_timestamp(
+                self, doc.create_date).date().isoformat()
+            if local_day in daily:
+                daily[local_day]['trips'] += 1
+                daily[local_day]['m2'] += m2
+
+            g = gps.get(doc.id, {})
+
+            veh = doc.vehicle_id
+            vkey = veh.id or 0
+            v = vehicles.setdefault(vkey, {
+                'name': veh.display_name if veh else 'Sin vehículo',
+                'capacity': veh.x_capacity_sqm if veh else 0.0,
+                'odometer': veh.odometer if veh else 0.0,
+                'trips': 0, 'm2': 0.0, 'km': 0.0,
+                'util': [], 'stopped_s': 0.0, 'moving_s': 0.0,
+            })
+            v['trips'] += 1
+            v['m2'] += m2
+            v['km'] += g.get('km', 0.0)
+            v['stopped_s'] += g.get('stopped_s', 0.0)
+            v['moving_s'] += g.get('moving_s', 0.0)
+            if v['capacity'] and m2:
+                pct = (m2 / v['capacity']) * 100.0
+                v['util'].append(pct)
+                util_samples.append(pct)
+
+            drv = doc.vehicle_driver_id
+            dkey = drv.id or 0
+            dr = drivers.setdefault(dkey, {
+                'name': drv.display_name if drv else 'Sin chofer',
+                'trips': 0, 'm2': 0.0, 'km': 0.0,
+                'moving_s': 0.0, 'stopped_s': 0.0, 'peak': 0.0,
+            })
+            dr['trips'] += 1
+            dr['m2'] += m2
+            dr['km'] += g.get('km', 0.0)
+            dr['moving_s'] += g.get('moving_s', 0.0)
+            dr['stopped_s'] += g.get('stopped_s', 0.0)
+            dr['peak'] = max(dr['peak'], g.get('peak', 0.0))
+
+            if doc.partner_id:
+                c = customers.setdefault(doc.partner_id.id, {
+                    'name': doc.partner_id.name, 'm2': 0.0, 'trips': 0})
+                c['m2'] += m2
+                c['trips'] += 1
+
+        # ── Odómetro del periodo (módulo de flota) ──────────────
+        veh_ids = [k for k in vehicles if k]
+        if veh_ids:
+            odo_recs = self.env['fleet.vehicle.odometer'].sudo().search([
+                ('vehicle_id', 'in', veh_ids),
+                ('date', '>=', start_date),
+            ])
+            odo_by_veh = {}
+            for rec in odo_recs:
+                odo_by_veh.setdefault(rec.vehicle_id.id, []).append(rec.value)
+            for vid, values in odo_by_veh.items():
+                if len(values) >= 2:
+                    vehicles[vid]['odo_period_km'] = round(
+                        max(values) - min(values), 1)
+
+        # ── Devoluciones por motivo ─────────────────────────────
+        reasons = {}
+        returned_m2 = 0.0
+        for doc in returns:
+            m2 = doc_m2(doc)
+            returned_m2 += m2
+            name = doc.return_reason_id.name or 'Sin motivo'
+            r = reasons.setdefault(name, {'reason': name, 'count': 0, 'm2': 0.0})
+            r['count'] += 1
+            r['m2'] += m2
+
+        # ── Salida ──────────────────────────────────────────────
+        def _veh_out(v):
+            avg_util = sum(v['util']) / len(v['util']) if v['util'] else 0.0
+            return {
+                'name': v['name'],
+                'capacity': round(v['capacity'], 1),
+                'trips': v['trips'],
+                'm2': round(v['m2'], 1),
+                'km': round(v['km'], 1),
+                'avg_util': round(avg_util),
+                'odometer': round(v['odometer']),
+                'odo_period_km': v.get('odo_period_km', 0),
+                'avg_kmh': round((v['km'] * 1000 / v['moving_s']) * 3.6) if v['moving_s'] else 0,
+                'stopped_min': round(v['stopped_s'] / 60.0),
+            }
+
+        def _drv_out(d):
+            return {
+                'name': d['name'],
+                'trips': d['trips'],
+                'm2': round(d['m2'], 1),
+                'km': round(d['km'], 1),
+                'avg_kmh': round((d['km'] * 1000 / d['moving_s']) * 3.6) if d['moving_s'] else 0,
+                'peak_kmh': round(d['peak']),
+                'stopped_min': round(d['stopped_s'] / 60.0),
+            }
+
+        total_km = sum(v['km'] for v in vehicles.values())
+        total_moving = sum(v['moving_s'] for v in vehicles.values())
+        total_stopped = sum(v['stopped_s'] for v in vehicles.values())
+        trips = len(remissions)
+
+        return {
+            'days': days,
+            'kpis': {
+                'trips': trips,
+                'm2': round(total_m2, 1),
+                'km': round(total_km, 1),
+                'avg_util': round(sum(util_samples) / len(util_samples)) if util_samples else 0,
+                'returns': len(returns),
+                'returned_m2': round(returned_m2, 1),
+                'return_rate': round(len(returns) * 100.0 / trips) if trips else 0,
+                'avg_kmh': round((total_km * 1000 / total_moving) * 3.6) if total_moving else 0,
+                'stopped_min': round(total_stopped / 60.0),
+                'm2_per_km': round(total_m2 / total_km, 1) if total_km else 0,
+            },
+            'daily': list(daily.values()),
+            'vehicles': sorted((_veh_out(v) for v in vehicles.values()),
+                               key=lambda x: -x['m2']),
+            'drivers': sorted((_drv_out(d) for d in drivers.values()),
+                              key=lambda x: -x['m2']),
+            'returns': sorted(reasons.values(), key=lambda x: -x['count']),
+            'customers': sorted(customers.values(), key=lambda x: -x['m2'])[:10],
+        }
+

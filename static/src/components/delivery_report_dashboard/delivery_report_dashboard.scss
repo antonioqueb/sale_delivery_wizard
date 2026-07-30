@@ -1,0 +1,182 @@
+// Reportería de Entregas — dashboard operativo
+.o_delivery_report {
+    height: 100%;
+    overflow-y: auto;
+    padding: 16px 20px 28px;
+    background: #f4f6fa;
+
+    .o_drp_topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+    }
+    .o_drp_title {
+        font-size: 19px;
+        font-weight: 800;
+        color: #0f172a;
+    }
+    .o_drp_periods {
+        display: flex;
+        gap: 6px;
+
+        button {
+            border: 1px solid #d3d9e3;
+            background: #fff;
+            border-radius: 8px;
+            padding: 5px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+
+            &:hover {
+                background: #eef2f8;
+            }
+            &.active {
+                background: #0b57d0;
+                border-color: #0b57d0;
+                color: #fff;
+            }
+        }
+    }
+    .o_drp_loading {
+        padding: 40px;
+        text-align: center;
+        color: #6b7280;
+    }
+
+    // ── KPIs ────────────────────────────────────────────────
+    .o_drp_kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+    .o_drp_kpi {
+        background: #fff;
+        border-radius: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        border-left: 4px solid #0b57d0;
+
+        &.good { border-left-color: #00b894; }
+        &.warn { border-left-color: #f5a623; }
+        &.bad  { border-left-color: #e5484d; }
+
+        .v {
+            font-size: 22px;
+            font-weight: 800;
+            color: #0f172a;
+            font-variant-numeric: tabular-nums;
+
+            small {
+                font-size: 12px;
+                font-weight: 600;
+                color: #64748b;
+                margin-left: 3px;
+            }
+        }
+        .l {
+            margin-top: 2px;
+            font-size: 12px;
+            color: #64748b;
+        }
+    }
+
+    // ── Cards / charts ──────────────────────────────────────
+    .o_drp_row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+
+        @media (max-width: 1100px) {
+            grid-template-columns: 1fr;
+        }
+    }
+    .o_drp_card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+    }
+    .o_drp_wide {
+        margin-bottom: 12px;
+    }
+    .o_drp_card_title {
+        font-size: 13px;
+        font-weight: 800;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 10px;
+    }
+    .o_drp_chart {
+        position: relative;
+        height: 260px;
+
+        &.tall {
+            height: 300px;
+        }
+    }
+    .o_drp_empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #6b7280;
+    }
+
+    // ── Tablas de detalle ───────────────────────────────────
+    .o_drp_table_wrap {
+        overflow-x: auto;
+    }
+    .o_drp_table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+
+        th, td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #eef1f6;
+            text-align: left;
+            white-space: nowrap;
+        }
+        th {
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b;
+            background: #f8fafc;
+        }
+        .num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        tbody tr:hover {
+            background: #f5f8fc;
+        }
+        .pct {
+            font-weight: 700;
+            padding: 1px 8px;
+            border-radius: 999px;
+
+            &.good { background: #e7f6ec; color: #157347; }
+            &.warn { background: #fff4e0; color: #b3670b; }
+            &.bad  { background: #fdebec; color: #c22f35; }
+        }
+    }
+}
+
+// La client action debe dar altura completa (mismo patrón que el mapa).
+.o_action_manager .o_action:has(.o_delivery_report) {
+    display: flex;
+    flex-direction: column;
+
+    > * {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+}

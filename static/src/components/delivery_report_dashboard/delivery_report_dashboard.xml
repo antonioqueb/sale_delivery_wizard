@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="sale_delivery_wizard.DeliveryReportDashboard">
+        <div class="o_delivery_report">
+
+            <!-- Barra superior: título + selector de periodo -->
+            <div class="o_drp_topbar">
+                <div class="o_drp_title">Reportería de Entregas</div>
+                <div class="o_drp_periods">
+                    <button t-att-class="state.days === 1 ? 'active' : ''"
+                            t-on-click="() => this.setPeriod(1)">Hoy</button>
+                    <button t-att-class="state.days === 7 ? 'active' : ''"
+                            t-on-click="() => this.setPeriod(7)">7 días</button>
+                    <button t-att-class="state.days === 30 ? 'active' : ''"
+                            t-on-click="() => this.setPeriod(30)">30 días</button>
+                    <button t-att-class="state.days === 90 ? 'active' : ''"
+                            t-on-click="() => this.setPeriod(90)">90 días</button>
+                </div>
+            </div>
+
+            <div t-if="state.loading" class="o_drp_loading">Cargando…</div>
+
+            <t t-if="!state.loading and state.data">
+                <!-- KPIs -->
+                <div class="o_drp_kpis">
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.trips"/></div>
+                        <div class="l">🚚 Viajes</div>
+                    </div>
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.m2"/><small>m²</small></div>
+                        <div class="l">📦 Entregado</div>
+                    </div>
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.km"/><small>km</small></div>
+                        <div class="l">📏 Recorrido</div>
+                    </div>
+                    <div class="o_drp_kpi" t-att-class="state.data.kpis.avg_util >= 70 ? 'good' : (state.data.kpis.avg_util >= 45 ? 'warn' : 'bad')">
+                        <div class="v"><t t-esc="state.data.kpis.avg_util"/><small>%</small></div>
+                        <div class="l">🧮 Capacidad usada</div>
+                    </div>
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.m2_per_km"/></div>
+                        <div class="l">⚖️ m² por km</div>
+                    </div>
+                    <div class="o_drp_kpi">
+                        <div class="v"><t t-esc="state.data.kpis.avg_kmh"/><small>km/h</small></div>
+                        <div class="l">⌀ Velocidad</div>
+                    </div>
+                    <div class="o_drp_kpi" t-att-class="state.data.kpis.return_rate > 10 ? 'bad' : (state.data.kpis.return_rate > 5 ? 'warn' : 'good')">
+                        <div class="v"><t t-esc="state.data.kpis.returns"/><small>(<t t-esc="state.data.kpis.return_rate"/>%)</small></div>
+                        <div class="l">↩️ Devoluciones</div>
+                    </div>
+                </div>
+
+                <!-- Fila 1: serie diaria (ancha) -->
+                <div class="o_drp_card o_drp_wide">
+                    <div class="o_drp_card_title">Entregas por día — viajes y m²</div>
+                    <div class="o_drp_chart tall"><canvas t-ref="chartDaily"/></div>
+                </div>
+
+                <!-- Fila 2: capacidad + choferes -->
+                <div class="o_drp_row">
+                    <div class="o_drp_card">
+                        <div class="o_drp_card_title">Aprovechamiento de capacidad por vehículo</div>
+                        <div class="o_drp_chart"><canvas t-ref="chartUtil"/></div>
+                    </div>
+                    <div class="o_drp_card">
+                        <div class="o_drp_card_title">Ranking de choferes</div>
+                        <div class="o_drp_chart"><canvas t-ref="chartDrivers"/></div>
+                    </div>
+                </div>
+
+                <!-- Fila 3: devoluciones + clientes -->
+                <div class="o_drp_row">
+                    <div class="o_drp_card">
+                        <div class="o_drp_card_title">Devoluciones por motivo</div>
+                        <div class="o_drp_chart">
+                            <canvas t-ref="chartReturns" t-if="state.data.returns.length"/>
+                            <div t-else="" class="o_drp_empty">Sin devoluciones en el periodo 🎉</div>
+                        </div>
+                    </div>
+                    <div class="o_drp_card">
+                        <div class="o_drp_card_title">Top clientes por m² entregados</div>
+                        <div class="o_drp_chart"><canvas t-ref="chartCustomers"/></div>
+                    </div>
+                </div>
+
+                <!-- Detalle por vehículo -->
+                <div class="o_drp_card o_drp_wide">
+                    <div class="o_drp_card_title">Detalle por vehículo</div>
+                    <div class="o_drp_table_wrap">
+                        <table class="o_drp_table">
+                            <thead>
+                                <tr>
+                                    <th>Vehículo</th>
+                                    <th class="num">Capacidad m²</th>
+                                    <th class="num">Viajes</th>
+                                    <th class="num">m² entregados</th>
+                                    <th class="num">% capacidad</th>
+                                    <th class="num">km (GPS)</th>
+                                    <th class="num">km (odómetro)</th>
+                                    <th class="num">Odómetro actual</th>
+                                    <th class="num">⌀ km/h</th>
+                                    <th class="num">Detenido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="state.data.vehicles" t-as="v" t-key="v.name">
+                                    <td><t t-esc="v.name"/></td>
+                                    <td class="num"><t t-esc="v.capacity"/></td>
+                                    <td class="num"><t t-esc="v.trips"/></td>
+                                    <td class="num"><t t-esc="v.m2"/></td>
+                                    <td class="num">
+                                        <span t-att-class="'pct ' + (v.avg_util >= 70 ? 'good' : (v.avg_util >= 45 ? 'warn' : 'bad'))">
+                                            <t t-esc="v.avg_util"/>%
+                                        </span>
+                                    </td>
+                                    <td class="num"><t t-esc="v.km"/></td>
+                                    <td class="num"><t t-esc="v.odo_period_km"/></td>
+                                    <td class="num"><t t-esc="v.odometer"/></td>
+                                    <td class="num"><t t-esc="v.avg_kmh"/></td>
+                                    <td class="num"><t t-esc="v.stopped_min"/> min</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Detalle por chofer -->
+                <div class="o_drp_card o_drp_wide">
+                    <div class="o_drp_card_title">Detalle por chofer</div>
+                    <div class="o_drp_table_wrap">
+                        <table class="o_drp_table">
+                            <thead>
+                                <tr>
+                                    <th>Chofer</th>
+                                    <th class="num">Viajes</th>
+                                    <th class="num">m² entregados</th>
+                                    <th class="num">km</th>
+                                    <th class="num">⌀ km/h</th>
+                                    <th class="num">Pico km/h</th>
+                                    <th class="num">Detenido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="state.data.drivers" t-as="dr" t-key="dr.name">
+                                    <td><t t-esc="dr.name"/></td>
+                                    <td class="num"><t t-esc="dr.trips"/></td>
+                                    <td class="num"><t t-esc="dr.m2"/></td>
+                                    <td class="num"><t t-esc="dr.km"/></td>
+                                    <td class="num"><t t-esc="dr.avg_kmh"/></td>
+                                    <td class="num">
+                                        <span t-att-class="'pct ' + (dr.peak_kmh > 110 ? 'bad' : (dr.peak_kmh > 90 ? 'warn' : 'good'))">
+                                            <t t-esc="dr.peak_kmh"/>
+                                        </span>
+                                    </td>
+                                    <td class="num"><t t-esc="dr.stopped_min"/> min</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>
