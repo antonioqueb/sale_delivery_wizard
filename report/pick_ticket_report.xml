@@ -22,9 +22,12 @@
                         <!-- ===================================================== -->
                         <!-- BARCODE DEL FOLIO — bajo el logo, limpio y grande -->
                         <!-- ===================================================== -->
-                        <div style="margin: 2px 0 10px;">
-                            <img t-att-src="'/report/barcode/?barcode_type=Code128&amp;value=%s&amp;width=900&amp;height=160&amp;humanreadable=0' % doc.name"
-                                 style="width: 340px; height: 58px; display: block;" alt="Barcode"/>
+                        <!-- row/col para alinear al mismo borde izquierdo que el resto -->
+                        <div class="row">
+                            <div class="col-12">
+                                <img t-att-src="'/report/barcode/?barcode_type=Code128&amp;value=%s&amp;width=900&amp;height=160&amp;humanreadable=0' % doc.name"
+                                     style="width: 340px; height: 58px; display: block; margin-bottom: 14px;" alt="Barcode"/>
+                            </div>
                         </div>
 
                         <!-- ===================================================== -->
