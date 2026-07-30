@@ -55,6 +55,7 @@ export class DeliveryLiveMap extends Component {
             "live";
         this.state = useState({
             routes: [], // resumen para el panel de accesos directos
+            noGps: [], // operaciones del día SIN señal GPS (solo panel)
             title: this.mode === "live" ? "Viajes de hoy" : "Rutas",
         });
         this.timer = null;
