@@ -698,3 +698,137 @@ class SaleDeliveryLiveMap(models.TransientModel):
             'customers': sorted(customers.values(), key=lambda x: -x['m2'])[:10],
         }
 
+    # ══════════════════════════════════════════════════════════════
+    # SALIDAS — tablero del día (pick tickets → remisiones → firmas)
+    # ══════════════════════════════════════════════════════════════
+
+    @api.model
+    def get_outbound_dashboard_data(self):
+        """Todo lo que el almacén trabaja HOY: pick tickets abiertos
+        (la orden del día), remisiones en ruta, entregas firmadas y la
+        carga asignada a cada camión contra su capacidad en m²."""
+        from datetime import timedelta as _td
+        tz = pytz.timezone(self.env.user.tz or 'America/Monterrey')
+        today = fields.Date.context_today(self)
+        start_local = tz.localize(datetime.combine(today, dtime.min))
+        today_start = start_local.astimezone(pytz.utc).replace(tzinfo=None)
+
+        Doc = self.env['sale.delivery.document'].sudo()
+
+        def doc_m2(doc):
+            return sum(
+                (l.qty_done or l.qty_selected or 0.0) for l in doc.line_ids)
+
+        def fmt_dt(ts):
+            if not ts:
+                return ''
+            return fields.Datetime.context_timestamp(
+                self, ts).strftime('%d/%m %H:%M')
+
+        def base_card(doc):
+            order = doc.sale_order_id
+            auth = getattr(order, 'delivery_auth_state', '') or ''
+            return {
+                'id': doc.id,
+                'name': doc.name or '',
+                'order': order.name or '',
+                'order_id': order.id or False,
+                'partner': doc.partner_id.name or '',
+                'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
+                'driver': doc.vehicle_driver_id.display_name
+                          if doc.vehicle_driver_id else '',
+                'm2': round(doc_m2(doc), 1),
+                'lines': len(doc.line_ids),
+                'created': fmt_dt(doc.create_date),
+                'is_today': bool(doc.create_date and doc.create_date >= today_start),
+                'auth': auth,
+                'auth_ok': auth in ('authorized', 'paid'),
+            }
+
+        # ── Pick tickets abiertos (backlog completo, no solo hoy) ──
+        open_pts = Doc.search([
+            ('document_type', '=', 'pick_ticket'),
+            ('state', 'in', ('draft', 'prepared')),
+        ], order='create_date asc')
+
+        pending, ready = [], []
+        for pt in open_pts:
+            card = base_card(pt)
+            card['state'] = pt.state
+            (ready if pt.state == 'prepared' else pending).append(card)
+
+        # ── Remisiones de hoy: en ruta vs entregadas (firmadas) ──
+        remissions_today = Doc.search([
+            ('document_type', '=', 'remission'),
+            ('state', '!=', 'cancelled'),
+            ('create_date', '>=', today_start),
+        ], order='create_date desc')
+
+        in_route, delivered = [], []
+        for rem in remissions_today:
+            card = base_card(rem)
+            card['name'] = rem.remission_number or rem.name or ''
+            card['pt'] = rem.pick_ticket_id.name or ''
+            card['signed_at'] = fmt_dt(rem.signed_at)
+            if rem.signed_at:
+                delivered.append(card)
+            else:
+                in_route.append(card)
+
+        # ── Carga por camión (PTs abiertos + remisiones de hoy) ──
+        trucks = {}
+        for doc in list(open_pts) + list(remissions_today):
+            veh = doc.vehicle_id
+            if not veh:
+                continue
+            t = trucks.setdefault(veh.id, {
+                'name': veh.display_name,
+                'driver': '',
+                'capacity': round(getattr(veh, 'x_capacity_sqm', 0.0) or 0.0, 1),
+                'm2': 0.0,
+                'docs': [],
+            })
+            if doc.vehicle_driver_id and not t['driver']:
+                t['driver'] = doc.vehicle_driver_id.display_name
+            t['m2'] += doc_m2(doc)
+            label = (doc.remission_number or doc.name or '')
+            if doc.document_type == 'pick_ticket':
+                status = 'PT ' + ('listo' if doc.state == 'prepared' else 'pendiente')
+            else:
+                status = 'Entregada' if doc.signed_at else 'En ruta'
+            t['docs'].append({
+                'id': doc.id,
+                'label': label,
+                'status': status,
+                'm2': round(doc_m2(doc), 1),
+            })
+        truck_list = []
+        for t in trucks.values():
+            t['m2'] = round(t['m2'], 1)
+            t['pct'] = round(t['m2'] * 100.0 / t['capacity']) if t['capacity'] else 0
+            truck_list.append(t)
+        truck_list.sort(key=lambda x: -x['m2'])
+
+        pts_today = [c for c in pending + ready if c['is_today']]
+        no_vehicle = [c for c in pending + ready if not c['vehicle']]
+
+        return {
+            'kpis': {
+                'pts_today': len(pts_today),
+                'pts_open': len(pending) + len(ready),
+                'ready': len(ready),
+                'm2_to_deliver': round(
+                    sum(c['m2'] for c in pending + ready), 1),
+                'in_route': len(in_route),
+                'delivered': len(delivered),
+                'delivered_m2': round(sum(c['m2'] for c in delivered), 1),
+                'no_vehicle': len(no_vehicle),
+                'trucks': len(truck_list),
+            },
+            'pending': pending,
+            'ready': ready,
+            'in_route': in_route,
+            'delivered': delivered,
+            'trucks': truck_list,
+        }
+

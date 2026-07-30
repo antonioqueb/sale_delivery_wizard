@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.4.0.0',
+    'version': '19.0.4.1.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -50,6 +50,9 @@
             'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.scss',
             'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.xml',
             'sale_delivery_wizard/static/src/components/delivery_live_map/delivery_live_map.js',
+            'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.scss',
+            'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.xml',
+            'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.js',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.scss',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.xml',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.js',

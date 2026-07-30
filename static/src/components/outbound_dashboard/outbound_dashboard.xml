@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- ═══ Íconos SVG hechos a mano (sin emojis) ═══ -->
+    <t t-name="sale_delivery_wizard.icon_clipboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="4.5" width="14" height="17" rx="2.5"/>
+            <path d="M9 4.5V3h6v1.5"/>
+            <path d="M8.5 10h7M8.5 13.5h7M8.5 17h4.5"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_scan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/>
+            <path d="M4 12h16"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_truck">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 6h12v10H2z"/>
+            <path d="M14 9h4l3 3.5V16h-7"/>
+            <circle cx="6.5" cy="17.8" r="1.9"/>
+            <circle cx="17.5" cy="17.8" r="1.9"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M8 12.5l2.7 2.7L16.5 9"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_sign">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20c2-.6 3-2 4-4l7.5-11a2 2 0 0 1 3.3 2.2L11 18c-1.4 1.6-3 2.2-7 2z"/>
+            <path d="M13 20h7"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_alert2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.5L22 20H2L12 3.5z"/>
+            <path d="M12 10v4.5"/>
+            <circle cx="12" cy="17.2" r="0.4" fill="currentColor"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_open2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 4h6v6"/>
+            <path d="M20 4L11 13"/>
+            <path d="M19 14v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_area">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
+            <path d="M4 12h16M12 4v16"/>
+        </svg>
+    </t>
+
+    <!-- ═══ Tarjeta de documento ═══ -->
+    <t t-name="sale_delivery_wizard.OutboundCard">
+        <div t-attf-class="o_out_card {{ !card.vehicle and card.state !== undefined ? 'noveh' : '' }}">
+            <div class="o_out_card_top">
+                <span class="o_out_card_name" t-esc="card.name"/>
+                <span t-if="card.auth_ok" class="o_out_badge green">Autorizada</span>
+                <span t-elif="card.auth" class="o_out_badge amber">Por autorizar</span>
+            </div>
+            <div class="o_out_card_sub">
+                <t t-esc="card.partner"/>
+            </div>
+            <div class="o_out_card_stats">
+                <span><b t-esc="card.m2"/> m²</span>
+                <span><b t-esc="card.lines"/> placas</span>
+                <span t-if="card.order" class="link" t-on-click.stop="() => this.openOrder(card.order_id)">
+                    <t t-esc="card.order"/>
+                </span>
+            </div>
+            <div class="o_out_card_meta">
+                <span t-if="card.vehicle" class="o_out_veh">
+                    <t t-call="sale_delivery_wizard.icon_truck"/>
+                    <t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t>
+                </span>
+                <span t-else="" class="o_out_veh warn">
+                    <t t-call="sale_delivery_wizard.icon_alert2"/>
+                    Sin camión asignado
+                </span>
+            </div>
+            <div t-if="card.signed_at" class="o_out_signed">
+                <t t-call="sale_delivery_wizard.icon_sign"/>
+                Firmada <t t-esc="card.signed_at"/>
+            </div>
+            <div class="o_out_card_actions">
+                <button class="o_out_btn ghost" t-on-click="() => this.openDoc(card.id)">
+                    Abrir <t t-call="sale_delivery_wizard.icon_open2"/>
+                </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ═══ Tablero ═══ -->
+    <t t-name="sale_delivery_wizard.OutboundDashboard">
+        <div class="o_outbound_dash">
+            <div class="o_out_topbar">
+                <div class="o_out_title">Salidas de hoy</div>
+                <div class="o_out_topbtns">
+                    <button class="o_out_btn ghost" t-on-click="openPtList">
+                        Pick tickets <t t-call="sale_delivery_wizard.icon_open2"/>
+                    </button>
+                    <button class="o_out_btn ghost" t-on-click="openRemissionList">
+                        Remisiones <t t-call="sale_delivery_wizard.icon_open2"/>
+                    </button>
+                </div>
+            </div>
+
+            <div t-if="state.loading" class="o_out_loading">Cargando…</div>
+
+            <t t-if="!state.loading and state.data">
+                <!-- KPIs -->
+                <div class="o_out_kpis">
+                    <div class="o_out_kpi blue">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_clipboard"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.pts_open"/><div class="l">PTs abiertos</div></div>
+                    </div>
+                    <div class="o_out_kpi sky">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_scan"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.ready"/><div class="l">Listos para surtir</div></div>
+                    </div>
+                    <div class="o_out_kpi blue">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_area"/></div>
+                        <div><div class="v"><t t-esc="state.data.kpis.m2_to_deliver"/><small>m²</small></div><div class="l">Por entregar</div></div>
+                    </div>
+                    <div class="o_out_kpi sky">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_truck"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.in_route"/><div class="l">En ruta</div></div>
+                    </div>
+                    <div class="o_out_kpi green">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_check"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.delivered"/><div class="l">Entregadas hoy</div></div>
+                    </div>
+                    <div class="o_out_kpi green">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_sign"/></div>
+                        <div><div class="v"><t t-esc="state.data.kpis.delivered_m2"/><small>m²</small></div><div class="l">Entregados hoy</div></div>
+                    </div>
+                    <div t-attf-class="o_out_kpi {{ state.data.kpis.no_vehicle ? 'red' : 'green' }}">
+                        <div class="ic"><t t-call="sale_delivery_wizard.icon_alert2"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.no_vehicle"/><div class="l">Sin camión</div></div>
+                    </div>
+                </div>
+
+                <!-- Carga por camión -->
+                <div class="o_out_trucks" t-if="state.data.trucks.length">
+                    <div class="o_out_sec_title">
+                        <t t-call="sale_delivery_wizard.icon_truck"/>
+                        Carga asignada por camión
+                    </div>
+                    <div class="o_out_truck_grid">
+                        <div class="o_out_truck" t-foreach="state.data.trucks" t-as="tk" t-key="tk.name">
+                            <div class="o_out_truck_head">
+                                <div>
+                                    <div class="n" t-esc="tk.name"/>
+                                    <div class="d" t-if="tk.driver" t-esc="tk.driver"/>
+                                </div>
+                                <div class="load">
+                                    <b t-esc="tk.m2"/> / <t t-esc="tk.capacity ? tk.capacity : '—'"/> m²
+                                </div>
+                            </div>
+                            <div class="o_out_bar">
+                                <div t-attf-class="fill {{ this.loadCls(tk.pct) }}"
+                                     t-attf-style="width: {{ Math.min(tk.pct, 100) }}%"/>
+                            </div>
+                            <div class="o_out_truck_pct">
+                                <span t-attf-class="{{ this.loadCls(tk.pct) }}"><t t-esc="tk.pct"/>%</span>
+                                <span class="cnt"><t t-esc="tk.docs.length"/> documentos</span>
+                            </div>
+                            <div class="o_out_truck_docs">
+                                <div class="doc" t-foreach="tk.docs" t-as="dc" t-key="dc.id"
+                                     t-on-click="() => this.openDoc(dc.id)">
+                                    <span class="f" t-esc="dc.label"/>
+                                    <span class="s" t-esc="dc.status"/>
+                                    <span class="m"><t t-esc="dc.m2"/> m²</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Flujo del día -->
+                <div class="o_out_cols">
+                    <div class="o_out_col">
+                        <div class="o_out_col_head slate">
+                            <t t-call="sale_delivery_wizard.icon_clipboard"/>
+                            <span>Pendientes</span>
+                            <b t-esc="state.data.pending.length"/>
+                        </div>
+                        <t t-foreach="state.data.pending" t-as="card" t-key="card.id">
+                            <t t-call="sale_delivery_wizard.OutboundCard"/>
+                        </t>
+                        <div t-if="!state.data.pending.length" class="o_out_empty">Sin PTs pendientes</div>
+                    </div>
+                    <div class="o_out_col">
+                        <div class="o_out_col_head strong">
+                            <t t-call="sale_delivery_wizard.icon_scan"/>
+                            <span>Listos para surtir</span>
+                            <b t-esc="state.data.ready.length"/>
+                        </div>
+                        <t t-foreach="state.data.ready" t-as="card" t-key="card.id">
+                            <t t-call="sale_delivery_wizard.OutboundCard"/>
+                        </t>
+                        <div t-if="!state.data.ready.length" class="o_out_empty">Nada listo para surtir</div>
+                    </div>
+                    <div class="o_out_col">
+                        <div class="o_out_col_head sky">
+                            <t t-call="sale_delivery_wizard.icon_truck"/>
+                            <span>En ruta</span>
+                            <b t-esc="state.data.in_route.length"/>
+                        </div>
+                        <t t-foreach="state.data.in_route" t-as="card" t-key="card.id">
+                            <t t-call="sale_delivery_wizard.OutboundCard"/>
+                        </t>
+                        <div t-if="!state.data.in_route.length" class="o_out_empty">Sin remisiones en ruta</div>
+                    </div>
+                    <div class="o_out_col">
+                        <div class="o_out_col_head green">
+                            <t t-call="sale_delivery_wizard.icon_check"/>
+                            <span>Entregadas hoy</span>
+                            <b t-esc="state.data.delivered.length"/>
+                        </div>
+                        <t t-foreach="state.data.delivered" t-as="card" t-key="card.id">
+                            <t t-call="sale_delivery_wizard.OutboundCard"/>
+                        </t>
+                        <div t-if="!state.data.delivered.length" class="o_out_empty">Aún sin entregas firmadas</div>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

@@ -1,0 +1,356 @@
+// Tablero de Salidas — branding SOM: azul fuerte #0B57D0, cielo #38BDF8
+$out-blue: #0b57d0;
+$out-sky: #38bdf8;
+$out-green: #159957;
+$out-red: #e5484d;
+$out-amber: #d97706;
+$out-ink: #0f172a;
+$out-mut: #64748b;
+
+.o_outbound_dash {
+    height: 100%;
+    overflow-y: auto;
+    padding: 16px 20px 28px;
+    background: #f2f6fc;
+
+    svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+    }
+
+    .o_out_topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+    }
+    .o_out_title {
+        font-size: 20px;
+        font-weight: 800;
+        color: $out-ink;
+    }
+    .o_out_topbtns {
+        display: flex;
+        gap: 8px;
+    }
+    .o_out_loading {
+        padding: 40px;
+        text-align: center;
+        color: $out-mut;
+    }
+
+    .o_out_btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 8px;
+        padding: 5px 12px;
+        font-size: 12.5px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 1px solid transparent;
+
+        svg { width: 14px; height: 14px; }
+
+        &.ghost {
+            background: #fff;
+            border-color: #d3dcea;
+            color: #334155;
+            &:hover { background: #eaf1fb; }
+        }
+    }
+
+    // ── KPIs ────────────────────────────────────────────────
+    .o_out_kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .o_out_kpi {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #fff;
+        border-radius: 12px;
+        padding: 11px 13px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+
+        .ic {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            svg { width: 19px; height: 19px; }
+        }
+        &.blue .ic  { background: rgba(11, 87, 208, 0.1);   color: $out-blue; }
+        &.sky .ic   { background: rgba(56, 189, 248, 0.14); color: #0369a1; }
+        &.green .ic { background: rgba(21, 153, 87, 0.12);  color: $out-green; }
+        &.red .ic   { background: rgba(229, 72, 77, 0.12);  color: $out-red; }
+
+        .v {
+            font-size: 20px;
+            font-weight: 800;
+            color: $out-ink;
+            line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+            small { font-size: 11px; color: $out-mut; margin-left: 2px; }
+        }
+        .l { font-size: 11.5px; color: $out-mut; }
+    }
+
+    // ── Carga por camión ────────────────────────────────────
+    .o_out_sec_title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 800;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 4px 0 10px;
+
+        svg { color: $out-blue; }
+    }
+    .o_out_trucks { margin-bottom: 16px; }
+    .o_out_truck_grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 12px;
+    }
+    .o_out_truck {
+        background: #fff;
+        border-radius: 12px;
+        padding: 13px 15px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+    }
+    .o_out_truck_head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+
+        .n { font-weight: 800; color: $out-ink; font-size: 14px; }
+        .d { color: $out-mut; font-size: 12px; }
+        .load {
+            font-size: 12.5px;
+            color: $out-mut;
+            white-space: nowrap;
+            b { color: $out-ink; font-size: 15px; }
+        }
+    }
+    .o_out_bar {
+        height: 9px;
+        background: #e8eef7;
+        border-radius: 999px;
+        margin-top: 9px;
+        overflow: hidden;
+
+        .fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.4s ease;
+
+            &.low  { background: linear-gradient(90deg, #7ec8f5, #38bdf8); }
+            &.mid  { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+            &.high { background: linear-gradient(90deg, #0b57d0, #0842a0); }
+            &.over { background: linear-gradient(90deg, #ef4444, #b91c1c); }
+        }
+    }
+    .o_out_truck_pct {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        font-size: 12px;
+
+        span { font-weight: 800; }
+        .low  { color: #0284c7; }
+        .mid  { color: #2563eb; }
+        .high { color: $out-blue; }
+        .over { color: $out-red; }
+        .cnt { color: $out-mut; font-weight: 600; }
+    }
+    .o_out_truck_docs {
+        margin-top: 9px;
+        border-top: 1px solid #eef1f6;
+        padding-top: 6px;
+
+        .doc {
+            display: flex;
+            gap: 10px;
+            padding: 4px 2px;
+            font-size: 12.5px;
+            border-radius: 6px;
+            cursor: pointer;
+
+            &:hover { background: #f2f7ff; }
+            .f { font-weight: 700; color: $out-ink; }
+            .s { color: $out-mut; }
+            .m {
+                margin-left: auto;
+                color: $out-ink;
+                font-variant-numeric: tabular-nums;
+            }
+        }
+    }
+
+    // ── Columnas del flujo ──────────────────────────────────
+    .o_out_cols {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        align-items: start;
+
+        @media (max-width: 1400px) { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 800px)  { grid-template-columns: 1fr; }
+    }
+    .o_out_col_head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        font-size: 13px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        color: #fff;
+
+        b {
+            margin-left: auto;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 999px;
+            padding: 1px 9px;
+            font-size: 12px;
+        }
+        &.slate  { background: linear-gradient(135deg, #64748b, #475569); }
+        &.strong { background: linear-gradient(135deg, #0b57d0, #0842a0); }
+        &.sky    { background: linear-gradient(135deg, #38bdf8, #0ea5e9); }
+        &.green  { background: linear-gradient(135deg, #16a34a, #15803d); }
+    }
+    .o_out_empty {
+        background: #fff;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 18px;
+        text-align: center;
+        color: $out-mut;
+        font-size: 12.5px;
+    }
+
+    // ── Tarjeta ─────────────────────────────────────────────
+    .o_out_card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 12px 13px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        border-left: 4px solid #c7d7f2;
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+
+        &:hover {
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.13);
+            transform: translateY(-1px);
+        }
+        &.noveh { border-left-color: $out-amber; }
+    }
+    .o_out_card_top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: space-between;
+    }
+    .o_out_card_name {
+        font-weight: 800;
+        color: $out-ink;
+        font-size: 13.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_out_badge {
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 2px 9px;
+        white-space: nowrap;
+
+        &.green { background: rgba(21, 153, 87, 0.12); color: $out-green; }
+        &.amber { background: rgba(217, 119, 6, 0.12); color: $out-amber; }
+    }
+    .o_out_card_sub {
+        margin-top: 3px;
+        font-size: 12px;
+        color: #334155;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_out_card_stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        margin-top: 6px;
+        font-size: 12px;
+        color: $out-mut;
+
+        b { color: $out-ink; font-variant-numeric: tabular-nums; }
+        .link {
+            color: $out-blue;
+            font-weight: 700;
+            cursor: pointer;
+            &:hover { text-decoration: underline; }
+        }
+    }
+    .o_out_card_meta { margin-top: 7px; }
+    .o_out_veh {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        color: #475569;
+        background: #f1f6fd;
+        border-radius: 8px;
+        padding: 4px 8px;
+
+        svg { width: 13px; height: 13px; color: $out-blue; }
+        &.warn {
+            background: #fdf5e6;
+            color: #92610a;
+            svg { color: $out-amber; }
+        }
+    }
+    .o_out_signed {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+        font-size: 11.5px;
+        color: $out-green;
+        font-weight: 700;
+
+        svg { width: 13px; height: 13px; }
+    }
+    .o_out_card_actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 9px;
+
+        .o_out_btn { flex: 1 1 auto; justify-content: center; }
+    }
+}
+
+// La client action debe dar altura completa.
+.o_action_manager .o_action:has(.o_outbound_dash) {
+    display: flex;
+    flex-direction: column;
+
+    > * {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+}

@@ -16,6 +16,13 @@
         <field name="params" eval="{'mode': 'history'}"/>
     </record>
 
+    <!-- Salidas: tablero del día — pick tickets por trabajar, remisiones
+         en ruta, entregas firmadas y carga por camión vs capacidad m². -->
+    <record id="action_outbound_dashboard" model="ir.actions.client">
+        <field name="name">Salidas</field>
+        <field name="tag">sale_delivery_wizard.outbound_dashboard</field>
+    </record>
+
     <!-- Reportería: dashboard operativo con KPIs, gráficas y detalle por
          vehículo (capacidad m² / odómetro de flota) y por chofer. -->
     <record id="action_delivery_report_dashboard" model="ir.actions.client">
@@ -49,6 +56,9 @@
     <menuitem id="menu_delivery_live_root" name="Entregas"
               web_icon="sale_delivery_wizard,static/description/icon.png"
               sequence="34" groups="sale_delivery_wizard.group_delivery_user"/>
+    <menuitem id="menu_outbound_dashboard" name="Salidas"
+              parent="menu_delivery_live_root"
+              action="action_outbound_dashboard" sequence="0"/>
     <menuitem id="menu_delivery_live_map" name="Mapa en Vivo"
               parent="menu_delivery_live_root"
               action="action_delivery_live_map_client" sequence="1"/>
