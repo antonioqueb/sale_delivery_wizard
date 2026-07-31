@@ -12,11 +12,13 @@ Flujo de salidas desde el teléfono:
 También define el registro de puntos GPS (sale.delivery.route.point) y el
 mapa en vivo de entregas (sale.delivery.live.map).
 """
+import json
 import logging
 import math
 from datetime import datetime, time as dtime
 
 import pytz
+import requests
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -38,6 +40,10 @@ class SaleDeliveryDocument(models.Model):
         domain=[('document_type', '=', 'pick_ticket')],
     )
     signed_at = fields.Datetime(string='Firmado el', readonly=True, copy=False)
+    # Caché del trazo GPS ajustado a CALLES (OSRM match). Se recalcula solo
+    # cuando llegan puntos nuevos; ver _snap_route_to_roads.
+    route_snapped_json = fields.Text(
+        string='Ruta ajustada a calles (JSON)', copy=False)
     delivered_by = fields.Char(string='Entregó (nombre)', copy=False)
     delivered_signature_image = fields.Binary(
         string='Firma de quien entrega', attachment=True, copy=False)
@@ -357,6 +363,73 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 units += qty
         return area, units
 
+    # Máximo de llamadas a OSRM por consulta del mapa: el snapping es
+    # progresivo — lo que no alcanza en un poll usa su caché (o el trazo
+    # crudo) y se ajusta en el siguiente.
+    _OSRM_BUDGET_PER_CALL = 10
+
+    def _snap_route_to_roads(self, doc, latlngs, point_count, budget):
+        """Ajusta el trazo GPS a las CALLES reales (OSRM match público).
+
+        - Cachea el resultado en el documento (route_snapped_json) con el
+          número de puntos que lo generó: solo se recalcula cuando el viaje
+          tiene puntos nuevos.
+        - Ante cualquier fallo (sin internet, límite del servicio, trazo
+          irreconocible) devuelve el trazo crudo: el mapa nunca se queda
+          sin ruta.
+        """
+        if len(latlngs) < 2:
+            return latlngs
+
+        cached = {}
+        try:
+            cached = json.loads(doc.route_snapped_json or '{}')
+        except (TypeError, ValueError):
+            cached = {}
+        if cached.get('count') == point_count and len(cached.get('coords') or []) >= 2:
+            return cached['coords']
+
+        if budget['left'] <= 0:
+            return cached.get('coords') if len(cached.get('coords') or []) >= 2 else latlngs
+        budget['left'] -= 1
+
+        # OSRM demo limita ~100 coordenadas por request: se muestrea
+        # conservando siempre el último punto (posición actual).
+        pts = latlngs
+        if len(pts) > 80:
+            step = len(pts) / 80.0
+            pts = [pts[int(i * step)] for i in range(80)]
+        if pts[-1] != latlngs[-1]:
+            pts.append(latlngs[-1])
+
+        try:
+            coord_str = ';'.join('%.6f,%.6f' % (p[1], p[0]) for p in pts)
+            resp = requests.get(
+                'https://router.project-osrm.org/match/v1/driving/%s' % coord_str,
+                params={
+                    'overview': 'full',
+                    'geometries': 'geojson',
+                    'tidy': 'true',
+                    'radiuses': ';'.join(['30'] * len(pts)),
+                },
+                timeout=6,
+            )
+            data = resp.json()
+            coords = []
+            if data.get('code') == 'Ok':
+                for m in data.get('matchings') or []:
+                    coords.extend(
+                        [c[1], c[0]] for c in m['geometry']['coordinates'])
+            if len(coords) >= 2:
+                doc.sudo().write({'route_snapped_json': json.dumps({
+                    'count': point_count, 'coords': coords})})
+                return coords
+        except Exception:
+            _logger.warning(
+                '[LIVE MAP] OSRM match falló para %s; se usa el trazo '
+                'GPS crudo.', doc.display_name, exc_info=True)
+        return latlngs
+
     @staticmethod
     def _hav_m(lat1, lon1, lat2, lon2):
         """Distancia haversine en metros."""
@@ -397,6 +470,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
             return fields.Datetime.context_timestamp(
                 self, ts).strftime('%d/%m %H:%M')
 
+        osrm_budget = {'left': self._OSRM_BUDGET_PER_CALL}
         result = []
         for idx, (doc_id, pts) in enumerate(routes.items()):
             doc = self.env['sale.delivery.document'].sudo().browse(doc_id)
@@ -470,7 +544,8 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
                 'color': colors[idx % len(colors)],
                 'finished': finished,
-                'latlngs': kept,
+                'latlngs': self._snap_route_to_roads(
+                    doc, kept, len(pts), osrm_budget),
                 'distance_km': round(total_m / 1000.0, 1),
                 'avg_kmh': round(avg_kmh),
                 'peak_kmh': round(peak_kmh),
