@@ -379,18 +379,24 @@ class SaleDeliveryLiveMap(models.TransientModel):
           sin ruta.
         """
         if len(latlngs) < 2:
-            return latlngs
+            return latlngs, 0.0
 
         cached = {}
         try:
             cached = json.loads(doc.route_snapped_json or '{}')
         except (TypeError, ValueError):
             cached = {}
-        if cached.get('count') == point_count and len(cached.get('coords') or []) >= 2:
-            return cached['coords']
+        # 'dist_m' in cached: los cachés de la versión anterior no traían
+        # distancia — se tratan como obsoletos para recalcular UNA vez.
+        if (cached.get('count') == point_count
+                and len(cached.get('coords') or []) >= 2
+                and 'dist_m' in cached):
+            return cached['coords'], cached.get('dist_m', 0.0)
 
         if budget['left'] <= 0:
-            return cached.get('coords') if len(cached.get('coords') or []) >= 2 else latlngs
+            if len(cached.get('coords') or []) >= 2:
+                return cached['coords'], cached.get('dist_m', 0.0)
+            return latlngs, 0.0
         budget['left'] -= 1
 
         # OSRM demo limita ~100 coordenadas por request: se muestrea
@@ -416,19 +422,23 @@ class SaleDeliveryLiveMap(models.TransientModel):
             )
             data = resp.json()
             coords = []
+            dist_m = 0.0
             if data.get('code') == 'Ok':
                 for m in data.get('matchings') or []:
                     coords.extend(
                         [c[1], c[0]] for c in m['geometry']['coordinates'])
+                    # Distancia REAL sobre calles (no línea recta entre pings)
+                    dist_m += m.get('distance') or 0.0
             if len(coords) >= 2:
                 doc.sudo().write({'route_snapped_json': json.dumps({
-                    'count': point_count, 'coords': coords})})
-                return coords
+                    'count': point_count, 'coords': coords,
+                    'dist_m': round(dist_m, 1)})})
+                return coords, dist_m
         except Exception:
             _logger.warning(
                 '[LIVE MAP] OSRM match falló para %s; se usa el trazo '
                 'GPS crudo.', doc.display_name, exc_info=True)
-        return latlngs
+        return latlngs, 0.0
 
     @staticmethod
     def _hav_m(lat1, lon1, lat2, lon2):
@@ -496,7 +506,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                                          p.latitude, p.longitude)
                         kmh = (dm / dt) * 3.6
                         if kmh <= 160:  # descarta saltos GPS irreales
-                            if kmh >= 3.0 and dm >= 8.0:
+                            if kmh >= 3.0 and dm >= 5.0:
                                 total_m += dm
                                 moving_s += dt
                                 peak_kmh = max(peak_kmh, kmh)
@@ -516,7 +526,12 @@ class SaleDeliveryLiveMap(models.TransientModel):
             if not kept or kept[-1] != end_ll:
                 kept.append(end_ll)
 
-            avg_kmh = (total_m / moving_s) * 3.6 if moving_s else 0.0
+            snapped_coords, snapped_m = self._snap_route_to_roads(
+                doc, kept, len(pts), osrm_budget)
+            # Distancia y velocidad con la RUTA REAL por calles cuando OSRM
+            # la dio; el haversine entre pings recorta esquinas y subestima.
+            best_m = snapped_m if snapped_m > 0 else total_m
+            avg_kmh = (best_m / moving_s) * 3.6 if moving_s else 0.0
             duration_s = (pts[-1].timestamp - pts[0].timestamp).total_seconds()
 
             # ── Qué se entregó (desde el documento) ─────────────────
@@ -544,9 +559,8 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
                 'color': colors[idx % len(colors)],
                 'finished': finished,
-                'latlngs': self._snap_route_to_roads(
-                    doc, kept, len(pts), osrm_budget),
-                'distance_km': round(total_m / 1000.0, 1),
+                'latlngs': snapped_coords,
+                'distance_km': round(best_m / 1000.0, 1),
                 'avg_kmh': round(avg_kmh),
                 'peak_kmh': round(peak_kmh),
                 'stopped_min': round(stopped_s / 60.0),
@@ -653,7 +667,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                                      p.latitude, p.longitude)
                     kmh = (dm / dt) * 3.6
                     if kmh <= 160:
-                        if kmh >= 3.0 and dm >= 8.0:
+                        if kmh >= 3.0 and dm >= 5.0:
                             total_m += dm
                             moving_s += dt
                             peak = max(peak, kmh)
