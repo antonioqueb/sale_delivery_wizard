@@ -6,7 +6,7 @@
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { loadBundle } from "@web/core/assets";
-import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { Component, onMounted, onPatched, onWillUnmount, useRef, useState } from "@odoo/owl";
 
 const PALETTE = ["#0B57D0", "#00B894", "#E5484D", "#F5A623", "#7C3AED",
     "#0891B2", "#DB2777", "#65A30D", "#EA580C", "#475569"];
@@ -30,9 +30,19 @@ export class DeliveryReportDashboard extends Component {
             returns: useRef("chartReturns"),
             customers: useRef("chartCustomers"),
         };
+        this._chartsPending = false;
         onMounted(async () => {
             await loadBundle("web.chartjs_lib");
             await this.load();
+        });
+        // OWL garantiza DOM actualizado en onPatched: aquí los <canvas>
+        // ya existen. Un requestAnimationFrame suelto tras load() corre
+        // ANTES del patch de OWL y deja las gráficas vacías para siempre.
+        onPatched(() => {
+            if (this._chartsPending) {
+                this._chartsPending = false;
+                this.renderCharts();
+            }
         });
         onWillUnmount(() => this.destroyCharts());
     }
@@ -65,11 +75,9 @@ export class DeliveryReportDashboard extends Component {
             this.state.loading = false;
             return;
         }
+        this._chartsPending = true;
         this.state.data = data;
         this.state.loading = false;
-        // Esperar a que OWL pinte los <canvas> del nuevo estado.
-        await Promise.resolve();
-        requestAnimationFrame(() => this.renderCharts());
     }
 
     mk(key, ref, config) {
