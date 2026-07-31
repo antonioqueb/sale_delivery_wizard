@@ -83,9 +83,11 @@ export class DeliveryLiveMap extends Component {
         ).addTo(this.map);
         this.layer = L.layerGroup().addTo(this.map);
         this.load();
+        // En vivo cada 8 s (la app manda posición cada 8 s): se siente
+        // tiempo real. El skip por payload idéntico evita redibujos vanos.
         this.timer = setInterval(
             () => this.load(),
-            this.mode === "live" ? 15000 : 60000
+            this.mode === "live" ? 8000 : 60000
         );
     }
 
