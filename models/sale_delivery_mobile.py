@@ -40,6 +40,92 @@ class SaleDeliveryDocument(models.Model):
         domain=[('document_type', '=', 'pick_ticket')],
     )
     signed_at = fields.Datetime(string='Firmado el', readonly=True, copy=False)
+
+    # ------------------------------------------------------------------
+    # ESTATUS DE ENTREGA (kanban arrastrable)
+    # 'Entregada' = firma de la app (signed_at). TEMPORAL: mientras la app
+    # móvil termina de arrancar, el Gerente de Entregas o un Autorizador
+    # de Precios pueden arrastrar la remisión a Entregada (o usar el botón
+    # del formulario); queda rastro en el chatter de que fue manual.
+    # ------------------------------------------------------------------
+    delivery_status = fields.Selection([
+        ('preparacion', 'En preparación'),
+        ('en_ruta', 'En ruta'),
+        ('entregada', 'Entregada'),
+        ('cancelada', 'Cancelada'),
+    ], string='Estatus de entrega',
+        compute='_compute_delivery_status',
+        inverse='_inverse_delivery_status',
+        store=True)
+
+    @api.depends('state', 'signed_at')
+    def _compute_delivery_status(self):
+        for doc in self:
+            if doc.state == 'cancelled':
+                doc.delivery_status = 'cancelada'
+            elif doc.signed_at:
+                doc.delivery_status = 'entregada'
+            elif doc.state == 'confirmed':
+                doc.delivery_status = 'en_ruta'
+            else:
+                doc.delivery_status = 'preparacion'
+
+    def _som_check_manual_delivery_rights(self):
+        user = self.env.user
+        if not (
+            user.has_group('sale_delivery_wizard.group_delivery_manager')
+            or user.has_group('inventory_shopping_cart.group_price_authorizer')
+        ):
+            raise UserError(_(
+                'Solo el Gerente de Entregas o un Autorizador de Precios '
+                'pueden marcar una entrega como ENTREGADA manualmente. '
+                'La vía normal es la firma desde la app móvil.'
+            ))
+
+    def _inverse_delivery_status(self):
+        for doc in self:
+            target = doc.delivery_status
+            # Recalcular el valor "real" para detectar qué se intentó mover.
+            real = (
+                'cancelada' if doc.state == 'cancelled'
+                else 'entregada' if doc.signed_at
+                else 'en_ruta' if doc.state == 'confirmed'
+                else 'preparacion'
+            )
+            if target == real:
+                continue
+            if target == 'entregada' and real == 'en_ruta':
+                doc._som_mark_delivered_manual()
+            else:
+                raise UserError(_(
+                    'Movimiento no permitido: solo una remisión En ruta '
+                    'puede pasar a Entregada (y no hay vuelta atrás desde '
+                    'aquí).'
+                ))
+
+    def _som_mark_delivered_manual(self):
+        for doc in self:
+            doc._som_check_manual_delivery_rights()
+            if doc.signed_at:
+                continue
+            if doc.document_type != 'remission' or doc.state != 'confirmed':
+                raise UserError(_(
+                    'Solo las remisiones CONFIRMADAS pueden marcarse como '
+                    'entregadas.'
+                ))
+            doc.write({
+                'signed_at': fields.Datetime.now(),
+                'signed_by': 'ENTREGA MANUAL — %s' % self.env.user.name,
+            })
+            doc.message_post(body=_(
+                '📦 Entrega marcada como <b>ENTREGADA manualmente</b> por '
+                '<b>%s</b> (proceso temporal mientras opera la app móvil: '
+                'sin firma del cliente ni GPS).'
+            ) % self.env.user.name)
+
+    def action_mark_delivered_manual(self):
+        self._som_mark_delivered_manual()
+        return True
     # Caché del trazo GPS ajustado a CALLES (OSRM match). Se recalcula solo
     # cuando llegan puntos nuevos; ver _snap_route_to_roads.
     route_snapped_json = fields.Text(

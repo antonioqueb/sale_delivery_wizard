@@ -6,6 +6,15 @@
         <field name="arch" type="xml">
             <form>
                 <header>
+                    <field name="signed_at" invisible="1"/>
+                    <!-- TEMPORAL (arranque de la app móvil): entrega manual. -->
+                    <button name="action_mark_delivered_manual"
+                            string="Marcar como ENTREGADA (manual)"
+                            type="object" class="btn-success"
+                            confirm="Esto marca la entrega como ENTREGADA sin firma del cliente ni GPS (proceso temporal). ¿Continuar?"
+                            invisible="document_type != 'remission' or state != 'confirmed' or signed_at"
+                            groups="sale_delivery_wizard.group_delivery_manager,inventory_shopping_cart.group_price_authorizer"/>
+
                     <button name="action_prepare" string="Preparar"
                             type="object" class="btn-primary"
                             invisible="state != 'draft'"/>
@@ -151,10 +160,43 @@
         </field>
     </record>
 
+    <!-- Kanban por estatus de entrega: arrastrar En ruta → Entregada
+         (solo Gerente de Entregas / Autorizador de Precios; temporal
+         mientras opera la app móvil). -->
+    <record id="view_sale_delivery_document_kanban" model="ir.ui.view">
+        <field name="name">sale.delivery.document.kanban</field>
+        <field name="model">sale.delivery.document</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="delivery_status" quick_create="false" records_draggable="true">
+                <field name="delivery_status"/>
+                <field name="remission_number"/>
+                <field name="signed_at"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="p-2">
+                            <div class="fw-bold">
+                                <field name="name"/>
+                                <t t-if="record.remission_number.raw_value"> · <field name="remission_number"/></t>
+                            </div>
+                            <div><field name="partner_id"/></div>
+                            <div class="text-muted">
+                                <field name="sale_order_id"/>
+                                <t t-if="record.vehicle_driver_id.raw_value"> · <field name="vehicle_driver_id"/></t>
+                            </div>
+                            <div t-if="record.signed_at.raw_value" class="text-success">
+                                Entregada: <field name="signed_at"/>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
     <record id="action_sale_delivery_documents" model="ir.actions.act_window">
         <field name="name">Documentos de Entrega</field>
         <field name="res_model">sale.delivery.document</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">kanban,list,form</field>
     </record>
 
     <record id="action_sale_return_reasons" model="ir.actions.act_window">
