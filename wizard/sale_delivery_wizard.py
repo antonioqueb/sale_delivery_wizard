@@ -28,9 +28,33 @@ class SaleDeliveryWizard(models.TransientModel):
     vehicle_driver_id = fields.Many2one(
         'res.partner',
         string='Chofer',
+        domain="[('id', 'in', allowed_driver_ids)]",
         help='Chofer del viaje. Se llena con el chofer del vehículo, pero '
-             'puede cambiarse manualmente.',
+             'puede cambiarse manualmente. Solo se listan choferes: los '
+             'asignados a vehículos de la flota o contactos con la '
+             'etiqueta CHOFER.',
     )
+    allowed_driver_ids = fields.Many2many(
+        'res.partner',
+        compute='_compute_allowed_driver_ids',
+        string='Choferes permitidos',
+    )
+
+    def _compute_allowed_driver_ids(self):
+        """Solo choferes en el selector: los chofer/chofer futuro de la
+        flota + contactos etiquetados CHOFER. Nada de clientes sueltos."""
+        Vehicle = self.env['fleet.vehicle'].sudo()
+        vehicles = Vehicle.search([])
+        drivers = vehicles.mapped('driver_id')
+        if 'future_driver_id' in Vehicle._fields:
+            drivers |= vehicles.mapped('future_driver_id')
+        tags = self.env['res.partner.category'].sudo().search([
+            ('name', 'ilike', 'chofer')])
+        if tags:
+            drivers |= self.env['res.partner'].sudo().search([
+                ('category_id', 'in', tags.ids)])
+        for wizard in self:
+            wizard.allowed_driver_ids = drivers
     vehicle_capacity_sqm = fields.Float(
         related='vehicle_id.x_capacity_sqm',
         string='Capacidad (m²)',

@@ -120,6 +120,7 @@
                             <field name="vehicle_id" options="{'no_create': True}"
                                    placeholder="Selecciona el vehículo del viaje"/>
                             <label for="vehicle_driver_id" class="sdw-label"/>
+                            <field name="allowed_driver_ids" invisible="1"/>
                             <field name="vehicle_driver_id"
                                    options="{'no_create': True}"
                                    placeholder="Se propone el chofer del vehículo"/>
