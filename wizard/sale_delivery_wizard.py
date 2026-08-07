@@ -1100,6 +1100,33 @@ class SaleDeliveryWizard(models.TransientModel):
         if not sels:
             raise UserError(_('El Pick Ticket no tiene líneas válidas.'))
 
+        # DEFENSA EN PROFUNDIDAD (caso SO 45): un PT desactualizado (creado
+        # antes de otra remisión) traía cantidades mayores al pendiente y
+        # moría completo en el candado anti-sobre-entrega. Se remite el
+        # RESTANTE real por línea de venta; lo ya cubierto se descarta.
+        remaining_by_line = {}
+        for ol in order.order_line:
+            if ol.display_type or not ol.product_id:
+                continue
+            remaining_by_line[ol.id] = max(
+                (ol.product_uom_qty or 0.0)
+                - (ol.x_delivered_net_qty or 0.0), 0.0)
+        capped = []
+        for sel in sels:
+            slid = sel.get('saleLineId') or 0
+            if slid and slid in remaining_by_line:
+                allowed = min(sel.get('qty', 0.0), remaining_by_line[slid])
+                if allowed <= 0.0001:
+                    continue
+                sel['qty'] = allowed
+                remaining_by_line[slid] -= allowed
+            capped.append(sel)
+        if not capped:
+            raise UserError(_(
+                'Nada pendiente por entregar: lo del Pick Ticket ya fue '
+                'cubierto por remisiones anteriores.'))
+        sels = capped
+
         sels = self._normalize_selections_from_live_move_lines(sels)
         return self._generate_remission_from_selections(sels)
 

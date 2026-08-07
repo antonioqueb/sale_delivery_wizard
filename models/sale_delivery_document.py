@@ -133,6 +133,13 @@ class SaleDeliveryDocument(models.Model):
                     'sale.delivery.redelivery') or '/'
         return super().create(vals_list)
 
+    x_pt_consumed = fields.Boolean(
+        string='PTs descontados',
+        copy=False,
+        help='Esta remisión ya descontó sus cantidades de los Pick Tickets '
+             'abiertos de la orden (previene el deadlock de PT fantasma).',
+    )
+
     def action_prepare(self):
         self.filtered(lambda d: d.state == 'draft').write({'state': 'prepared'})
         return True
@@ -157,6 +164,101 @@ class SaleDeliveryDocument(models.Model):
             if doc.document_type in ('remission', 'return', 'redelivery'):
                 doc._som_force_sale_delivery_recompute()
 
+            # ANTI-DEADLOCK (caso SO 45): toda remisión descuenta lo
+            # remitido de los Pick Tickets ABIERTOS de la orden. Sin esto,
+            # un PT quedaba 'prepared' con sus cantidades originales tras
+            # una remisión parcial hecha por fuera: sus lotes bloqueados
+            # para nuevas entregas y el propio PT irre-remisionable por el
+            # candado anti-sobre-entrega.
+            if doc.document_type == 'remission':
+                doc._som_consume_open_pick_tickets()
+
+        return True
+
+    def _som_consume_open_pick_tickets(self):
+        """Descuenta las cantidades de esta remisión de los Pick Tickets
+        'prepared' de la orden (match por producto+lote, fallback por
+        producto sin lote). Líneas en cero se eliminan; un PT vacío pasa a
+        'confirmed' y libera sus lotes. Idempotente vía x_pt_consumed."""
+        for doc in self:
+            if doc.document_type != 'remission' or doc.state != 'confirmed':
+                continue
+            if doc.x_pt_consumed:
+                continue
+
+            remaining = {}
+            for rl in doc.line_ids:
+                qty = rl.qty_done or rl.qty_selected or 0.0
+                if qty <= 0 or not rl.product_id:
+                    continue
+                key = (rl.product_id.id, rl.lot_id.id if rl.lot_id else 0)
+                remaining[key] = remaining.get(key, 0.0) + qty
+
+            if not remaining:
+                doc.x_pt_consumed = True
+                continue
+
+            pts = self.search([
+                ('sale_order_id', '=', doc.sale_order_id.id),
+                ('document_type', '=', 'pick_ticket'),
+                ('state', '=', 'prepared'),
+            ], order='id')
+
+            for pt in pts:
+                changed = False
+                for pl in pt.line_ids:
+                    if not pl.product_id:
+                        continue
+                    key = (pl.product_id.id,
+                           pl.lot_id.id if pl.lot_id else 0)
+                    avail = remaining.get(key, 0.0)
+                    if avail <= 0:
+                        # Fallback: remisión sin lote contra línea con lote
+                        # del mismo producto (o viceversa).
+                        key = (pl.product_id.id, 0)
+                        avail = remaining.get(key, 0.0)
+                        if avail <= 0:
+                            continue
+                    take = min(avail, pl.qty_selected or 0.0)
+                    if take <= 0:
+                        continue
+                    remaining[key] = avail - take
+                    changed = True
+                    new_qty = (pl.qty_selected or 0.0) - take
+                    if new_qty > 0.0001:
+                        pl.write({'qty_selected': new_qty})
+                    else:
+                        pl.unlink()
+                if changed:
+                    if not pt.line_ids:
+                        pt.write({'state': 'confirmed'})
+                        pt.message_post(body=_(
+                            'Pick Ticket consumido por la remisión %s — '
+                            'lotes liberados.') % doc.name)
+                    else:
+                        pt.message_post(body=_(
+                            'Cantidades descontadas por la remisión %s; '
+                            'el Pick Ticket conserva solo lo pendiente.'
+                        ) % doc.name)
+
+            doc.x_pt_consumed = True
+        return True
+
+    @api.model
+    def _som_fix_consume_stale_pick_tickets(self):
+        """Reparación retroactiva (corre en cada -u, idempotente): aplica
+        el consumo de PTs a todas las remisiones confirmadas que aún no lo
+        hicieron, en orden cronológico. Deshace los deadlocks existentes
+        (PT fantasma reteniendo lotes con cantidades ya entregadas)."""
+        docs = self.search([
+            ('document_type', '=', 'remission'),
+            ('state', '=', 'confirmed'),
+            ('x_pt_consumed', '=', False),
+        ], order='delivery_date asc, id asc')
+        docs._som_consume_open_pick_tickets()
+        _logger.info(
+            '[DELIVERY FIX] %s remisiones aplicaron consumo retroactivo '
+            'de Pick Tickets.', len(docs))
         return True
 
     def action_cancel(self):

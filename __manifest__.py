@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.4.7.0',
+    'version': '19.0.5.0.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -33,6 +33,7 @@
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
         'data/sale_return_reason_data.xml',
+        'data/fix_stale_pick_tickets.xml',
         'views/sale_order_views.xml',
         'views/sale_delivery_document_views.xml',
         'views/fleet_vehicle_views.xml',
