@@ -1146,11 +1146,136 @@ class SaleOrder(models.Model):
                         'Este pedido no tiene autorización de entrega. '
                         'Contacte a un autorizador.'))
 
+    def _som_ensure_delivery_moves_for_pending(self):
+        """AUTO-REPARACIÓN de la cadena de entrega (caso V/045): tras una
+        devolución recepcionada (o backorders cancelados), los pickings
+        nativos quedan consumidos y NO existe demanda viva por lo
+        pendiente — el wizard no tiene de dónde ofrecer material aunque
+        la venta siga debiendo piezas.
+
+        Regla: por línea, si pendiente neto (solicitado − entregado neto,
+        que ya descuenta devoluciones) > demanda viva en pickings, se
+        relanza la regla de stock nativa y, si aún falta, se crea un
+        picking de salida manual con el déficit ligado a la línea."""
+        self.ensure_one()
+        tolerance = 0.0001
+        Move = self.env['stock.move'].sudo()
+
+        def live_qty(line):
+            moves = line.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel'))
+            by_type = {}
+            for m in moves:
+                code = m.picking_type_id.code or 'other'
+                by_type[code] = by_type.get(code, 0.0) + (
+                    m.product_uom_qty or 0.0)
+            # PICK y OUT encadenados representan la MISMA demanda: contar
+            # el mayor por tipo, no la suma.
+            return max(by_type.values()) if by_type else 0.0
+
+        needs = []
+        for line in self.order_line:
+            if line.display_type or not line.product_id:
+                continue
+            if line.product_id.type == 'service':
+                continue
+            remaining = max(
+                (line.product_uom_qty or 0.0)
+                - (line.x_delivered_net_qty or 0.0), 0.0)
+            if remaining <= tolerance:
+                continue
+            deficit = remaining - live_qty(line)
+            if deficit > tolerance:
+                needs.append((line, deficit))
+
+        if not needs:
+            return False
+
+        # 1er intento: la regla de stock nativa (respeta rutas/almacén).
+        for line, _deficit in needs:
+            try:
+                line.with_context(
+                    skip_stone_sync_picking=True,
+                    skip_stone_sync_so=True,
+                )._action_launch_stock_rule()
+            except Exception:
+                _logger.exception(
+                    '[DELIVERY HEAL] stock rule falló en línea %s', line.id)
+
+        # 2º intento: déficit restante → picking OUT manual explícito.
+        still = []
+        for line, _old in needs:
+            remaining = max(
+                (line.product_uom_qty or 0.0)
+                - (line.x_delivered_net_qty or 0.0), 0.0)
+            deficit = remaining - live_qty(line)
+            if deficit > tolerance:
+                still.append((line, deficit))
+
+        if still:
+            warehouse = self.warehouse_id or self.env[
+                'stock.warehouse'].search(
+                    [('company_id', '=', self.company_id.id)], limit=1)
+            pt_out = warehouse.out_type_id
+            partner = self.partner_shipping_id or self.partner_id
+            picking_vals = {
+                'picking_type_id': pt_out.id,
+                'partner_id': partner.id,
+                'origin': '%s (regeneración pendiente)' % self.name,
+                'location_id': pt_out.default_location_src_id.id,
+                'location_dest_id':
+                    partner.property_stock_customer.id,
+                'company_id': self.company_id.id,
+            }
+            Picking = self.env['stock.picking'].sudo()
+            if 'sale_id' in Picking._fields:
+                picking_vals['sale_id'] = self.id
+            picking = Picking.create(picking_vals)
+            for line, deficit in still:
+                move_vals = {
+                    'name': line.product_id.display_name,
+                    'product_id': line.product_id.id,
+                    'product_uom_qty': deficit,
+                    'product_uom': line.product_uom_id.id
+                    if line.product_uom_id else
+                    line.product_id.uom_id.id,
+                    'picking_id': picking.id,
+                    'picking_type_id': pt_out.id,
+                    'location_id': picking_vals['location_id'],
+                    'location_dest_id': picking_vals['location_dest_id'],
+                    'sale_line_id': line.id,
+                    'company_id': self.company_id.id,
+                }
+                if 'group_id' in Move._fields and self.procurement_group_id:
+                    move_vals['group_id'] = self.procurement_group_id.id
+                Move.create(move_vals)
+            picking.action_confirm()
+            self.message_post(body=_(
+                'Se regeneró la demanda de entrega pendiente en %s '
+                '(la cadena original quedó consumida por devoluciones o '
+                'backorders): %s'
+            ) % (picking.name, ', '.join(
+                '%s ×%.2f' % (l.product_id.display_name, d)
+                for l, d in still)))
+            _logger.warning(
+                '[DELIVERY HEAL] %s: picking %s creado con déficit %s',
+                self.name, picking.name,
+                [(l.id, d) for l, d in still])
+        return True
+
     def action_open_delivery_wizard(self):
         self.ensure_one()
         self._check_delivery_authorization()
 
         self._ensure_origin_demand_snapshot(source='delivery_button')
+
+        # Auto-reparación: garantiza demanda viva por lo pendiente antes
+        # de abrir el wizard (devoluciones consumen la cadena nativa).
+        try:
+            self._som_ensure_delivery_moves_for_pending()
+        except Exception:
+            _logger.exception(
+                '[DELIVERY HEAL] Falló la regeneración en %s', self.name)
 
         return {
             'name': _('Entregar Material'),
