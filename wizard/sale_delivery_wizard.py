@@ -220,8 +220,19 @@ class SaleDeliveryWizard(models.TransientModel):
         Corrige Pick Tickets preparados después de un swap.
 
         Si el swap cambió el lote en stock.move.line, el Pick Ticket no debe
-        conservar el lote anterior como línea huérfana. Esta sincronización
-        reemplaza lote/ubicación/cantidad usando la línea viva del picking.
+        conservar el lote anterior como línea huérfana: se refrescan lote,
+        ubicación y referencias del movimiento con la línea viva.
+
+        REGLA DE ORO (causa raíz del bug 20→100): la CANTIDAD SELECCIONADA
+        por el usuario (qty_selected) es la fuente de verdad de la entrega
+        y este sync JAMÁS la toca. La move line viva trae la RESERVA —
+        normalmente el lote completo (100) — y usarla como cantidad pisaba
+        la parcialidad elegida (20) en cada reapertura del wizard y justo
+        antes de generar la remisión (packing list 20 / remisión 100).
+        La disponibilidad puede cambiar; la selección solo la cambia el
+        usuario. Si la selección quedara por encima de lo físico, la
+        validación de la remisión lo detiene con error explícito — nunca
+        se 'corrige' en silencio.
         """
         if not pt or not pt.exists() or pt.document_type != 'pick_ticket':
             return False
@@ -250,20 +261,17 @@ class SaleDeliveryWizard(models.TransientModel):
             if ml.move_id and line.move_id != ml.move_id:
                 vals['move_id'] = ml.move_id.id
 
-            qty = self._delivery_get_move_line_qty(ml)
-            if qty > 0 and abs((line.qty_selected or 0.0) - qty) > 0.0001:
-                vals['qty_selected'] = qty
-
             if vals:
                 old_lot = line.lot_id.name if line.lot_id else 'S/L'
                 line.write(vals)
                 changed = True
                 pt.message_post(body=_(
                     'Pick Ticket sincronizado después de swap: %s → %s. '
-                    'La selección anterior fue reemplazada.'
+                    'La cantidad seleccionada (%s) se conservó.'
                 ) % (
                     old_lot,
                     line.lot_id.name if line.lot_id else 'S/L',
+                    line.qty_selected,
                 ))
 
         seen = {}
