@@ -1,6 +1,9 @@
 from collections import OrderedDict
 from odoo import api, fields, models, _
 from odoo.exceptions import RedirectWarning, UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
@@ -1248,6 +1251,12 @@ class SaleOrder(models.Model):
                 }
                 if 'group_id' in Move._fields and self.procurement_group_id:
                     move_vals['group_id'] = self.procurement_group_id.id
+                # Odoo 19 poda campos de stock.move (p. ej. 'name'):
+                # crear SOLO con los que existan en esta versión.
+                move_vals = {
+                    k: v for k, v in move_vals.items()
+                    if k in Move._fields
+                }
                 Move.create(move_vals)
             picking.action_confirm()
             self.message_post(body=_(
