@@ -879,6 +879,12 @@ class SaleOrder(models.Model):
                         if qty_pending <= 0:
                             continue
 
+                        # Reserva SIN lote de un producto rastreado = material
+                        # aún no asignado: no se ofrece (misma regla que el
+                        # fallback sin move lines).
+                        if not ml.lot_id and move.product_id.tracking != 'none':
+                            continue
+
                         ld = {
                             'dbId': 0,
                             'lotId': ml.lot_id.id if ml.lot_id else 0,
@@ -962,6 +968,20 @@ class SaleOrder(models.Model):
                     continue
 
                 if move_pending > 0:
+                    # SIN MATERIAL ASIGNADO NO HAY OFERTA: un producto con
+                    # rastreo por lote/serie jamás se ofrece "a granel" con
+                    # el total solicitado — esa fila sin lote generaba
+                    # entregas fantasma. Primero se asignan lotes en la
+                    # línea; la fila sin lote solo aplica a productos SIN
+                    # rastreo (consumibles genéricos).
+                    if move.product_id.tracking != 'none':
+                        _logger.info(
+                            '[DELIVERY] Línea %s (%s) sin lotes asignados: '
+                            'no se ofrece en el wizard hasta asignar '
+                            'material.',
+                            sale_line.id if sale_line else 0, pname,
+                        )
+                        continue
                     ld = {
                         'dbId': 0,
                         'lotId': 0,
@@ -1406,6 +1426,44 @@ class SaleOrder(models.Model):
         except Exception:
             _logger.exception(
                 '[DELIVERY HEAL] Falló la regeneración en %s', self.name)
+
+        # DEPENDENCIA DEL BOTÓN: sin material ASIGNADO no hay entrega. Si
+        # tras construir la oferta (que ya excluye productos rastreados sin
+        # lote) no queda nada entregable ni PT abierto que continuar, el
+        # botón se detiene con instrucción clara en vez de abrir un wizard
+        # vacío o con filas fantasma.
+        has_open_pts = bool(self.env['sale.delivery.document'].search_count([
+            ('sale_order_id', '=', self.id),
+            ('document_type', '=', 'pick_ticket'),
+            ('state', '=', 'prepared'),
+        ]))
+        if not has_open_pts:
+            groups = self.get_delivery_grouped_data(mode='delivery') or []
+            if not any(g.get('lines') for g in groups):
+                pending_unassigned = self.order_line.filtered(
+                    lambda l: not l.display_type
+                    and l.product_id
+                    and l.product_id.type != 'service'
+                    and l.product_id.tracking != 'none'
+                    and (l.product_uom_qty or 0.0)
+                    - (l.x_delivered_net_qty or 0.0) > 0.0001
+                    and not l.lot_ids
+                )
+                if pending_unassigned:
+                    raise UserError(_(
+                        'No puedes entregar: estas líneas tienen pendiente '
+                        'pero NO tienen material asignado:\n%s\n\n'
+                        'Asigna lotes/placas en la orden y vuelve a '
+                        'intentar.'
+                    ) % '\n'.join(
+                        '• %s (pendiente %.3f)' % (
+                            l.product_id.display_name,
+                            (l.product_uom_qty or 0.0)
+                            - (l.x_delivered_net_qty or 0.0),
+                        ) for l in pending_unassigned
+                    ))
+                raise UserError(_(
+                    'No hay material pendiente por entregar en esta orden.'))
 
         return {
             'name': _('Entregar Material'),
