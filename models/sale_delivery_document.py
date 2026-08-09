@@ -1586,6 +1586,40 @@ class SaleDeliveryDocumentLine(models.Model):
     qty_done = fields.Float(string='Cantidad Realizada')
     qty_returned = fields.Float(string='Cantidad Devuelta')
 
+    x_is_placa_lot = fields.Boolean(
+        string='Es placa',
+        compute='_compute_x_is_placa_lot',
+        help='PLACAS COMPLETAS: una placa se entrega con su metraje total; '
+             'la parcialidad es exclusiva de formato/pieza. Bloquea la '
+             'edición manual de la cantidad en la vista.',
+    )
+
+    @api.depends('lot_id')
+    def _compute_x_is_placa_lot(self):
+        for line in self:
+            tipo = ''
+            lot = line.lot_id
+            if lot:
+                for fname in ('x_tipo', 'tipo', 'material_type'):
+                    if fname in lot._fields and lot[fname]:
+                        tipo = str(lot[fname]).strip().lower()
+                        break
+            line.x_is_placa_lot = tipo == 'placa'
+
+    @api.onchange('lot_id', 'qty_selected')
+    def _onchange_som_placa_full_qty(self):
+        """Al elegir un lote placa (o intentar editar su cantidad) la
+        cantidad seleccionada se fija al metraje total del lote."""
+        for line in self:
+            if not line.x_is_placa_lot or not line.lot_id:
+                continue
+            try:
+                full = line.lot_id.product_qty or 0.0
+            except Exception:
+                full = 0.0
+            if full > 0 and line.qty_selected != full:
+                line.qty_selected = full
+
     source_location_id = fields.Many2one('stock.location', string='Ubicación Origen')
 
     origin_remission_id = fields.Many2one(

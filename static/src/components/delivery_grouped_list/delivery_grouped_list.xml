@@ -116,12 +116,16 @@
                                                     <t t-esc="fmt(line.qtyAvailable)"/>
                                                 </td>
                                                 <td class="text-end col-qty">
+                                                    <!-- PLACAS COMPLETAS: sin parcialidad — el input se bloquea
+                                                         y la placa sale con su metraje total (o no sale). -->
                                                     <input type="number"
                                                            class="dgl-qty-input"
                                                            t-att-value="line.qtyToDeliver"
                                                            step="0.01"
                                                            min="0"
                                                            t-att-max="line.qtyAvailable"
+                                                           t-att-readonly="isPlacaLine(line) ? 'readonly' : undefined"
+                                                           t-att-title="isPlacaLine(line) ? 'Placa: se entrega completa, sin parcialidades' : undefined"
                                                            t-on-change="(ev) => this.onQtyChange(line, ev)"/>
                                                 </td>
                                             </tr>

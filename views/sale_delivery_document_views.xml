@@ -105,7 +105,12 @@
                                     <field name="origin_remission_line_id"
                                            optional="hide"
                                            column_invisible="parent.document_type != 'return'"/>
-                                    <field name="qty_selected"/>
+                                    <field name="x_is_placa_lot" column_invisible="1"/>
+                                    <!-- PLACAS COMPLETAS: cantidad bloqueada; se fija sola
+                                         al metraje total del lote. -->
+                                    <field name="qty_selected"
+                                           readonly="x_is_placa_lot"
+                                           force_save="1"/>
                                     <field name="qty_done"/>
                                     <field name="qty_returned"
                                            column_invisible="parent.document_type != 'return'"/>

@@ -524,6 +524,16 @@ class SaleOrder(models.Model):
                     result.setdefault(pl.lot_id.id, []).append(pt.name)
         return result
 
+    def _som_delivery_lot_tipo(self, lot):
+        """Tipo normalizado del lote ('placa'/'formato'/'pieza'/'') para que
+        el widget de entrega bloquee parcialidades en placas."""
+        if not lot:
+            return ''
+        for fname in ('x_tipo', 'tipo', 'material_type'):
+            if fname in lot._fields and lot[fname]:
+                return str(lot[fname]).strip().lower()
+        return ''
+
     def get_delivery_grouped_data(self, mode='delivery', editing_pt_id=None):
         self.ensure_one()
 
@@ -764,6 +774,7 @@ class SaleOrder(models.Model):
                             'dbId': 0,
                             'lotId': ml.lot_id.id if ml.lot_id else 0,
                             'lotName': ml.lot_id.name if ml.lot_id else '',
+                            'lotTipo': self._som_delivery_lot_tipo(ml.lot_id),
                             'productId': pid,
                             'productName': pname,
                             'pickingId': picking.id,
@@ -822,6 +833,7 @@ class SaleOrder(models.Model):
                                 'dbId': 0,
                                 'lotId': lot.id,
                                 'lotName': lot.name or '',
+                                'lotTipo': self._som_delivery_lot_tipo(lot),
                                 'productId': pid,
                                 'productName': pname,
                                 'pickingId': picking.id,

@@ -304,6 +304,40 @@ class SaleDeliveryWizard(models.TransientModel):
 
         return changed
 
+    # ── PLACAS COMPLETAS ─────────────────────────────────────────────────
+    # La parcialidad de entrega es EXCLUSIVA de formato/pieza. Un lote tipo
+    # placa siempre sale con su metraje completo: cualquier cantidad editada
+    # se ignora y se fuerza al total del lote.
+
+    @api.model
+    def _som_lot_tipo(self, lot):
+        if not lot:
+            return ''
+        for fname in ('x_tipo', 'tipo', 'material_type'):
+            if fname in lot._fields and lot[fname]:
+                return str(lot[fname]).strip().lower()
+        return ''
+
+    @api.model
+    def _som_placa_full_qty(self, lot, fallback=0.0):
+        """Metraje completo del lote placa (existencia física interna)."""
+        qty = 0.0
+        if lot:
+            try:
+                qty = lot.product_qty or 0.0
+            except Exception:
+                qty = 0.0
+        return qty if qty > 0 else (fallback or 0.0)
+
+    def _som_line_qty_for_delivery(self, line):
+        """Cantidad efectiva de una sale.delivery.wizard.line: placas van
+        completas; formato/pieza respetan la parcialidad capturada."""
+        qty = line.qty_to_deliver or 0.0
+        if qty > 0 and line.lot_id and self._som_lot_tipo(line.lot_id) == 'placa':
+            return self._som_placa_full_qty(
+                line.lot_id, fallback=line.qty_available or qty)
+        return qty
+
     def _normalize_selections_from_live_move_lines(self, sels):
         normalized = []
 
@@ -319,6 +353,18 @@ class SaleDeliveryWizard(models.TransientModel):
                     item['lotId'] = ml.lot_id.id if ml.lot_id else item.get('lotId') or False
                     item['productId'] = ml.product_id.id if ml.product_id else item.get('productId')
                     item['sourceLocationId'] = ml.location_id.id if ml.location_id else item.get('sourceLocationId') or False
+
+            # PLACAS COMPLETAS: si el lote elegido es tipo placa, la cantidad
+            # seleccionada se fuerza al total del lote (sin parcialidades).
+            lot_id = int(item.get('lotId') or 0)
+            if lot_id and float(item.get('qty') or 0.0) > 0:
+                lot = self.env['stock.lot'].browse(lot_id).exists()
+                if lot and self._som_lot_tipo(lot) == 'placa':
+                    item['qty'] = self._som_placa_full_qty(
+                        lot,
+                        fallback=float(item.get('qtyAvailable') or 0.0)
+                        or float(item.get('qty') or 0.0),
+                    )
 
             normalized.append(item)
 
@@ -933,7 +979,7 @@ class SaleDeliveryWizard(models.TransientModel):
                 'move_line_id': line.move_line_id.id,
                 'product_id': line.product_id.id,
                 'lot_id': line.lot_id.id,
-                'qty_selected': line.qty_to_deliver,
+                'qty_selected': self._som_line_qty_for_delivery(line),
                 'source_location_id': line.source_location_id.id,
             }) for line in selected],
         })
@@ -1262,8 +1308,8 @@ class SaleDeliveryWizard(models.TransientModel):
                     'move_line_id': line.move_line_id.id if line.move_line_id.exists() else False,
                     'product_id': line.product_id.id,
                     'lot_id': line.lot_id.id,
-                    'qty_selected': line.qty_to_deliver,
-                    'qty_done': line.qty_to_deliver,
+                    'qty_selected': self._som_line_qty_for_delivery(line),
+                    'qty_done': self._som_line_qty_for_delivery(line),
                     'source_location_id': line.source_location_id.id,
                 }) for line in lines],
             })

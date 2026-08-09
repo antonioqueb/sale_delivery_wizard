@@ -512,12 +512,22 @@ export class DeliveryGroupedList extends Component {
         this._writeSelectionsToRecord();
     }
 
+    // PLACAS COMPLETAS: la parcialidad de entrega es exclusiva de
+    // formato/pieza. Una placa va entera o no va.
+    isPlacaLine(lineData) {
+        return String(lineData?.lotTipo || "").toLowerCase() === "placa";
+    }
+
     onQtyChange(lineData, event) {
         const val = parseFloat(event.target.value) || 0;
 
         if (this.state.mode === "delivery") {
             const max = parseFloat(lineData.qtyAvailable || 0);
-            lineData.qtyToDeliver = Math.min(Math.max(val, 0), max);
+            if (this.isPlacaLine(lineData)) {
+                lineData.qtyToDeliver = val > 0 ? max : 0;
+            } else {
+                lineData.qtyToDeliver = Math.min(Math.max(val, 0), max);
+            }
             lineData.isSelected = lineData.qtyToDeliver > 0;
             event.target.value = lineData.qtyToDeliver;
         } else if (this.state.mode === "return") {
