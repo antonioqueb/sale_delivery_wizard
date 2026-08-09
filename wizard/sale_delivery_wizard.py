@@ -1154,6 +1154,12 @@ class SaleDeliveryWizard(models.TransientModel):
         if not sels:
             raise UserError(_('El Pick Ticket no tiene líneas válidas.'))
 
+        # ORDEN CRÍTICO: primero la normalización (que fuerza PLACAS a su
+        # metraje completo) y DESPUÉS el cap al restante. Al revés, la
+        # normalización re-inflaba la placa por encima del cap y la remisión
+        # moría en el candado o sobre-entregaba en silencio.
+        sels = self._normalize_selections_from_live_move_lines(sels)
+
         # DEFENSA EN PROFUNDIDAD (caso SO 45): un PT desactualizado (creado
         # antes de otra remisión) traía cantidades mayores al pendiente y
         # moría completo en el candado anti-sobre-entrega. Se remite el
@@ -1169,9 +1175,25 @@ class SaleDeliveryWizard(models.TransientModel):
         for sel in sels:
             slid = sel.get('saleLineId') or 0
             if slid and slid in remaining_by_line:
-                allowed = min(sel.get('qty', 0.0), remaining_by_line[slid])
+                qty = sel.get('qty', 0.0)
+                allowed = min(qty, remaining_by_line[slid])
                 if allowed <= 0.0001:
                     continue
+                if allowed + 0.0001 < qty:
+                    # Una PLACA no admite recorte: va completa o no va.
+                    lot = self.env['stock.lot'].browse(
+                        sel.get('lotId') or 0).exists()
+                    if lot and self._som_lot_tipo(lot) == 'placa':
+                        raise UserError(_(
+                            'La placa %(lot)s mide %(qty).3f pero la línea '
+                            'solo tiene %(rem).3f pendiente: las placas se '
+                            'entregan COMPLETAS. Ajusta la cantidad '
+                            'solicitada de la línea o cambia la placa.'
+                        ) % {
+                            'lot': lot.name,
+                            'qty': qty,
+                            'rem': allowed,
+                        })
                 sel['qty'] = allowed
                 remaining_by_line[slid] -= allowed
             capped.append(sel)
@@ -1181,7 +1203,6 @@ class SaleDeliveryWizard(models.TransientModel):
                 'cubierto por remisiones anteriores.'))
         sels = capped
 
-        sels = self._normalize_selections_from_live_move_lines(sels)
         return self._generate_remission_from_selections(sels)
 
     def _som_remission_report_action(self, docs):

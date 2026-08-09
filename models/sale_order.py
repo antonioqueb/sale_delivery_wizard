@@ -587,6 +587,11 @@ class SaleOrder(models.Model):
 
         capped_groups = []
 
+        # Entregado NETO por (línea, lote) desde los documentos SOM: es el
+        # insumo del tope POR LOTE de abajo (parcialidades formato/pieza).
+        delivered_by_lot = self._som_lot_delivered_net_map()
+        SaleLine = self.env['sale.order.line']
+
         # Un LOTE FÍSICO solo puede ofrecerse UNA vez: en flujos de 2 pasos el
         # mismo lote aparece con move lines en el PICK y también en el OUT, y
         # el wizard lo listaba duplicado (10 placas → 13 líneas). Se conserva
@@ -601,7 +606,16 @@ class SaleOrder(models.Model):
                 if avail <= tolerance:
                     continue
 
-                lot_key = (ld.get('productId') or 0, ld.get('lotId') or 0)
+                # La llave INCLUYE la línea de venta: los duplicados PICK/OUT
+                # del mismo lote comparten línea y se siguen deduplicando,
+                # pero un lote formato repartido entre DOS líneas de la misma
+                # orden conserva su oferta en cada línea (antes la segunda se
+                # descartaba como "duplicado" y quedaba inentregable).
+                lot_key = (
+                    ld.get('productId') or 0,
+                    ld.get('lotId') or 0,
+                    ld.get('saleLineId') or 0,
+                )
                 if lot_key[1]:
                     if lot_key in seen_lots:
                         continue
@@ -619,6 +633,26 @@ class SaleOrder(models.Model):
                 if allowed <= tolerance:
                     # Nada pendiente para esta línea: material ya entregado.
                     continue
+
+                # ── TOPE POR LOTE (parcialidades formato/pieza) ──
+                # Si la línea maneja desglose y este lote tiene cantidad
+                # asignada, lo ofrecible de ESE lote es su asignado menos lo
+                # ya entregado de ese lote en esa línea. Sin este tope, el
+                # pool de la línea se repartía a ciegas entre lotes: tras una
+                # entrega parcial podía ofrecer de más de un lote y de menos
+                # de otro (o nada del restante correcto).
+                if slid and lot_key[1]:
+                    sale_line = SaleLine.browse(slid).exists()
+                    assigned = self._som_lot_assigned_qty(sale_line, lot_key[1])
+                    if assigned is not None:
+                        lot_delivered = delivered_by_lot.get(
+                            (slid, lot_key[1]), 0.0)
+                        lot_remaining = max(assigned - lot_delivered, 0.0)
+                        allowed = min(allowed, lot_remaining)
+                        if allowed <= tolerance:
+                            # Este lote ya entregó toda su asignación; si el
+                            # vendedor amplía el desglose, vuelve a ofrecerse.
+                            continue
 
                 ld['qtyAvailable'] = allowed
                 if ld.get('qtyToDeliver', 0.0) > allowed:
@@ -650,6 +684,78 @@ class SaleOrder(models.Model):
 
         return capped_groups
 
+    def _som_lot_delivered_net_map(self):
+        """{(sale_line_id, lot_id): entregado neto} construido desde los
+        documentos SOM: remisiones/re-entregas confirmadas SUMAN y
+        devoluciones confirmadas (con picking hecho si existe) RESTAN.
+        Es la contraparte POR LOTE de x_delivered_net_qty."""
+        self.ensure_one()
+        delivered = {}
+        for doc in self.delivery_document_ids:
+            if doc.state != 'confirmed':
+                continue
+            if doc.document_type in ('remission', 'redelivery'):
+                sign = 1.0
+            elif doc.document_type == 'return' and (
+                not doc.return_picking_id
+                or doc.return_picking_id.state == 'done'
+            ):
+                sign = -1.0
+            else:
+                continue
+            for dl in doc.line_ids:
+                if not dl.lot_id:
+                    continue
+                if sign < 0:
+                    qty = dl.qty_returned or dl.qty_done or dl.qty_selected or 0.0
+                else:
+                    qty = dl.qty_done or dl.qty_selected or 0.0
+                if qty <= 0:
+                    continue
+                key = (dl.sale_line_id.id or 0, dl.lot_id.id)
+                delivered[key] = delivered.get(key, 0.0) + sign * qty
+
+        # SANEO DEL MAPA:
+        # 1) Devoluciones sin sale_line (bucket (0, lote) negativo) se
+        #    redistribuyen contra los buckets (línea, lote) con saldo — sin
+        #    esto la entrega quedaba "eterna" y el lote jamás se re-ofrecía.
+        # 2) Clamp a >= 0: una sobre-devolución no debe inflar la oferta.
+        for (slid, lot_id), val in list(delivered.items()):
+            if slid == 0 and val < 0:
+                pending_credit = -val
+                for other_key in list(delivered.keys()):
+                    if pending_credit <= 0:
+                        break
+                    if other_key[0] == 0 or other_key[1] != lot_id:
+                        continue
+                    take = min(delivered[other_key], pending_credit)
+                    if take > 0:
+                        delivered[other_key] -= take
+                        pending_credit -= take
+                delivered[(slid, lot_id)] = -pending_credit
+        return {k: max(v, 0.0) for k, v in delivered.items()}
+
+    def _som_lot_assigned_qty(self, sale_line, lot_id):
+        """Cantidad ASIGNADA de un lote a la línea según su desglose de
+        parcialidades (x_lot_breakdown_json). None cuando la línea no maneja
+        desglose para ese lote (p. ej. placas completas): en ese caso NO se
+        aplica tope por lote y manda el pendiente de la línea."""
+        if not sale_line or not lot_id:
+            return None
+        if not hasattr(sale_line, '_som_breakdown_qty_for_lot'):
+            return None
+        breakdown = getattr(sale_line, 'x_lot_breakdown_json', None)
+        if not breakdown:
+            return None
+        lot = self.env['stock.lot'].browse(lot_id).exists()
+        if not lot:
+            return None
+        qty = sale_line._som_breakdown_qty_for_lot(breakdown, lot)
+        if qty is None:
+            return None
+        qty = float(qty or 0.0)
+        return qty if qty > 0 else None
+
     def _apply_pick_ticket_selection(self, groups, editing_pt_id=None):
         self.ensure_one()
         if not editing_pt_id:
@@ -675,7 +781,10 @@ class SaleOrder(models.Model):
                 )
                 if key in pt_keys:
                     line['isSelected'] = True
-                    line['qtyToDeliver'] = pt_keys[key]
+                    # Clamp al ofrecible ya recortado por los caps: sin esto
+                    # el PT podía preseleccionar más de lo entregable.
+                    line['qtyToDeliver'] = min(
+                        pt_keys[key], line.get('qtyAvailable', 0.0) or 0.0)
                 else:
                     line['isSelected'] = False
                     line['qtyToDeliver'] = 0

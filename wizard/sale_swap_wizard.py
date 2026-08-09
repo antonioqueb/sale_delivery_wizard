@@ -639,7 +639,6 @@ class SaleSwapWizard(models.TransientModel):
         vals = {
             'product_id': product.id,
             'lot_id': target_lot.id,
-            'qty_selected': replacement_qty,
             'qty_done': 0.0,
             'qty_returned': 0.0,
             'sale_line_id': sale_line.id if sale_line else False,
@@ -661,7 +660,17 @@ class SaleSwapWizard(models.TransientModel):
             if candidates:
                 keep = candidates[0]
                 old_name = keep.lot_id.name if keep.lot_id else ''
-                keep.write(vals)
+                # qty_selected es la FUENTE DE VERDAD del documento (regla de
+                # oro 20/100): el swap cambia el LOTE, jamás INFLA la cantidad.
+                # Se conserva la parcialidad previa, topada por el disponible
+                # del lote destino.
+                prev_qty = keep.qty_selected or 0.0
+                line_vals = dict(vals)
+                line_vals['qty_selected'] = (
+                    min(prev_qty, replacement_qty) if prev_qty > 0
+                    else replacement_qty
+                )
+                keep.write(line_vals)
 
                 duplicates = candidates - keep
                 if duplicates:

@@ -333,7 +333,31 @@ class SaleReturnWizard(models.TransientModel):
                 or sel.get('qtyDelivered')
                 or 0.0
             )
-            if qty_available > 0 and qty > qty_available:
+
+            # VALIDACIÓN SERVER-SIDE: el disponible del payload es solo una
+            # pista del widget. Cuando la selección liga la línea de remisión
+            # de origen, el tope real se recalcula aquí (entregado − ya
+            # devuelto de ESA línea) e ignora lo que diga el cliente.
+            server_line_id = sel.get('originRemissionLineId') or False
+            if server_line_id:
+                server_line = self.env['sale.delivery.document.line'].browse(
+                    server_line_id).exists()
+                if server_line:
+                    delivered_line = (
+                        server_line.qty_done or server_line.qty_selected or 0.0)
+                    already_returned = sum(
+                        (rl.qty_returned or rl.qty_done or rl.qty_selected or 0.0)
+                        for rl in self.env['sale.delivery.document.line'].search([
+                            ('origin_remission_line_id', '=', server_line.id),
+                            ('document_id.state', '=', 'confirmed'),
+                            ('document_id.document_type', '=', 'return'),
+                        ])
+                    )
+                    qty_available = max(delivered_line - already_returned, 0.0)
+
+            # Tolerancia de flotantes: devolver "todo" tras restas encadenadas
+            # (0.3 − 0.1 = 0.19999…) no debe morir por el residuo binario.
+            if qty_available > 0 and qty > qty_available + 0.0001:
                 raise UserError(_(
                     'La cantidad a devolver %.2f excede la cantidad disponible %.2f.'
                 ) % (qty, qty_available))
@@ -669,7 +693,9 @@ class SaleReturnWizard(models.TransientModel):
                 'sale_line_id': sale_line_id or False,
                 'origin': order.name,
             })
-            move_map[sale_line_id] = move
+            # Llave completa del agrupado: dos productos distintos sin línea
+            # de venta (sale_line_id=0) ya no se pisan entre sí.
+            move_map[(product_id, sale_line_id, uom_id)] = move
 
             for s in sel_group:
                 if s.get('lotId'):
@@ -705,7 +731,10 @@ class SaleReturnWizard(models.TransientModel):
         for sel in sels:
             if sel.get('qty', 0) <= 0:
                 continue
-            move = move_map.get(sel.get('saleLineId', 0))
+            sel_move_id = sel.get('moveId', 0)
+            sel_move = self.env['stock.move'].browse(sel_move_id) if sel_move_id else False
+            sel_uom = sel_move.product_uom.id if sel_move else self.env['product.product'].browse(sel['productId']).uom_id.id
+            move = move_map.get((sel['productId'], sel.get('saleLineId', 0), sel_uom))
 
             owner_id = sel.get('ownerId') or False
             if not owner_id and hasattr(order, '_som_resolve_redelivery_owner'):

@@ -1,8 +1,73 @@
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
 
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PISO DE EDICIÓN: la asignación de un lote SIEMPRE es editable, pero
+    # jamás por debajo de lo ya entregado de ese lote (regla de negocio).
+    # ═══════════════════════════════════════════════════════════════════
+
+    _SOM_FLOOR_SKIP_CONTEXTS = (
+        'skip_stone_sync_picking',   # adopción/reparaciones internas
+        'som_skip_cart_mirror',      # espejos carrito⇄selector
+        'som_skip_breakdown_floor',  # escape explícito
+    )
+
+    def write(self, vals):
+        if 'x_lot_breakdown_json' in vals and not any(
+            self.env.context.get(k) for k in self._SOM_FLOOR_SKIP_CONTEXTS
+        ):
+            self._som_assert_breakdown_floor_vs_delivered(
+                vals.get('x_lot_breakdown_json'))
+        return super().write(vals)
+
+    def _som_assert_breakdown_floor_vs_delivered(self, new_breakdown):
+        """Valida que el desglose propuesto no asigne a ningún lote MENOS de
+        lo que ya se le entregó (entregado neto por lote). El lote ausente
+        del desglose nuevo cuenta como 0."""
+        bd = new_breakdown or {}
+        if not isinstance(bd, dict):
+            return
+        Lot = self.env['stock.lot']
+        for line in self:
+            if line.display_type or line.state not in ('sale', 'done'):
+                continue
+            order = line.order_id
+            if not hasattr(order, '_som_lot_delivered_net_map'):
+                continue
+            delivered_map = order._som_lot_delivered_net_map()
+            for (slid, lot_id), delivered in delivered_map.items():
+                if slid != line.id or delivered <= 0.0001:
+                    continue
+                lot = Lot.browse(lot_id).exists()
+                if not lot:
+                    continue
+                new_qty = None
+                val = bd.get(str(lot_id))
+                if val is not None:
+                    new_qty = float(val or 0.0)
+                elif 'x_selected_lots' in line._fields:
+                    for quant in line.x_selected_lots:
+                        if quant.lot_id.id == lot_id and str(quant.id) in bd:
+                            new_qty = float(bd[str(quant.id)] or 0.0)
+                            break
+                if new_qty is None:
+                    new_qty = 0.0
+                if new_qty + 0.0001 < delivered:
+                    raise UserError(_(
+                        'No puedes asignar %(new).3f del lote %(lot)s en '
+                        '"%(product)s": ya se entregaron %(delivered).3f de '
+                        'ese lote. La asignación puede subir o quedarse, '
+                        'pero nunca por debajo de lo entregado.'
+                    ) % {
+                        'new': new_qty,
+                        'lot': lot.name,
+                        'product': line.product_id.display_name,
+                        'delivered': delivered,
+                    })
 
     # ═══════════════════════════════════════════════════════════════════
     # Demanda origen operativa

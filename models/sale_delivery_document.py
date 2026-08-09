@@ -186,17 +186,48 @@ class SaleDeliveryDocument(models.Model):
             if doc.x_pt_consumed:
                 continue
 
+            # Llaves con LÍNEA DE VENTA: (product, lot, sale_line) primero,
+            # después (product, lot) sin línea. El fallback por producto-sin-
+            # lote SOLO aplica a líneas de PT que tampoco tienen lote: antes
+            # una remisión sin lote podía descontar (y liberar) la selección
+            # de OTRO lote de un PT ajeno.
             remaining = {}
             for rl in doc.line_ids:
                 qty = rl.qty_done or rl.qty_selected or 0.0
                 if qty <= 0 or not rl.product_id:
                     continue
-                key = (rl.product_id.id, rl.lot_id.id if rl.lot_id else 0)
+                key = (
+                    rl.product_id.id,
+                    rl.lot_id.id if rl.lot_id else 0,
+                    rl.sale_line_id.id if rl.sale_line_id else 0,
+                )
                 remaining[key] = remaining.get(key, 0.0) + qty
 
             if not remaining:
                 doc.x_pt_consumed = True
                 continue
+
+            def _match_keys(pl):
+                pid = pl.product_id.id
+                lid = pl.lot_id.id if pl.lot_id else 0
+                slid = pl.sale_line_id.id if pl.sale_line_id else 0
+                keys = [(pid, lid, slid)]
+                if slid:
+                    keys.append((pid, lid, 0))
+                else:
+                    # Línea de PT sin sale_line: acepta cualquier línea de
+                    # la remisión con el mismo producto+lote.
+                    keys += [
+                        k for k in remaining
+                        if k[0] == pid and k[1] == lid and k[2] != 0
+                    ]
+                if not lid:
+                    # Solo PT SIN lote puede casar por producto a secas.
+                    keys += [
+                        k for k in remaining
+                        if k[0] == pid and k not in keys
+                    ]
+                return keys
 
             pts = self.search([
                 ('sale_order_id', '=', doc.sale_order_id.id),
@@ -209,16 +240,15 @@ class SaleDeliveryDocument(models.Model):
                 for pl in pt.line_ids:
                     if not pl.product_id:
                         continue
-                    key = (pl.product_id.id,
-                           pl.lot_id.id if pl.lot_id else 0)
-                    avail = remaining.get(key, 0.0)
-                    if avail <= 0:
-                        # Fallback: remisión sin lote contra línea con lote
-                        # del mismo producto (o viceversa).
-                        key = (pl.product_id.id, 0)
-                        avail = remaining.get(key, 0.0)
-                        if avail <= 0:
-                            continue
+                    key = None
+                    avail = 0.0
+                    for cand in _match_keys(pl):
+                        if remaining.get(cand, 0.0) > 0:
+                            key = cand
+                            avail = remaining[cand]
+                            break
+                    if not key:
+                        continue
                     take = min(avail, pl.qty_selected or 0.0)
                     if take <= 0:
                         continue
@@ -718,6 +748,29 @@ class SaleDeliveryDocument(models.Model):
                 remaining -= assign_qty
 
             if remaining > 0 and candidate_mls:
+                # GUARD FÍSICO: el remanente que excede lo reservado solo se
+                # descarga si el lote tiene ese metraje LIBRE en almacén.
+                # Antes se asignaba a ciegas sobre la primera move line y el
+                # quant del lote quedaba NEGATIVO (PT desactualizado con más
+                # cantidad que la reserva viva).
+                if doc_line.lot_id:
+                    lot_free = sum(
+                        (q.quantity or 0.0) - (q.reserved_quantity or 0.0)
+                        for q in doc_line.lot_id.quant_ids
+                        if q.location_id.usage == 'internal' and q.quantity > 0
+                    )
+                    if remaining > max(lot_free, 0.0) + 0.0001:
+                        raise UserError(_(
+                            'No se puede remisionar %(qty).3f de %(lot)s: '
+                            'excede la existencia física libre del lote '
+                            '(%(free).3f disponible). El Pick Ticket está '
+                            'desactualizado — edítalo desde el asistente de '
+                            'entrega para ajustar la cantidad.'
+                        ) % {
+                            'qty': remaining,
+                            'lot': doc_line.lot_id.name,
+                            'free': max(lot_free, 0.0),
+                        })
                 first_ml = candidate_mls[0]
                 doc_ml_ids.add(first_ml.id)
                 doc_ml_qty[first_ml.id] = doc_ml_qty.get(first_ml.id, 0.0) + remaining
@@ -767,6 +820,44 @@ class SaleDeliveryDocument(models.Model):
 
         errors = []
         tolerance = 0.0001
+
+        # ── CANDADO POR LOTE (parcialidades formato/pieza) ──
+        # El tope "asignado en el desglose − entregado del lote" vivía solo
+        # en la OFERTA del wizard; el servidor confiaba en el cliente. Aquí
+        # se replica: una remisión no puede sacar de un lote más de lo que
+        # la línea le tiene asignado menos lo ya entregado de ese lote.
+        order = self.sale_order_id
+        if hasattr(order, '_som_lot_delivered_net_map'):
+            lot_delivered = order._som_lot_delivered_net_map()
+            by_line_lot = {}
+            for doc_line in self.line_ids:
+                qty = doc_line.qty_selected or doc_line.qty_done or 0.0
+                if qty <= 0 or not doc_line.lot_id or not doc_line.sale_line_id:
+                    continue
+                k = (doc_line.sale_line_id, doc_line.lot_id)
+                by_line_lot[k] = by_line_lot.get(k, 0.0) + qty
+            for (sale_line, lot), qty in by_line_lot.items():
+                assigned = order._som_lot_assigned_qty(sale_line, lot.id)
+                if assigned is None:
+                    continue
+                delivered_lot = max(
+                    lot_delivered.get((sale_line.id, lot.id), 0.0), 0.0)
+                lot_remaining = assigned - delivered_lot
+                if qty > lot_remaining + tolerance:
+                    errors.append(_(
+                        '• %(product)s / lote %(lot)s: asignado en el '
+                        'desglose %(assigned).3f, ya entregado de ese lote '
+                        '%(delivered).3f, intento %(qty).3f — máximo: '
+                        '%(remaining).3f. Amplía la asignación del lote en '
+                        'la orden si necesitas entregar más.'
+                    ) % {
+                        'product': sale_line.product_id.display_name,
+                        'lot': lot.name,
+                        'assigned': assigned,
+                        'delivered': delivered_lot,
+                        'qty': qty,
+                        'remaining': max(lot_remaining, 0.0),
+                    })
 
         for sale_line, qty in by_sale_line.items():
             demand = sale_line.product_uom_qty or 0.0
