@@ -455,3 +455,13 @@ $dgl-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
     &.dgl-tag-formato { background: #fefcbf; color: #744210; }
     &.dgl-tag-pieza { background: #bee3f8; color: #2a4365; }
 }
+// Subfilas de lotes extra del swap multi-lote
+.dgl-swap-extra-row {
+    background: #f8fafc;
+
+    td {
+        border-top: none !important;
+        padding-top: 2px;
+        padding-bottom: 4px;
+    }
+}

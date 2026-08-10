@@ -245,7 +245,68 @@
                                                     <t t-esc="line.targetBloque || '-'"/>
                                                 </td>
                                                 <td class="text-end">
-                                                    <t t-esc="line.targetQty ? fmt(line.targetQty) : '-'"/>
+                                                    <!-- PLACA: lote completo (solo lectura).
+                                                         FORMATO/PIEZA: cantidad EDITABLE del lote
+                                                         nuevo (parcialidad), topada por su disponible. -->
+                                                    <t t-if="line.targetLotId and !isPlacaLine(line)">
+                                                        <input type="number"
+                                                               class="dgl-qty-input"
+                                                               step="0.01"
+                                                               min="0"
+                                                               t-att-max="line.targetQtyMax || undefined"
+                                                               t-att-value="line.targetQty"
+                                                               t-att-title="'Cantidad a usar del lote nuevo (disponible: ' + fmt(line.targetQtyMax || 0) + ')'"
+                                                               t-on-change="(ev) => this.onSwapTargetQtyChange(line, ev)"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <t t-esc="line.targetQty ? fmt(line.targetQty) : '-'"/>
+                                                    </t>
+                                                </td>
+                                            </tr>
+
+                                            <!-- MULTI-LOTE: lotes extra que completan la necesidad -->
+                                            <t t-foreach="line.extraTargets || []" t-as="extra"
+                                               t-key="'swx-' + (line._dglKey || line_index) + '-' + extra_index">
+                                                <tr class="dgl-swap-extra-row">
+                                                    <td colspan="5" class="text-end text-muted small">
+                                                        <i class="fa fa-level-up fa-rotate-90 me-1"/> también con:
+                                                    </td>
+                                                    <td class="dgl-swap-target-cell">
+                                                        <div class="dgl-swap-chosen">
+                                                            <i class="fa fa-cube me-1"/>
+                                                            <span><t t-esc="extra.targetLotName"/></span>
+                                                            <button class="dgl-swap-clear"
+                                                                    t-on-click.stop="() => this.removeSwapExtraTarget(line, extra_index)">
+                                                                <i class="fa fa-times"/>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-muted">
+                                                        <t t-esc="extra.targetBloque || '-'"/>
+                                                    </td>
+                                                    <td class="text-end">
+                                                        <input type="number"
+                                                               class="dgl-qty-input"
+                                                               step="0.01"
+                                                               min="0"
+                                                               t-att-max="extra.targetQtyMax || undefined"
+                                                               t-att-value="extra.targetQty"
+                                                               t-att-title="'Disponible: ' + fmt(extra.targetQtyMax || 0)"
+                                                               t-on-change="(ev) => this.onSwapExtraQtyChange(line, extra_index, ev)"/>
+                                                    </td>
+                                                </tr>
+                                            </t>
+
+                                            <!-- Faltante por cubrir + agregar otro lote -->
+                                            <tr t-if="canAddSwapTarget(line)" class="dgl-swap-extra-row">
+                                                <td colspan="7" class="text-end text-muted small">
+                                                    Faltan <b t-esc="fmt(swapRemainingQty(line))"/> por cubrir
+                                                </td>
+                                                <td class="text-end">
+                                                    <button class="dgl-swap-pick-btn"
+                                                            t-on-click="() => this.addSwapExtraTarget(line)">
+                                                        <i class="fa fa-plus me-1"/> Otro lote
+                                                    </button>
                                                 </td>
                                             </tr>
                                         </t>

@@ -409,7 +409,7 @@ export class DeliveryGroupedList extends Component {
 
                     if (!targetLotId) continue;
 
-                    selections.push({
+                    const baseSel = {
                         dbId: line.dbId || 0,
                         rowKey: line._dglKey || "",
                         groupKey,
@@ -417,15 +417,34 @@ export class DeliveryGroupedList extends Component {
                         productName: line.productName || "",
                         originLotId: line.originLotId || 0,
                         originLotName: line.originLotName || "",
-                        targetLotId,
-                        targetLotName: line.targetLotName || "",
                         pickingId: line.pickingId || 0,
                         moveLineId: line.moveLineId || 0,
                         saleLineId: line.saleLineId || 0,
                         qty: line.qty || 0,
+                    };
+
+                    selections.push({
+                        ...baseSel,
+                        targetLotId,
+                        targetLotName: line.targetLotName || "",
                         targetQty: line.targetQty || 0,
                         targetBloque: line.targetBloque || "",
                     });
+
+                    // MULTI-LOTE (formato/pieza): cada lote extra viaja como
+                    // selección hermana de la MISMA línea origen; el backend
+                    // divide la move line por cada una.
+                    for (const extra of (line.extraTargets || [])) {
+                        if (!extra.targetLotId || !(extra.targetQty > 0)) continue;
+                        selections.push({
+                            ...baseSel,
+                            rowKey: (line._dglKey || "") + "-extra-" + extra.targetLotId,
+                            targetLotId: extra.targetLotId,
+                            targetLotName: extra.targetLotName || "",
+                            targetQty: extra.targetQty || 0,
+                            targetBloque: extra.targetBloque || "",
+                        });
+                    }
 
                     continue;
                 }
@@ -662,12 +681,76 @@ export class DeliveryGroupedList extends Component {
         return total;
     }
 
+    // MULTI-LOTE: cobertura de la necesidad (qty origen) entre el lote
+    // principal y los extras.
+    swapCoveredQty(line) {
+        let covered = parseFloat(line.targetQty || 0) || 0;
+        for (const extra of (line.extraTargets || [])) {
+            covered += parseFloat(extra.targetQty || 0) || 0;
+        }
+        return covered;
+    }
+
+    swapRemainingQty(line) {
+        const needed = parseFloat(line.qty || 0) || 0;
+        return Math.max(needed - this.swapCoveredQty(line), 0);
+    }
+
+    canAddSwapTarget(line) {
+        return Boolean(
+            this.state.mode === "swap" &&
+            line.targetLotId &&
+            !this.isPlacaLine(line) &&
+            this.swapRemainingQty(line) > 0.005
+        );
+    }
+
+    addSwapExtraTarget(line) {
+        if (!line.extraTargets) line.extraTargets = [];
+        this._openSwapPopup(line, line.productId, line.originLotId, {
+            extra: true,
+        });
+    }
+
+    removeSwapExtraTarget(line, idx) {
+        (line.extraTargets || []).splice(idx, 1);
+        this._recalcGroupForLine(line);
+        this.state.groups = [...this.state.groups];
+        this._writeSelectionsToRecord();
+    }
+
+    onSwapExtraQtyChange(line, idx, event) {
+        const extra = (line.extraTargets || [])[idx];
+        if (!extra) return;
+        const max = parseFloat(extra.targetQtyMax || 0);
+        let val = parseFloat(event.target.value) || 0;
+        if (val < 0) val = 0;
+        if (max && val > max) val = max;
+        extra.targetQty = val;
+        event.target.value = val;
+        this._recalcGroupForLine(line);
+        this.state.groups = [...this.state.groups];
+        this._writeSelectionsToRecord();
+    }
+
+    onSwapTargetQtyChange(lineData, event) {
+        const max = parseFloat(lineData.targetQtyMax || 0);
+        let val = parseFloat(event.target.value) || 0;
+        if (val < 0) val = 0;
+        if (max && val > max) val = max;
+        lineData.targetQty = val;
+        event.target.value = val;
+        this._recalcGroupForLine(lineData);
+        this.state.groups = [...this.state.groups];
+        this._writeSelectionsToRecord();
+    }
+
     openSwapSelector(lineData) {
         if (!lineData.productId) return;
         this._openSwapPopup(lineData, lineData.productId, lineData.originLotId);
     }
 
-    _openSwapPopup(lineData, productId, originLotId) {
+    _openSwapPopup(lineData, productId, originLotId, options = {}) {
         const self = this;
         const root = document.createElement("div");
         root.className = "swap-popup-root";
@@ -742,6 +825,13 @@ export class DeliveryGroupedList extends Component {
                 const lotName = q.lot_id?.[1] || "-";
 
                 if (lotId === originLotId) continue;
+                // Excluir lotes ya elegidos para esta línea (principal o extras)
+                const usedIds = new Set();
+                if (lineData.targetLotId) usedIds.add(parseInt(lineData.targetLotId));
+                for (const ex of (lineData.extraTargets || [])) {
+                    if (ex.targetLotId) usedIds.add(parseInt(ex.targetLotId));
+                }
+                if (usedIds.has(lotId) && !(options.extra === undefined && lotId === parseInt(lineData.targetLotId || 0))) continue;
 
                 const sel = st.selectedLotId === lotId;
                 const tipo = (q.x_tipo || "placa").toLowerCase();
@@ -872,10 +962,35 @@ export class DeliveryGroupedList extends Component {
                 return lotId === st.selectedLotId;
             });
 
-            lineData.targetLotId = st.selectedLotId;
-            lineData.targetLotName = st.selectedLotName || "";
-            lineData.targetBloque = selectedQuant?.x_bloque || "";
-            lineData.targetQty = selectedQuant?.quantity || 0;
+            const targetAvail = selectedQuant?.quantity || 0;
+
+            if (options.extra) {
+                // LOTE EXTRA (multi-lote formato/pieza): sugerencia = lo que
+                // FALTA por cubrir de la necesidad, topado por el disponible.
+                if (!lineData.extraTargets) lineData.extraTargets = [];
+                const remaining = self.swapRemainingQty(lineData);
+                lineData.extraTargets.push({
+                    targetLotId: st.selectedLotId,
+                    targetLotName: st.selectedLotName || "",
+                    targetBloque: selectedQuant?.x_bloque || "",
+                    targetQtyMax: targetAvail,
+                    targetQty: Math.min(remaining || targetAvail, targetAvail) || targetAvail,
+                });
+            } else {
+                lineData.targetLotId = st.selectedLotId;
+                lineData.targetLotName = st.selectedLotName || "";
+                lineData.targetBloque = selectedQuant?.x_bloque || "";
+                // REGLA POR TIPO: placa toma el lote COMPLETO; formato/pieza
+                // SUGIERE la cantidad que se necesita reemplazar (editable),
+                // topada por lo disponible del lote nuevo.
+                lineData.targetQtyMax = targetAvail;
+                if (self.isPlacaLine(lineData)) {
+                    lineData.targetQty = targetAvail;
+                } else {
+                    const wanted = lineData.qty || targetAvail;
+                    lineData.targetQty = Math.min(wanted, targetAvail) || targetAvail;
+                }
+            }
 
             self._recalcGroupForLine(lineData);
             self.state.groups = [...self.state.groups];
@@ -884,7 +999,7 @@ export class DeliveryGroupedList extends Component {
 
             cleanup();
 
-            if (lineData.dbId) {
+            if (lineData.dbId && !options.extra) {
                 try {
                     await self.orm.write(self._lineModel, [lineData.dbId], {
                         target_lot_id: st.selectedLotId,

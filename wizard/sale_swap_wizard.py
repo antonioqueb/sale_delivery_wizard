@@ -618,6 +618,7 @@ class SaleSwapWizard(models.TransientModel):
         replacement_qty,
         product,
         sale_line,
+        extra_targets=None,
     ):
         """
         Sincroniza documentos preparados que representan selección pendiente.
@@ -675,6 +676,27 @@ class SaleSwapWizard(models.TransientModel):
                 duplicates = candidates - keep
                 if duplicates:
                     duplicates.unlink()
+
+                # MULTI-LOTE: cada lote extra del grupo entra como línea
+                # ADICIONAL del mismo documento, con su parcialidad.
+                for extra in (extra_targets or []):
+                    extra_vals = dict(vals)
+                    extra_vals.update({
+                        'lot_id': extra['target_lot'].id,
+                        'qty_selected': extra['replacement_qty'],
+                        'qty_done': 0.0,
+                        'qty_returned': 0.0,
+                        'move_line_id': extra['move_line'].id
+                        if extra.get('move_line') else False,
+                        'move_id': extra['move_line'].move_id.id
+                        if extra.get('move_line') and extra['move_line'].move_id
+                        else extra_vals.get('move_id'),
+                        'source_location_id': (
+                            extra['target_quant'].location_id.id
+                            if extra.get('target_quant') else False
+                        ),
+                    })
+                    doc.write({'line_ids': [(0, 0, extra_vals)]})
 
                 self._remove_stale_doc_lines_after_swap(
                     doc=doc,
@@ -876,153 +898,203 @@ class SaleSwapWizard(models.TransientModel):
         processed = 0
         touched_documents = self.env['sale.delivery.document']
 
+        # ── MULTI-LOTE (formato/pieza) ──────────────────────────────────
+        # Varias selecciones sobre la MISMA línea origen = un lote nuevo no
+        # alcanza y la reposición se reparte. La 1ª entrada reutiliza la
+        # move line origen; cada extra DIVIDE la línea creando una move line
+        # hermana con el lote origen (que enseguida se reescribe al lote
+        # destino correspondiente). Los documentos pendientes se sincronizan
+        # UNA vez por grupo, con los lotes extra como líneas adicionales.
+        grouped = OrderedDict()
         for data in lines_with_target:
-            move_line = data.get('move_line')
-            origin_lot = data.get('origin_lot')
-            target_lot = data.get('target_lot')
-            product = data.get('product')
-            sale_line = data.get('sale_line')
-            original_qty = data.get('qty') or 0.0
+            _ml = data.get('move_line')
+            _key = ('ml-%s' % _ml.id) if _ml and _ml.exists() else ('adhoc-%s' % id(data))
+            grouped.setdefault(_key, []).append(data)
 
-            if not move_line or not move_line.exists():
-                move_line = self._som_create_origin_move_line(
-                    sale_line, product, origin_lot, original_qty)
-                data['move_line'] = move_line
-                if not original_qty:
-                    original_qty = self._get_move_line_qty(move_line)
+        for _gkey, entries in grouped.items():
+            if len(entries) > 1:
+                seen_targets_grp = set()
+                for e in entries:
+                    tl = e.get('target_lot')
+                    if tl and tl.id in seen_targets_grp:
+                        raise UserError(_(
+                            'El lote destino %s está repetido para la misma '
+                            'línea origen.') % tl.name)
+                    if tl:
+                        seen_targets_grp.add(tl.id)
+                for e in entries[1:]:
+                    e['move_line'] = self._som_create_origin_move_line(
+                        e.get('sale_line'),
+                        e.get('product'),
+                        e.get('origin_lot'),
+                        e.get('target_qty') or 0.01,
+                    )
+                    e['is_extra_target'] = True
+                    if not e.get('qty'):
+                        e['qty'] = e.get('target_qty') or 0.0
 
-            move = move_line.move_id
-            move_state = move.state if move else False
+            group_results = []
+            for data in entries:
+                move_line = data.get('move_line')
+                origin_lot = data.get('origin_lot')
+                target_lot = data.get('target_lot')
+                product = data.get('product')
+                sale_line = data.get('sale_line')
+                original_qty = data.get('qty') or 0.0
 
-            if move_state not in ('assigned', 'confirmed'):
-                raise UserError(_(
-                    'No se puede hacer swap sobre el lote %s porque el movimiento ya no está pendiente. Estado actual: %s.'
-                ) % (
-                    origin_lot.name if origin_lot else 'S/L',
-                    move_state or 'N/A',
-                ))
+                if not move_line or not move_line.exists():
+                    move_line = self._som_create_origin_move_line(
+                        sale_line, product, origin_lot, original_qty)
+                    data['move_line'] = move_line
+                    if not original_qty:
+                        original_qty = self._get_move_line_qty(move_line)
 
-            if (
-                move_line.picking_id
-                and move_line.picking_id.state not in ('assigned', 'confirmed', 'waiting')
-            ):
-                raise UserError(_(
-                    'No se puede hacer swap sobre el picking %s porque ya no está pendiente. Estado actual: %s.'
-                ) % (
-                    move_line.picking_id.name,
-                    move_line.picking_id.state,
-                ))
+                move = move_line.move_id
+                move_state = move.state if move else False
 
-            if not origin_lot or not origin_lot.exists():
-                raise UserError(_(
-                    'La línea seleccionada no tiene lote origen. No se puede ejecutar el swap.'
-                ))
-
-            if not target_lot or not target_lot.exists():
-                raise UserError(_(
-                    'La línea seleccionada no tiene lote destino. No se puede ejecutar el swap.'
-                ))
-
-            if not product or not product.exists():
-                raise UserError(_(
-                    'La línea seleccionada no tiene producto válido. No se puede ejecutar el swap.'
-                ))
-
-            if origin_lot.id == target_lot.id:
-                raise UserError(_(
-                    'El lote origen y destino no pueden ser el mismo (%s).'
-                ) % origin_lot.name)
-
-            if target_lot.product_id and target_lot.product_id != product:
-                raise UserError(_(
-                    'El lote destino %s pertenece al producto %s, pero se esperaba %s.'
-                ) % (
-                    target_lot.name,
-                    target_lot.product_id.display_name,
-                    product.display_name,
-                ))
-
-            target_quant = self._find_available_target_quant(target_lot, product)
-
-            if not target_quant:
-                raise UserError(_(
-                    'El lote destino %s no tiene stock interno disponible.'
-                ) % target_lot.name)
-
-            available_qty = self._safe_quant_available_qty(target_quant)
-
-            if available_qty <= 0:
-                raise UserError(_(
-                    'El lote destino %s existe, pero no tiene cantidad disponible. Cantidad: %.2f, Reservado: %.2f.'
-                ) % (
-                    target_lot.name,
-                    target_quant.quantity or 0.0,
-                    target_quant.reserved_quantity or 0.0,
-                ))
-
-            if hasattr(target_lot, 'hold_order_ids'):
-                active_holds = target_lot.hold_order_ids.filtered(
-                    lambda h: h.state == 'active'
-                    and h.sale_order_id != self.sale_order_id
-                )
-                if active_holds:
+                if move_state not in ('assigned', 'confirmed'):
                     raise UserError(_(
-                        'El lote %s está apartado en otra orden (%s).'
+                        'No se puede hacer swap sobre el lote %s porque el movimiento ya no está pendiente. Estado actual: %s.'
                     ) % (
-                        target_lot.name,
-                        active_holds[0].sale_order_id.name,
+                        origin_lot.name if origin_lot else 'S/L',
+                        move_state or 'N/A',
                     ))
 
-            desired_qty = data.get('target_qty') or available_qty or original_qty
-            replacement_qty = min(desired_qty, available_qty) if available_qty else desired_qty
+                if (
+                    move_line.picking_id
+                    and move_line.picking_id.state not in ('assigned', 'confirmed', 'waiting')
+                ):
+                    raise UserError(_(
+                        'No se puede hacer swap sobre el picking %s porque ya no está pendiente. Estado actual: %s.'
+                    ) % (
+                        move_line.picking_id.name,
+                        move_line.picking_id.state,
+                    ))
 
-            if replacement_qty <= 0:
-                raise UserError(_(
-                    'No se pudo determinar la cantidad del lote destino %s.'
-                ) % target_lot.name)
+                if not origin_lot or not origin_lot.exists():
+                    raise UserError(_(
+                        'La línea seleccionada no tiene lote origen. No se puede ejecutar el swap.'
+                    ))
 
-            old_lot_name = origin_lot.name
+                if not target_lot or not target_lot.exists():
+                    raise UserError(_(
+                        'La línea seleccionada no tiene lote destino. No se puede ejecutar el swap.'
+                    ))
 
-            self._write_move_line_swap_values(
-                move_line=move_line,
-                target_lot=target_lot,
-                target_location=target_quant.location_id,
-                qty=replacement_qty,
-            )
+                if not product or not product.exists():
+                    raise UserError(_(
+                        'La línea seleccionada no tiene producto válido. No se puede ejecutar el swap.'
+                    ))
 
-            self._cleanup_move_lines_after_swap(
-                move_line=move_line,
-                origin_lot=origin_lot,
-                target_lot=target_lot,
-                product=product,
-            )
+                if origin_lot.id == target_lot.id:
+                    raise UserError(_(
+                        'El lote origen y destino no pueden ser el mismo (%s).'
+                    ) % origin_lot.name)
 
-            self._sync_move_after_swap(move)
+                if target_lot.product_id and target_lot.product_id != product:
+                    raise UserError(_(
+                        'El lote destino %s pertenece al producto %s, pero se esperaba %s.'
+                    ) % (
+                        target_lot.name,
+                        target_lot.product_id.display_name,
+                        product.display_name,
+                    ))
 
-            touched_documents |= self._sync_pending_documents_after_swap(
-                move_line=move_line,
-                origin_lot=origin_lot,
-                target_lot=target_lot,
-                target_quant=target_quant,
-                replacement_qty=replacement_qty,
-                product=product,
-                sale_line=sale_line,
-            )
+                target_quant = self._find_available_target_quant(target_lot, product)
 
-            self._update_sale_line_lots_after_swap(
-                sale_line, origin_lot, target_lot)
+                if not target_quant:
+                    raise UserError(_(
+                        'El lote destino %s no tiene stock interno disponible.'
+                    ) % target_lot.name)
 
-            self.sale_order_id.message_post(body=_(
-                'Swap ejecutado: %s → %s en picking %s. '
-                'Cantidad original: %.2f. Cantidad reemplazo: %.2f. '
-                'El lote fue reemplazado; cualquier selección anterior del lote origen fue retirada.'
-            ) % (
-                old_lot_name,
-                target_lot.name,
-                move_line.picking_id.name if move_line.picking_id else 'N/A',
-                original_qty,
-                replacement_qty,
-            ))
+                available_qty = self._safe_quant_available_qty(target_quant)
+
+                if available_qty <= 0:
+                    raise UserError(_(
+                        'El lote destino %s existe, pero no tiene cantidad disponible. Cantidad: %.2f, Reservado: %.2f.'
+                    ) % (
+                        target_lot.name,
+                        target_quant.quantity or 0.0,
+                        target_quant.reserved_quantity or 0.0,
+                    ))
+
+                if hasattr(target_lot, 'hold_order_ids'):
+                    active_holds = target_lot.hold_order_ids.filtered(
+                        lambda h: h.state == 'active'
+                        and h.sale_order_id != self.sale_order_id
+                    )
+                    if active_holds:
+                        raise UserError(_(
+                            'El lote %s está apartado en otra orden (%s).'
+                        ) % (
+                            target_lot.name,
+                            active_holds[0].sale_order_id.name,
+                        ))
+
+                desired_qty = data.get('target_qty') or available_qty or original_qty
+                replacement_qty = min(desired_qty, available_qty) if available_qty else desired_qty
+
+                if replacement_qty <= 0:
+                    raise UserError(_(
+                        'No se pudo determinar la cantidad del lote destino %s.'
+                    ) % target_lot.name)
+
+                old_lot_name = origin_lot.name
+
+                self._write_move_line_swap_values(
+                    move_line=move_line,
+                    target_lot=target_lot,
+                    target_location=target_quant.location_id,
+                    qty=replacement_qty,
+                )
+
+                self._cleanup_move_lines_after_swap(
+                    move_line=move_line,
+                    origin_lot=origin_lot,
+                    target_lot=target_lot,
+                    product=product,
+                )
+
+                self._sync_move_after_swap(move)
+
+                # Doc-sync diferido: una vez por grupo, con extras.
+                group_results.append({
+                    'move_line': move_line,
+                    'origin_lot': origin_lot,
+                    'target_lot': target_lot,
+                    'target_quant': target_quant,
+                    'replacement_qty': replacement_qty,
+                    'product': product,
+                    'sale_line': sale_line,
+                })
+
+                self._update_sale_line_lots_after_swap(
+                    sale_line, origin_lot, target_lot)
+
+                self.sale_order_id.message_post(body=_(
+                    'Swap ejecutado: %s → %s en picking %s. '
+                    'Cantidad original: %.2f. Cantidad reemplazo: %.2f. '
+                    'El lote fue reemplazado; cualquier selección anterior del lote origen fue retirada.'
+                ) % (
+                    old_lot_name,
+                    target_lot.name,
+                    move_line.picking_id.name if move_line.picking_id else 'N/A',
+                    original_qty,
+                    replacement_qty,
+                ))
+
+            if group_results:
+                base_res = group_results[0]
+                touched_documents |= self._sync_pending_documents_after_swap(
+                    move_line=base_res['move_line'],
+                    origin_lot=base_res['origin_lot'],
+                    target_lot=base_res['target_lot'],
+                    target_quant=base_res['target_quant'],
+                    replacement_qty=base_res['replacement_qty'],
+                    product=base_res['product'],
+                    sale_line=base_res['sale_line'],
+                    extra_targets=group_results[1:],
+                )
 
             processed += 1
 

@@ -1257,6 +1257,7 @@ class SaleOrder(models.Model):
                         'originBloque': lot.x_bloque or '' if hasattr(lot, 'x_bloque') else '',
                         'originAlto': str(lot.x_alto) if hasattr(lot, 'x_alto') and lot.x_alto else '',
                         'originAncho': str(lot.x_ancho) if hasattr(lot, 'x_ancho') and lot.x_ancho else '',
+                        'lotTipo': self._som_delivery_lot_tipo(lot),
                         'qty': ml.quantity or move.product_uom_qty or 0.0,
                         'targetLotId': 0,
                         'targetLotName': '',
