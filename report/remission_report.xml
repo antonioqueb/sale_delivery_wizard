@@ -126,7 +126,7 @@
                                         </div>
                                     </div>
                                     <div class="som-info-row" t-if="doc.sale_order_id and 'x_architect_id' in doc.sale_order_id._fields and doc.sale_order_id.x_architect_id">
-                                        <div class="som-info-label">Arquitecto</div>
+                                        <div class="som-info-label">Embajador</div>
                                         <div class="som-info-value" style="text-align: right;">
                                             <span t-field="doc.sale_order_id.x_architect_id.name"/>
                                         </div>
