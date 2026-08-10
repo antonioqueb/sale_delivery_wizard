@@ -495,6 +495,39 @@ class SaleOrder(models.Model):
             'picking': self.env['stock.picking'].browse(),
         }
 
+    def _som_delivery_blockers_report(self):
+        """Texto '• LOTE ← documento (estado)' por cada lote asignado con
+        pendiente cuyo stock está reservado por move lines de OTROS pickings.
+        Solo diagnóstico: convierte el error mudo de oferta vacía en una
+        instrucción accionable."""
+        self.ensure_one()
+        Ml = self.env['stock.move.line'].sudo()
+        state_lbl = dict(
+            self.env['stock.picking']._fields['state']
+            ._description_selection(self.env))
+        rows = []
+        for line in self.order_line:
+            if line.display_type or not line.product_id:
+                continue
+            if line.product_id.type == 'service' or not line.lot_ids:
+                continue
+            pending = (line.product_uom_qty or 0.0) - \
+                (line.x_delivered_net_qty or 0.0)
+            if pending <= 0.0001:
+                continue
+            for lot in line.lot_ids:
+                mls = Ml.search([
+                    ('lot_id', '=', lot.id),
+                    ('state', 'not in', ('done', 'cancel')),
+                    ('picking_id', 'not in', self.picking_ids.ids),
+                    ('picking_id', '!=', False),
+                ])
+                for pick in mls.mapped('picking_id'):
+                    rows.append('• %s ← %s (%s)' % (
+                        lot.name, pick.name,
+                        state_lbl.get(pick.state, pick.state)))
+        return '\n'.join(sorted(set(rows)))
+
     def _get_locked_lot_ids(self, exclude_pt_id=None):
         self.ensure_one()
         domain = [
@@ -836,6 +869,27 @@ class SaleOrder(models.Model):
         self.ensure_one()
         groups_map = OrderedDict()
         Quant = self.env['stock.quant']
+
+        # ENTREGA = FLUJO FUERTE: los traslados internos de carrito/escáner
+        # ('Carrito - %') son reservas DÉBILES y jamás compiten con una
+        # entrega. Sin esta liberación, mover de bin las placas asignadas
+        # dejaba el quant reservado por el traslado y la oferta salía vacía
+        # ("No hay material pendiente") con material disponible y asignado.
+        Picking = self.env['stock.picking']
+        if hasattr(Picking, '_release_cart_internal_reservations'):
+            weak_lots = self.order_line.filtered(
+                lambda l: not l.display_type).mapped('lot_ids').ids
+            if weak_lots:
+                try:
+                    Picking._release_cart_internal_reservations(
+                        weak_lots,
+                        reason='Liberado automáticamente: sus lotes se '
+                               'necesitan para la entrega de %s.' % self.name,
+                    )
+                except Exception:
+                    _logger.exception(
+                        '[DELIVERY] Falló la liberación de reservas de '
+                        'carrito en %s', self.name)
 
         locked_lot_ids = self._get_locked_lot_ids(exclude_pt_id=editing_pt_id)
 
@@ -1463,6 +1517,13 @@ class SaleOrder(models.Model):
                             - (l.x_delivered_net_qty or 0.0),
                         ) for l in pending_unassigned
                     ))
+                blockers = self._som_delivery_blockers_report()
+                if blockers:
+                    raise UserError(_(
+                        'No hay material entregable ahora mismo: los lotes '
+                        'asignados están retenidos por otros documentos:\n'
+                        '%s\n\nLibera o valida esos documentos y vuelve a '
+                        'intentar.') % blockers)
                 raise UserError(_(
                     'No hay material pendiente por entregar en esta orden.'))
 
