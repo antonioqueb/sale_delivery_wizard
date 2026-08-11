@@ -393,6 +393,17 @@ class SaleDeliveryWizard(models.TransientModel):
             return vals
 
         pt = self.env['sale.delivery.document'].browse(editing_pt_id)
+        if pt.exists():
+            # El transporte del PT se PRECARGA para poder verlo y CAMBIARLO
+            # después de creado; la remisión tomará lo que quede aquí.
+            if pt.vehicle_id:
+                vals['vehicle_id'] = pt.vehicle_id.id
+            if pt.vehicle_driver_id:
+                vals['vehicle_driver_id'] = pt.vehicle_driver_id.id
+            if pt.delivery_address:
+                vals['delivery_address'] = pt.delivery_address
+            if pt.special_instructions:
+                vals['special_instructions'] = pt.special_instructions
         if not pt.exists() or pt.state != 'prepared' or not pt.line_ids:
             _logger.warning(
                 '[DELIVERY WIZARD EDIT] PT %s no existe / no es editable / vacío',
@@ -913,6 +924,10 @@ class SaleDeliveryWizard(models.TransientModel):
             'line_ids': new_lines,
             'delivery_address': self.delivery_address,
             'special_instructions': self.special_instructions,
+            # El transporte también se actualiza al sobrescribir el PT: aquí
+            # es donde se corrige el chofer después de creado.
+            'vehicle_id': self.vehicle_id.id or False,
+            'vehicle_driver_id': self.vehicle_driver_id.id or False,
         })
         # CRÍTICO: forzar el INSERT de las líneas AHORA, mientras las move
         # lines referenciadas siguen vivas. La validación posterior las borra
@@ -956,6 +971,8 @@ class SaleDeliveryWizard(models.TransientModel):
             'sale_order_id': self.sale_order_id.id,
             'delivery_address': self.delivery_address,
             'special_instructions': self.special_instructions,
+            'vehicle_id': self.vehicle_id.id or False,
+            'vehicle_driver_id': self.vehicle_driver_id.id or False,
             'line_ids': doc_lines,
         })
         doc.action_prepare()
@@ -973,6 +990,8 @@ class SaleDeliveryWizard(models.TransientModel):
             'sale_order_id': self.sale_order_id.id,
             'delivery_address': self.delivery_address,
             'special_instructions': self.special_instructions,
+            'vehicle_id': self.vehicle_id.id or False,
+            'vehicle_driver_id': self.vehicle_driver_id.id or False,
             'line_ids': [(0, 0, {
                 'sale_line_id': line.sale_line_id.id,
                 'move_id': line.move_id.id,
