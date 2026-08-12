@@ -26,7 +26,17 @@ export class DeliveryGroupedList extends Component {
             this._detectMode();
             await this._loadGroups();
             this._initialized = true;
-            this._writeSelectionsToRecord();
+            // Guardar al montar SOLO si hay algo que decir: un montaje
+            // limpio escribía '[]' y borraba las selecciones ya guardadas
+            // (causa del "selecciono un producto y borra el otro" en
+            // devoluciones cuando el diálogo remonta el widget).
+            const stored = (this.props.record?.model?.root || this.props.record)
+                ?.data?.widget_selections;
+            const hasLocal = (this.state.groups || []).some((g) =>
+                (g.lines || []).some((l) => l.isSelected));
+            if (hasLocal || !stored || stored === "[]") {
+                this._writeSelectionsToRecord();
+            }
         });
 
         onWillUpdateProps(async () => {
@@ -92,9 +102,10 @@ export class DeliveryGroupedList extends Component {
             this._syncCollapsedState();
             this._recalcAllGroups();
 
-            if (!loadedFromWizard) {
-                this._applyStoredSelections();
-            }
+            // SIEMPRE restaurar: también cuando los grupos vienen del
+            // wizard (un remontaje del diálogo recargaba limpio y las
+            // selecciones previas se perdían).
+            this._applyStoredSelections();
         } catch (e) {
             console.error("[DGL] Load groups failed:", e);
             this.state.groups = [];
