@@ -187,7 +187,7 @@
                                         <t t-if="last_product_id_m2 != line.product_id.id">
                                             <tr>
                                                 <td colspan="6" style="background-color: #2f2f2f !important; color: #ffffff !important; font-weight: 800; text-transform: uppercase;">
-                                                    <span t-esc="line.product_id.display_name or '-'"/>
+                                                    <span t-esc="(line.sale_line_id.x_mask_name if line.sale_line_id else '') or line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
                                             <t t-set="last_product_id_m2" t-value="line.product_id.id"/>
@@ -291,7 +291,7 @@
                                         <t t-if="last_product_id_unit != line.product_id.id">
                                             <tr>
                                                 <td colspan="6" style="background-color: #2f2f2f !important; color: #ffffff !important; font-weight: 800; text-transform: uppercase;">
-                                                    <span t-esc="line.product_id.display_name or '-'"/>
+                                                    <span t-esc="(line.sale_line_id.x_mask_name if line.sale_line_id else '') or line.product_id.display_name or '-'"/>
                                                 </td>
                                             </tr>
                                             <t t-set="last_product_id_unit" t-value="line.product_id.id"/>
