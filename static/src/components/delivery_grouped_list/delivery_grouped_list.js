@@ -267,7 +267,11 @@ export class DeliveryGroupedList extends Component {
     }
 
     _applyStoredSelections() {
-        if (this.state.mode !== "delivery") return;
+        // Aplica en ENTREGA y en DEVOLUCIÓN: sin la restauración, cada
+        // re-render del widget (que ocurre al guardar cualquier toque)
+        // borraba las selecciones de los demás productos en devoluciones.
+        const mode = this.state.mode;
+        if (mode !== "delivery" && mode !== "return") return;
 
         const root = this.props.record?.model?.root || this.props.record;
         const wsRaw = root?.data?.widget_selections;
@@ -278,27 +282,39 @@ export class DeliveryGroupedList extends Component {
             const sels = JSON.parse(wsRaw);
             if (!Array.isArray(sels) || sels.length === 0) return;
 
+            // En devolución el mismo lote puede venir de varias remisiones:
+            // la llave incluye la línea de remisión de origen.
+            const keyOf = (o) => mode === "return"
+                ? `${o.productId || 0}-${o.lotId || 0}-${o.originRemissionLineId || 0}`
+                : `${o.productId || 0}-${o.lotId || 0}`;
+
             const selMap = new Map();
 
             for (const s of sels) {
-                const key = `${s.productId || 0}-${s.lotId || 0}`;
-                selMap.set(key, s);
+                selMap.set(keyOf(s), s);
             }
 
             let hasAnyMatch = false;
 
             for (const group of this.state.groups) {
                 for (const line of group.lines || []) {
-                    const key = `${line.productId || 0}-${line.lotId || 0}`;
-                    const sel = selMap.get(key);
+                    const sel = selMap.get(keyOf(line));
 
                     if (sel) {
                         line.isSelected = true;
-                        line.qtyToDeliver = sel.qty || 0;
+                        if (mode === "return") {
+                            line.qtyToReturn = sel.qty || 0;
+                        } else {
+                            line.qtyToDeliver = sel.qty || 0;
+                        }
                         hasAnyMatch = true;
                     } else {
                         line.isSelected = false;
-                        line.qtyToDeliver = 0;
+                        if (mode === "return") {
+                            line.qtyToReturn = 0;
+                        } else {
+                            line.qtyToDeliver = 0;
+                        }
                     }
                 }
             }
