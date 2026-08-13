@@ -443,6 +443,23 @@ class SaleReturnWizard(models.TransientModel):
             active_model='stock.picking',
         ).create({})
 
+        # Una devolución de CLIENTE jamás entra a una ubicación de
+        # tránsito. El tipo de retorno (SOM: Recepciones) hereda
+        # SOM/TRANSIT como destino —correcto para importaciones de Torre
+        # de Control, no para devoluciones— y mandaba el material al
+        # limbo (caso V/086: 13 lotes atorados en tránsito y quants
+        # negativos en Salida). El destino es la ubicación de la que
+        # salió la entrega original.
+        if 'location_id' in return_wiz._fields:
+            src_loc = source_picking.location_id
+            wiz_loc = return_wiz.location_id
+            if src_loc and (
+                not wiz_loc
+                or wiz_loc.usage == 'transit'
+                or 'TRANSIT' in (wiz_loc.complete_name or '').upper()
+            ):
+                return_wiz.location_id = src_loc.id
+
         return_wiz.product_return_moves.unlink()
 
         for payload in payloads:
