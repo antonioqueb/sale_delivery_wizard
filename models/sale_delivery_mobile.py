@@ -22,6 +22,7 @@ import requests
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.addons.sale_delivery_wizard.models.som_date_format import MESES_ES
 
 _logger = logging.getLogger(__name__)
 
@@ -563,8 +564,12 @@ class SaleDeliveryLiveMap(models.TransientModel):
                   '#0891B2', '#DB2777']
 
         def fmt(ts):
-            return fields.Datetime.context_timestamp(
-                self, ts).strftime('%d/%m %H:%M')
+            # Etiqueta de actividad reciente: "13 ago 14:30" (sin año).
+            # OJO: delivery_live_map.js toma el ÚLTIMO token para la hora.
+            local = fields.Datetime.context_timestamp(self, ts)
+            return '%02d %s %02d:%02d' % (
+                local.day, MESES_ES[local.month - 1],
+                local.hour, local.minute)
 
         osrm_budget = {'left': self._OSRM_BUDGET_PER_CALL}
         result = []
@@ -814,7 +819,10 @@ class SaleDeliveryLiveMap(models.TransientModel):
         daily = {}
         d = start_date
         while d <= today:
-            daily[d.isoformat()] = {'date': d.strftime('%d/%m'), 'trips': 0, 'm2': 0.0, 'units': 0.0}
+            # La CLAVE se queda en ISO (es dato); solo la etiqueta del eje X cambia.
+            daily[d.isoformat()] = {
+                'date': '%02d %s' % (d.day, MESES_ES[d.month - 1]),
+                'trips': 0, 'm2': 0.0, 'units': 0.0}
             d += timedelta(days=1)
 
         # ── Agregación por vehículo / chofer / cliente ──────────
@@ -996,8 +1004,11 @@ class SaleDeliveryLiveMap(models.TransientModel):
         def fmt_dt(ts):
             if not ts:
                 return ''
-            return fields.Datetime.context_timestamp(
-                self, ts).strftime('%d/%m %H:%M')
+            # Actividad reciente: "13 ago 14:30" (sin año a propósito).
+            local = fields.Datetime.context_timestamp(self, ts)
+            return '%02d %s %02d:%02d' % (
+                local.day, MESES_ES[local.month - 1],
+                local.hour, local.minute)
 
         def base_card(doc):
             order = doc.sale_order_id

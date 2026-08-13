@@ -41,6 +41,16 @@ function fmtDur(min) {
     return h ? `${h} h ${min % 60} min` : `${min} min`;
 }
 
+// El backend manda start_time ya formateado ("13 ago 14:30"): la hora es el
+// ÚLTIMO token, no el segundo. Con el formato viejo ("13/08 14:30") ambos
+// coincidían; con el mes en letras, [1] devolvería "ago".
+function startHour(value) {
+    if (!value) return "";
+    const parts = String(value).trim().split(/\s+/);
+    const last = parts[parts.length - 1];
+    return /^\d{1,2}:\d{2}/.test(last) ? last : String(value);
+}
+
 export class DeliveryLiveMap extends Component {
     static template = "sale_delivery_wizard.DeliveryLiveMap";
     static props = ["*"];
@@ -150,7 +160,7 @@ export class DeliveryLiveMap extends Component {
             tile(r.avg_kmh, "km/h", "Vel. promedio") +
             tile(r.peak_kmh, "km/h", "Vel. pico") +
             tile(esc(fmtDur(r.stopped_min)), "", "Detenido") +
-            tile(esc(r.start_time.split(" ")[1] || r.start_time), "", "Inicio") +
+            tile(esc(startHour(r.start_time)), "", "Inicio") +
             `</div>`
         );
     }

@@ -38,7 +38,7 @@
                                     </div>
                                     <div class="som-small som-muted" style="margin-top: 3px;">
                                         Impreso:
-                                        <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
+                                        <t t-esc="context_timestamp(datetime.datetime.now())" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
                                     </div>
                                 </div>
                             </div>
@@ -92,7 +92,7 @@
                                     <div class="som-info-row">
                                         <div class="som-info-label">Fecha salida</div>
                                         <div class="som-info-value" style="text-align: right;">
-                                            <t t-esc="doc.delivery_date or doc.create_date" t-options="{'widget': 'datetime'}"/>
+                                            <t t-esc="doc.delivery_date or doc.create_date" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
                                         </div>
                                     </div>
                                     <div class="som-info-row">

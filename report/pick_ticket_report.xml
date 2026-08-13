@@ -55,7 +55,7 @@
                                     </div>
                                     <div class="som-small som-muted" style="margin-top: 3px;">
                                         Impreso:
-                                        <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
+                                        <t t-esc="context_timestamp(datetime.datetime.now())" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
                                     </div>
                                 </div>
                             </div>
@@ -103,7 +103,7 @@
                                     <div class="som-info-row">
                                         <div class="som-info-label">Fecha</div>
                                         <div class="som-info-value">
-                                            <t t-esc="doc.create_date" t-options="{'widget': 'datetime'}"/>
+                                            <t t-esc="doc.create_date" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
                                         </div>
                                     </div>
                                     <div class="som-info-row">
@@ -115,7 +115,7 @@
                                     <div class="som-info-row" t-if="doc.sale_order_id and 'commitment_date' in doc.sale_order_id._fields and doc.sale_order_id.commitment_date">
                                         <div class="som-info-label">Compromiso</div>
                                         <div class="som-info-value">
-                                            <span t-field="doc.sale_order_id.commitment_date" t-options='{"widget": "date"}'/>
+                                            <span t-field="doc.sale_order_id.commitment_date" t-options='{"widget": "date", "format": "dd MMM yyyy"}'/>
                                         </div>
                                     </div>
                                     <div class="som-info-row" t-if="doc.sale_order_id and 'x_project_id' in doc.sale_order_id._fields and doc.sale_order_id.x_project_id">
