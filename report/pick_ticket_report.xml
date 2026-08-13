@@ -55,7 +55,7 @@
                                     </div>
                                     <div class="som-small som-muted" style="margin-top: 3px;">
                                         Impreso:
-                                        <t t-esc="context_timestamp(datetime.datetime.now())" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
+                                        <t t-esc="datetime.datetime.utcnow()" t-options='{"widget": "datetime", "format": "dd MMM yyyy HH:mm"}'/>
                                     </div>
                                 </div>
                             </div>
