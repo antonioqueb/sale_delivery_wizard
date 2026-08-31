@@ -521,6 +521,8 @@ class SaleOrder(models.Model):
                     ('state', 'not in', ('done', 'cancel')),
                     ('picking_id', 'not in', self.picking_ids.ids),
                     ('picking_id', '!=', False),
+                    # sudo salta las reglas: solo la compañía de la orden.
+                    ('company_id', '=', self.company_id.id),
                 ])
                 for pick in mls.mapped('picking_id'):
                     rows.append('• %s ← %s (%s)' % (
@@ -1358,7 +1360,8 @@ class SaleOrder(models.Model):
         picking de salida manual con el déficit ligado a la línea."""
         self.ensure_one()
         tolerance = 0.0001
-        Move = self.env['stock.move'].sudo()
+        # Defaults (almacén/tipo de operación) de la compañía de la orden.
+        Move = self.env['stock.move'].sudo().with_company(self.company_id)
 
         def live_qty(line):
             moves = line.move_ids.filtered(
@@ -1426,7 +1429,8 @@ class SaleOrder(models.Model):
                     partner.property_stock_customer.id,
                 'company_id': self.company_id.id,
             }
-            Picking = self.env['stock.picking'].sudo()
+            Picking = self.env['stock.picking'].sudo().with_company(
+                self.company_id)
             if 'sale_id' in Picking._fields:
                 picking_vals['sale_id'] = self.id
             picking = Picking.create(picking_vals)

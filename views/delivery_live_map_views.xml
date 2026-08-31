@@ -43,6 +43,7 @@
                 <field name="latitude"/>
                 <field name="longitude"/>
                 <field name="speed"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
             </list>
         </field>
     </record>

@@ -31,6 +31,10 @@ class SaleDeliveryDocument(models.Model):
         ondelete='cascade', index=True)
     partner_id = fields.Many2one(
         related='sale_order_id.partner_id', store=True, string='Cliente')
+    # Multiempresa: el documento vive en la compañía de su orden de venta.
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='sale_order_id.company_id',
+        store=True, readonly=True, index=True)
     picking_id = fields.Many2one(
         'stock.picking', string='Picking Asociado')
     out_picking_id = fields.Many2one(
@@ -113,24 +117,48 @@ class SaleDeliveryDocument(models.Model):
             else:
                 rec.total_qty = sum(rec.line_ids.mapped('qty_selected'))
 
+    @api.model
+    def _som_next_sequence(self, code, company=None):
+        """next_by_code con la compañía del documento; si la compañía no tiene
+        secuencia propia y la plantilla es de otra compañía, se clona para ella."""
+        company = company or self.env.company
+        Seq = self.env['ir.sequence'].sudo()
+        name = Seq.with_company(company).next_by_code(code)
+        if name:
+            return name
+        template = Seq.search([('code', '=', code)], order='company_id', limit=1)
+        if not template:
+            return False
+        template.copy({
+            'company_id': company.id,
+            'number_next': 1,
+            'name': '%s (%s)' % (template.name, company.name),
+        })
+        return Seq.with_company(company).next_by_code(code)
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
             doc_type = vals.get('document_type', '')
+            # Folio con la compañía de la orden (no la activa del usuario).
+            company = self.env.company
+            if vals.get('sale_order_id'):
+                company = self.env['sale.order'].browse(
+                    vals['sale_order_id']).company_id or company
             if doc_type == 'pick_ticket' and vals.get('name', '/') == '/':
-                vals['name'] = self.env['ir.sequence'].next_by_code(
-                    'sale.delivery.pick.ticket') or '/'
+                vals['name'] = self._som_next_sequence(
+                    'sale.delivery.pick.ticket', company) or '/'
             elif doc_type == 'remission' and vals.get('name', '/') == '/':
-                seq = self.env['ir.sequence'].next_by_code(
-                    'sale.delivery.remission') or '/'
+                seq = self._som_next_sequence(
+                    'sale.delivery.remission', company) or '/'
                 vals['name'] = seq
                 vals['remission_number'] = seq
             elif doc_type == 'return' and vals.get('name', '/') == '/':
-                vals['name'] = self.env['ir.sequence'].next_by_code(
-                    'sale.delivery.return') or '/'
+                vals['name'] = self._som_next_sequence(
+                    'sale.delivery.return', company) or '/'
             elif doc_type == 'redelivery' and vals.get('name', '/') == '/':
-                vals['name'] = self.env['ir.sequence'].next_by_code(
-                    'sale.delivery.redelivery') or '/'
+                vals['name'] = self._som_next_sequence(
+                    'sale.delivery.redelivery', company) or '/'
         return super().create(vals_list)
 
     x_pt_consumed = fields.Boolean(
@@ -613,11 +641,39 @@ class SaleDeliveryDocument(models.Model):
             and doc_line.move_id.state not in ('done', 'cancel')
         ):
             move = doc_line.move_id
-        if not move:
-            move = picking.move_ids.filtered(
-                lambda m: m.product_id == doc_line.product_id
+        # LA CADENA: doc_line.move_id suele ser el movimiento del PICK. Su
+        # continuación dentro de ESTE picking es move_dest_ids. Sin seguirla,
+        # una orden con dos renglones del mismo producto entrega la placa bajo
+        # el renglón equivocado (V/312: 13525-39 se surtió para un renglón y
+        # se entregó bajo el otro; el hermano quedó creado y vacío).
+        if not move and doc_line.move_id:
+            move = doc_line.move_id.move_dest_ids.filtered(
+                lambda m: m.picking_id == picking
+                and m.product_id == doc_line.product_id
                 and m.state not in ('done', 'cancel')
             )[:1]
+        # Sin cadena utilizable, al menos respetar el renglón de venta.
+        if not move and doc_line.sale_line_id:
+            move = picking.move_ids.filtered(
+                lambda m: m.product_id == doc_line.product_id
+                and m.sale_line_id == doc_line.sale_line_id
+                and m.state not in ('done', 'cancel')
+            )[:1]
+        if not move:
+            candidatos = picking.move_ids.filtered(
+                lambda m: m.product_id == doc_line.product_id
+                and m.state not in ('done', 'cancel')
+            )
+            move = candidatos[:1]
+            if len(candidatos) > 1:
+                _logger.warning(
+                    '[REMISSION] %s tiene %s movimientos vivos de %s y la línea '
+                    'no trae cadena ni renglón de venta. Se toma el primero '
+                    '(mv=%s) — revisar atribución.',
+                    picking.name, len(candidatos),
+                    doc_line.product_id.display_name,
+                    move.id if move else 'N/A',
+                )
         if not move:
             return MoveLine
 
@@ -625,11 +681,13 @@ class SaleDeliveryDocument(models.Model):
         # OUT), la capturada en la remisión o donde realmente vive el lote.
         location = location or doc_line.source_location_id
         if not location and doc_line.lot_id:
+            # sudo salta las reglas: acotar a la compañía del picking.
             quant = self.env['stock.quant'].sudo().search([
                 ('product_id', '=', doc_line.product_id.id),
                 ('lot_id', '=', doc_line.lot_id.id),
                 ('location_id.usage', '=', 'internal'),
                 ('quantity', '>', 0),
+                ('company_id', '=', picking.company_id.id),
             ], limit=1)
             location = quant.location_id if quant else False
         if not location:
@@ -691,10 +749,19 @@ class SaleDeliveryDocument(models.Model):
                 doc_ml_qty[ml.id] = doc_ml_qty.get(ml.id, 0.0) + requested_qty
                 continue
 
+            # El filtro por renglón es indispensable cuando UN MISMO LOTE
+            # sirve a dos renglones (V/464: 13146-6 cubría 2.73 de un renglón
+            # y 1.45 del otro). Sin él, todo se apila en la primera move line
+            # y el segundo renglón queda con su entrega vacía.
             candidate_mls = picking.move_ids.move_line_ids.filtered(
                 lambda ml: ml.product_id == doc_line.product_id
                 and ml.lot_id == doc_line.lot_id
                 and ml.move_id.state not in ('done', 'cancel')
+                and (
+                    not doc_line.sale_line_id
+                    or not ml.move_id.sale_line_id
+                    or ml.move_id.sale_line_id == doc_line.sale_line_id
+                )
             )
 
             if not candidate_mls and doc_line.move_id:
@@ -1207,7 +1274,9 @@ class SaleDeliveryDocument(models.Model):
             existing.write(vals)
             return existing
 
-        return StockMoveLine.create(vals)
+        # Compañía explícita del movimiento (multiempresa).
+        vals['company_id'] = move.company_id.id
+        return StockMoveLine.with_company(move.company_id).create(vals)
 
     def _som_get_return_source_move_for_doc_line(self, doc_line):
         source_move = doc_line.move_id
@@ -1551,8 +1620,8 @@ class SaleDeliveryDocument(models.Model):
 
         self._som_sync_redelivery_lines_from_picking()
 
-        seq = self.env['ir.sequence'].next_by_code(
-            'sale.delivery.remission') or '/'
+        seq = self._som_next_sequence(
+            'sale.delivery.remission', self.company_id) or '/'
         self.remission_number = seq
 
         if picking.state in ('draft', 'confirmed', 'waiting'):
@@ -1659,6 +1728,9 @@ class SaleDeliveryDocumentLine(models.Model):
     document_id = fields.Many2one(
         'sale.delivery.document', string='Documento',
         required=True, ondelete='cascade', index=True)
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='document_id.company_id',
+        store=True, readonly=True, index=True)
     sequence = fields.Integer(default=10)
 
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')

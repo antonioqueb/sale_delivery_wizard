@@ -437,7 +437,11 @@ class SaleReturnWizard(models.TransientModel):
 
         ReturnLine = self.env['stock.return.picking.line']
 
-        return_wiz = self.env['stock.return.picking'].with_context(
+        # with_company: los defaults del retorno salen de la compañía del
+        # picking origen (tipo de operación/ubicaciones), no de la activa.
+        return_wiz = self.env['stock.return.picking'].with_company(
+            source_picking.company_id,
+        ).with_context(
             active_id=source_picking.id,
             active_ids=source_picking.ids,
             active_model='stock.picking',
@@ -664,19 +668,27 @@ class SaleReturnWizard(models.TransientModel):
         return self._action_reagendar_from_sels(order, sels)
 
     def _action_reagendar_from_sels(self, order, sels):
+        # Todo sale de la compañía de la ORDEN: almacén, tipo de operación
+        # y el picking de reentrega (jamás de la compañía activa del usuario).
+        company = order.company_id
         warehouse = order.warehouse_id
+        if not warehouse:
+            warehouse = self.env['stock.warehouse'].search([
+                ('company_id', '=', company.id),
+            ], limit=1)
         pick_type = warehouse.out_type_id
         if not pick_type:
             pick_type = self.env['stock.picking.type'].search([
                 ('code', '=', 'outgoing'),
                 ('warehouse_id', '=', warehouse.id),
+                ('company_id', '=', company.id),
             ], limit=1)
         if not pick_type:
             raise UserError(_(
                 'No se encontró tipo de picking de salida para el almacén %s.'
             ) % warehouse.name)
 
-        new_picking = self.env['stock.picking'].create({
+        new_picking = self.env['stock.picking'].with_company(company).create({
             'picking_type_id': pick_type.id,
             'partner_id': order.partner_shipping_id.id or order.partner_id.id,
             'origin': order.name,
@@ -684,6 +696,7 @@ class SaleReturnWizard(models.TransientModel):
             'location_dest_id': pick_type.default_location_dest_id.id
                 or self.env.ref('stock.stock_location_customers').id,
             'sale_id': order.id,
+            'company_id': company.id,
         })
 
         grouped = {}
@@ -700,7 +713,7 @@ class SaleReturnWizard(models.TransientModel):
         move_map = {}
         for (product_id, sale_line_id, uom_id), sel_group in grouped.items():
             total_qty = sum(s['qty'] for s in sel_group)
-            move = self.env['stock.move'].create({
+            move = self.env['stock.move'].with_company(company).create({
                 'product_id': product_id,
                 'product_uom_qty': total_qty,
                 'product_uom': uom_id,
@@ -709,6 +722,7 @@ class SaleReturnWizard(models.TransientModel):
                 'location_dest_id': new_picking.location_dest_id.id,
                 'sale_line_id': sale_line_id or False,
                 'origin': order.name,
+                'company_id': company.id,
             })
             # Llave completa del agrupado: dos productos distintos sin línea
             # de venta (sale_line_id=0) ya no se pisan entre sí.
@@ -735,11 +749,13 @@ class SaleReturnWizard(models.TransientModel):
                         'location_id': source_loc_id,
                         'location_dest_id': new_picking.location_dest_id.id,
                         'picking_id': new_picking.id,
+                        'company_id': company.id,
                     }
                     if owner_id:
                         ml_vals['owner_id'] = owner_id
 
-                    self.env['stock.move.line'].create(ml_vals)
+                    self.env['stock.move.line'].with_company(company).create(
+                        ml_vals)
 
         new_picking.action_confirm()
         new_picking.action_assign()

@@ -381,6 +381,9 @@ class SaleDeliveryRoutePoint(models.Model):
     document_id = fields.Many2one(
         'sale.delivery.document', string='Documento de Entrega',
         required=True, ondelete='cascade', index=True)
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='document_id.company_id',
+        store=True, readonly=True, index=True)
     user_id = fields.Many2one(
         'res.users', string='Usuario (chofer)', required=True,
         default=lambda self: self.env.user, index=True)
@@ -546,14 +549,16 @@ class SaleDeliveryLiveMap(models.TransientModel):
         mode='history': todas las rutas registradas.
         """
         Point = self.env['sale.delivery.route.point'].sudo()
-        domain = []
+        # sudo salta las reglas: solo las compañías seleccionadas en el switcher.
+        company_ids = self.env.companies.ids
+        domain = [('company_id', 'in', company_ids)]
         if mode != 'history':
             # Desde la medianoche del usuario: todos los viajes de HOY.
             tz = pytz.timezone(self.env.user.tz or 'America/Monterrey')
             today = fields.Date.context_today(self)
             start_local = tz.localize(datetime.combine(today, dtime.min))
             since = start_local.astimezone(pytz.utc).replace(tzinfo=None)
-            domain = [('timestamp', '>=', since)]
+            domain.append(('timestamp', '>=', since))
         points = Point.search(domain, order='timestamp asc', limit=20000)
 
         routes = {}
@@ -683,6 +688,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 ('document_type', '=', 'remission'),
                 ('state', '!=', 'cancelled'),
                 ('create_date', '>=', since),
+                ('company_id', 'in', company_ids),
             ], order='create_date asc')
             seen_ids = set(routes.keys())
             no_gps = []
@@ -782,6 +788,8 @@ class SaleDeliveryLiveMap(models.TransientModel):
         since = start_local.astimezone(pytz.utc).replace(tzinfo=None)
 
         Doc = self.env['sale.delivery.document'].sudo()
+        # sudo salta las reglas: solo las compañías seleccionadas en el switcher.
+        company_ids = self.env.companies.ids
 
         def doc_m2(doc):
             return self._doc_qty_split(doc)
@@ -790,17 +798,21 @@ class SaleDeliveryLiveMap(models.TransientModel):
             ('document_type', '=', 'remission'),
             ('state', '!=', 'cancelled'),
             ('create_date', '>=', since),
+            ('company_id', 'in', company_ids),
         ])
         returns = Doc.search([
             ('document_type', '=', 'return'),
             ('state', '!=', 'cancelled'),
             ('create_date', '>=', since),
+            ('company_id', 'in', company_ids),
         ])
 
         # ── Métricas GPS por documento del periodo ──────────────
         Point = self.env['sale.delivery.route.point'].sudo()
-        points = Point.search([('timestamp', '>=', since)],
-                              order='timestamp asc', limit=100000)
+        points = Point.search([
+            ('timestamp', '>=', since),
+            ('company_id', 'in', company_ids),
+        ], order='timestamp asc', limit=100000)
         pts_by_doc = {}
         for p in points:
             pts_by_doc.setdefault(p.document_id.id, []).append(p)
@@ -992,6 +1004,8 @@ class SaleDeliveryLiveMap(models.TransientModel):
         today_start = start_local.astimezone(pytz.utc).replace(tzinfo=None)
 
         Doc = self.env['sale.delivery.document'].sudo()
+        # sudo salta las reglas: solo las compañías seleccionadas en el switcher.
+        company_ids = self.env.companies.ids
 
         def qty_label(area, units):
             parts = []
@@ -1055,6 +1069,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
         open_pts = Doc.search([
             ('document_type', '=', 'pick_ticket'),
             ('state', 'in', ('draft', 'prepared')),
+            ('company_id', 'in', company_ids),
         ], order='create_date asc')
 
         pending, ready = [], []
@@ -1068,6 +1083,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
             ('document_type', '=', 'remission'),
             ('state', '!=', 'cancelled'),
             ('create_date', '>=', today_start),
+            ('company_id', 'in', company_ids),
         ], order='create_date desc')
 
         in_route, delivered = [], []

@@ -44,7 +44,11 @@ class SaleDeliveryWizard(models.TransientModel):
         """Solo choferes en el selector: los chofer/chofer futuro de la
         flota + contactos etiquetados CHOFER. Nada de clientes sueltos."""
         Vehicle = self.env['fleet.vehicle'].sudo()
-        vehicles = Vehicle.search([])
+        # sudo salta las reglas: flota de las compañías seleccionadas (o
+        # compartida, sin compañía).
+        vehicles = Vehicle.search([
+            ('company_id', 'in', self.env.companies.ids + [False]),
+        ])
         drivers = vehicles.mapped('driver_id')
         if 'future_driver_id' in Vehicle._fields:
             drivers |= vehicles.mapped('future_driver_id')

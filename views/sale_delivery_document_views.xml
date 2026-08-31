@@ -69,6 +69,7 @@
                             <field name="document_type"/>
                             <field name="sale_order_id"/>
                             <field name="partner_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
                             <field name="remission_number"
                                    invisible="document_type not in ('remission', 'redelivery')"/>
                             <field name="picking_id"
@@ -161,6 +162,7 @@
                 <field name="remission_number"/>
                 <field name="total_qty"/>
                 <field name="delivery_date"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
             </list>
         </field>
     </record>
