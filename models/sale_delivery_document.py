@@ -1731,6 +1731,35 @@ class SaleDeliveryDocumentLine(models.Model):
     company_id = fields.Many2one(
         'res.company', string='Compañía', related='document_id.company_id',
         store=True, readonly=True, index=True)
+
+    @api.model
+    def _som_fill_missing_company(self):
+        """Data hook (idempotente, corre en cada -u): el related almacenado
+        no se rellenó en los históricos al crear la columna (el -u creó
+        primero la columna de la línea y después la del documento), y sin
+        compañía la regla multiempresa los muestra en todas. Se copian del
+        documento padre por SQL; las líneas nuevas ya nacen con él."""
+        self.env.cr.execute("""
+            UPDATE sale_delivery_document_line l
+               SET company_id = d.company_id
+              FROM sale_delivery_document d
+             WHERE l.document_id = d.id
+               AND l.company_id IS NULL
+               AND d.company_id IS NOT NULL
+        """)
+        n = self.env.cr.rowcount
+        if n:
+            self.env.cr.execute("""
+                UPDATE sale_delivery_route_point r
+                   SET company_id = d.company_id
+                  FROM sale_delivery_document d
+                 WHERE r.document_id = d.id
+                   AND r.company_id IS NULL
+                   AND d.company_id IS NOT NULL
+            """)
+            self.env['sale.delivery.document.line'].invalidate_model(['company_id'])
+            _logger.info('[SOM] company_id rellenada en %s líneas de entrega históricas', n)
+        return True
     sequence = fields.Integer(default=10)
 
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')

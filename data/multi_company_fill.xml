@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Idempotente: rellena company_id de líneas/puntos GPS históricos desde su documento. -->
+    <function model="sale.delivery.document.line" name="_som_fill_missing_company"/>
+</odoo>
