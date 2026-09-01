@@ -496,16 +496,19 @@ class SaleOrder(models.Model):
         }
 
     def _som_delivery_blockers_report(self):
-        """Texto '• LOTE ← documento (estado)' por cada lote asignado con
-        pendiente cuyo stock está reservado por move lines de OTROS pickings.
-        Solo diagnóstico: convierte el error mudo de oferta vacía en una
-        instrucción accionable."""
+        """Diagnóstico accionable cuando la oferta de entrega sale vacía:
+        agrupa POR DOCUMENTO los lotes asignados con pendiente cuyo stock
+        está reservado por OTROS pickings, y distingue el caso más común:
+        material que AÚN está en tránsito porque la recepción física del
+        embarque (SOM/TRANSIT → Existencias) no se ha validado. Antes se
+        imprimía una línea por placa (136 renglones para V/307) y decía
+        "retenidos por otros documentos", que no orientaba a nadie."""
         self.ensure_one()
         Ml = self.env['stock.move.line'].sudo()
         state_lbl = dict(
             self.env['stock.picking']._fields['state']
             ._description_selection(self.env))
-        rows = []
+        by_pick = {}
         for line in self.order_line:
             if line.display_type or not line.product_id:
                 continue
@@ -515,20 +518,56 @@ class SaleOrder(models.Model):
                 (line.x_delivered_net_qty or 0.0)
             if pending <= 0.0001:
                 continue
-            for lot in line.lot_ids:
-                mls = Ml.search([
-                    ('lot_id', '=', lot.id),
-                    ('state', 'not in', ('done', 'cancel')),
-                    ('picking_id', 'not in', self.picking_ids.ids),
-                    ('picking_id', '!=', False),
-                    # sudo salta las reglas: solo la compañía de la orden.
-                    ('company_id', '=', self.company_id.id),
-                ])
-                for pick in mls.mapped('picking_id'):
-                    rows.append('• %s ← %s (%s)' % (
-                        lot.name, pick.name,
-                        state_lbl.get(pick.state, pick.state)))
-        return '\n'.join(sorted(set(rows)))
+            mls = Ml.search([
+                ('lot_id', 'in', line.lot_ids.ids),
+                ('state', 'not in', ('done', 'cancel')),
+                ('picking_id', 'not in', self.picking_ids.ids),
+                ('picking_id', '!=', False),
+                # sudo salta las reglas: solo la compañía de la orden.
+                ('company_id', '=', self.company_id.id),
+            ])
+            for ml in mls:
+                by_pick.setdefault(ml.picking_id, set()).add(ml.lot_id.name or '')
+        if not by_pick:
+            return ''
+
+        def _is_transit_reception(pick):
+            loc = pick.location_id
+            if hasattr(loc, '_som_is_transit'):
+                try:
+                    return bool(loc and loc._som_is_transit())
+                except Exception:
+                    return False
+            return bool(loc and loc.usage == 'transit')
+
+        def _lots_short(names, limit=8):
+            names = sorted(n for n in names if n)
+            shown = ', '.join(names[:limit])
+            extra = len(names) - limit
+            return shown + (' … y %d más' % extra if extra > 0 else '')
+
+        transit_rows, other_rows = [], []
+        for pick, lot_names in by_pick.items():
+            head = '• %s (%s)%s — %d lote(s): %s' % (
+                pick.name,
+                state_lbl.get(pick.state, pick.state),
+                ' · %s' % pick.origin if pick.origin else '',
+                len(lot_names), _lots_short(lot_names))
+            (transit_rows if _is_transit_reception(pick) else other_rows).append(head)
+        parts = []
+        if transit_rows:
+            parts.append(
+                _('MATERIAL AÚN EN TRÁNSITO — falta VALIDAR la recepción física '
+                  'del embarque (%s → Existencias). Hasta entonces esas placas no '
+                  'están en almacén y no se pueden entregar:\n%s') % (
+                    ', '.join(sorted({p.location_id.name or '' for p in by_pick
+                                      if _is_transit_reception(p)})),
+                    '\n'.join(sorted(transit_rows))))
+        if other_rows:
+            parts.append(
+                _('Retenidos por otros documentos (libéralos o valídalos):\n%s')
+                % '\n'.join(sorted(other_rows)))
+        return '\n\n'.join(parts)
 
     def _get_locked_lot_ids(self, exclude_pt_id=None):
         self.ensure_one()
@@ -1524,10 +1563,8 @@ class SaleOrder(models.Model):
                 blockers = self._som_delivery_blockers_report()
                 if blockers:
                     raise UserError(_(
-                        'No hay material entregable ahora mismo: los lotes '
-                        'asignados están retenidos por otros documentos:\n'
-                        '%s\n\nLibera o valida esos documentos y vuelve a '
-                        'intentar.') % blockers)
+                        'No hay material entregable ahora mismo.\n\n%s'
+                    ) % blockers)
                 raise UserError(_(
                     'No hay material pendiente por entregar en esta orden.'))
 
