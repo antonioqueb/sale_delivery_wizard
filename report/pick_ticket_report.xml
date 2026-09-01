@@ -78,7 +78,7 @@
                                         <div class="som-info-label">Cliente</div>
                                         <div class="som-info-value">
                                             <strong>
-                                                <t t-esc="doc.partner_id.name or '-'"/>
+                                                <t t-esc="(doc.sale_order_id.x_partner_mask_name if doc.sale_order_id else False) or doc.partner_id.name or '-'"/>
                                             </strong>
                                         </div>
                                     </div>

@@ -48,16 +48,17 @@
                         <!-- INFORMACIÓN GENERAL -->
                         <!-- ===================================================== -->
                         <t t-set="commercial_partner" t-value="doc.sale_order_id.partner_id if doc.sale_order_id else doc.partner_id"/>
+                        <t t-set="som_mask" t-value="doc.sale_order_id.x_partner_mask_name if doc.sale_order_id else False"/>
 
                         <div class="row mb-2">
                             <div class="col-4">
                                 <div class="som-section-title" style="margin-bottom: 0;">Cliente / Facturación</div>
                                 <div class="som-info" style="padding: 5px 8px; font-size: 9px; line-height: 1.25;">
                                     <div style="font-weight: 800;">
-                                        <t t-esc="commercial_partner.name or '-'"/>
+                                        <t t-esc="som_mask or commercial_partner.name or '-'"/>
                                     </div>
 
-                                    <div t-if="commercial_partner and commercial_partner.vat" style="margin-top: 2px;">
+                                    <div t-if="commercial_partner and commercial_partner.vat and not som_mask" style="margin-top: 2px;">
                                         <strong>RFC:</strong>
                                         <span t-esc="commercial_partner.vat"/>
                                     </div>
