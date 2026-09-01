@@ -495,14 +495,14 @@ class SaleOrder(models.Model):
             'picking': self.env['stock.picking'].browse(),
         }
 
-    def _som_delivery_blockers_report(self):
-        """Diagnóstico accionable cuando la oferta de entrega sale vacía:
-        agrupa POR DOCUMENTO los lotes asignados con pendiente cuyo stock
-        está reservado por OTROS pickings, y distingue el caso más común:
-        material que AÚN está en tránsito porque la recepción física del
-        embarque (SOM/TRANSIT → Existencias) no se ha validado. Antes se
-        imprimía una línea por placa (136 renglones para V/307) y decía
-        "retenidos por otros documentos", que no orientaba a nadie."""
+    def _som_delivery_blockers(self):
+        """Clasifica POR QUÉ la oferta de entrega sale vacía. Devuelve
+        {'transit': [...], 'other': [...]} con un dict por picking bloqueador:
+        {'picking', 'state_label', 'origin', 'lots': [nombres]}.
+
+        'transit' = recepciones físicas de embarque (SOM/TRANSIT → Existencias)
+        sin validar: el material AÚN está en tránsito. 'other' = cualquier
+        otro documento que retenga las placas."""
         self.ensure_one()
         Ml = self.env['stock.move.line'].sudo()
         state_lbl = dict(
@@ -528,8 +528,6 @@ class SaleOrder(models.Model):
             ])
             for ml in mls:
                 by_pick.setdefault(ml.picking_id, set()).add(ml.lot_id.name or '')
-        if not by_pick:
-            return ''
 
         def _is_transit_reception(pick):
             loc = pick.location_id
@@ -540,34 +538,73 @@ class SaleOrder(models.Model):
                     return False
             return bool(loc and loc.usage == 'transit')
 
-        def _lots_short(names, limit=8):
-            names = sorted(n for n in names if n)
-            shown = ', '.join(names[:limit])
-            extra = len(names) - limit
-            return shown + (' … y %d más' % extra if extra > 0 else '')
-
-        transit_rows, other_rows = [], []
+        result = {'transit': [], 'other': []}
         for pick, lot_names in by_pick.items():
-            head = '• %s (%s)%s — %d lote(s): %s' % (
-                pick.name,
-                state_lbl.get(pick.state, pick.state),
-                ' · %s' % pick.origin if pick.origin else '',
-                len(lot_names), _lots_short(lot_names))
-            (transit_rows if _is_transit_reception(pick) else other_rows).append(head)
-        parts = []
-        if transit_rows:
-            parts.append(
-                _('MATERIAL AÚN EN TRÁNSITO — falta VALIDAR la recepción física '
-                  'del embarque (%s → Existencias). Hasta entonces esas placas no '
-                  'están en almacén y no se pueden entregar:\n%s') % (
-                    ', '.join(sorted({p.location_id.name or '' for p in by_pick
-                                      if _is_transit_reception(p)})),
-                    '\n'.join(sorted(transit_rows))))
-        if other_rows:
-            parts.append(
-                _('Retenidos por otros documentos (libéralos o valídalos):\n%s')
-                % '\n'.join(sorted(other_rows)))
-        return '\n\n'.join(parts)
+            entry = {
+                'picking': pick,
+                'state_label': state_lbl.get(pick.state, pick.state),
+                'origin': pick.origin or '',
+                'lots': sorted(n for n in lot_names if n),
+            }
+            result['transit' if _is_transit_reception(pick) else 'other'].append(entry)
+        for key in result:
+            result[key].sort(key=lambda e: e['picking'].name or '')
+        return result
+
+    @staticmethod
+    def _som_lots_short(names, limit=8):
+        shown = ', '.join(names[:limit])
+        extra = len(names) - limit
+        return shown + (' … y %d más' % extra if extra > 0 else '')
+
+    def _som_delivery_blockers_message(self):
+        """Mensaje para el vendedor con la CAUSA como titular. Vacío si no
+        hay bloqueadores."""
+        self.ensure_one()
+        b = self._som_delivery_blockers()
+        transit, other = b['transit'], b['other']
+        if not transit and not other:
+            return ''
+        lines = []
+        if transit and not other:
+            n = sum(len(e['lots']) for e in transit)
+            lines.append(_(
+                'NO SE PUEDE ENTREGAR: el material de esta orden todavía está '
+                'EN TRÁNSITO.'))
+            lines.append('')
+            lines.append(_(
+                'Las %d placa(s) asignadas vienen en un embarque cuya recepción '
+                'física aún NO se ha validado, por lo que no están en almacén. '
+                'En cuanto Almacén valide la recepción podrás entregar.') % n)
+        elif transit and other:
+            lines.append(_(
+                'NO SE PUEDE ENTREGAR: parte del material está EN TRÁNSITO y '
+                'parte está retenido por otros documentos.'))
+        else:
+            lines.append(_(
+                'NO SE PUEDE ENTREGAR: las placas asignadas están retenidas '
+                'por otros documentos. Libéralos o valídalos y vuelve a intentar.'))
+        if transit:
+            lines.append('')
+            lines.append(_('Recepción pendiente de validar:'))
+            for e in transit:
+                lines.append('• %s (%s)%s — %d placa(s): %s' % (
+                    e['picking'].name, e['state_label'],
+                    ' · %s' % e['origin'] if e['origin'] else '',
+                    len(e['lots']), self._som_lots_short(e['lots'])))
+        if other:
+            lines.append('')
+            lines.append(_('Retenidas por otros documentos:'))
+            for e in other:
+                lines.append('• %s (%s)%s — %d placa(s): %s' % (
+                    e['picking'].name, e['state_label'],
+                    ' · %s' % e['origin'] if e['origin'] else '',
+                    len(e['lots']), self._som_lots_short(e['lots'])))
+        return '\n'.join(lines)
+
+    def _som_delivery_blockers_report(self):
+        """Compatibilidad: texto del diagnóstico (sin titular)."""
+        return self._som_delivery_blockers_message()
 
     def _get_locked_lot_ids(self, exclude_pt_id=None):
         self.ensure_one()
@@ -1560,11 +1597,9 @@ class SaleOrder(models.Model):
                             - (l.x_delivered_net_qty or 0.0),
                         ) for l in pending_unassigned
                     ))
-                blockers = self._som_delivery_blockers_report()
+                blockers = self._som_delivery_blockers_message()
                 if blockers:
-                    raise UserError(_(
-                        'No hay material entregable ahora mismo.\n\n%s'
-                    ) % blockers)
+                    raise UserError(blockers)
                 raise UserError(_(
                     'No hay material pendiente por entregar en esta orden.'))
 
