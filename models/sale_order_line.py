@@ -21,13 +21,38 @@ class SaleOrderLine(models.Model):
             self.env.context.get(k) for k in self._SOM_FLOOR_SKIP_CONTEXTS
         ):
             self._som_assert_breakdown_floor_vs_delivered(
-                vals.get('x_lot_breakdown_json'))
+                vals.get('x_lot_breakdown_json'), vals.get('lot_ids'))
         return super().write(vals)
 
-    def _som_assert_breakdown_floor_vs_delivered(self, new_breakdown):
+    @staticmethod
+    def _som_apply_x2many_commands(current_ids, commands):
+        """Ids resultantes de aplicar comandos ORM x2many sobre current_ids."""
+        ids = list(current_ids or [])
+        for cmd in commands or []:
+            if not isinstance(cmd, (list, tuple)) or not cmd:
+                continue
+            op = cmd[0]
+            if op == 6:
+                ids = list(cmd[2] or [])
+            elif op == 5:
+                ids = []
+            elif op == 4 and cmd[1] not in ids:
+                ids.append(cmd[1])
+            elif op in (2, 3) and cmd[1] in ids:
+                ids.remove(cmd[1])
+        return ids
+
+    def _som_assert_breakdown_floor_vs_delivered(self, new_breakdown, lot_commands=None):
         """Valida que el desglose propuesto no asigne a ningún lote MENOS de
-        lo que ya se le entregó (entregado neto por lote). El lote ausente
-        del desglose nuevo cuenta como 0."""
+        lo que ya se le entregó (entregado neto por lote).
+
+        El desglose SOLO describe parcialidades de formato/pieza; una placa
+        (atómica) jamás aparece en él, y un formato tomado completo puede
+        no aparecer tampoco. Por eso un lote AUSENTE del desglose pero que
+        sigue en lot_ids no se valida (no hay nada que lo baje). Solo se
+        bloquea cuando el desglose lo baja explícitamente o cuando el lote
+        se QUITA de lot_ids. Antes, 'ausente = 0' bloqueaba agregar
+        cualquier lote a una línea con una placa ya entregada."""
         bd = new_breakdown or {}
         if not isinstance(bd, dict):
             return
@@ -38,6 +63,10 @@ class SaleOrderLine(models.Model):
             order = line.order_id
             if not hasattr(order, '_som_lot_delivered_net_map'):
                 continue
+            current_lot_ids = line.lot_ids.ids if 'lot_ids' in line._fields else []
+            new_lot_ids = (
+                self._som_apply_x2many_commands(current_lot_ids, lot_commands)
+                if lot_commands is not None else current_lot_ids)
             delivered_map = order._som_lot_delivered_net_map()
             for (slid, lot_id), delivered in delivered_map.items():
                 if slid != line.id or delivered <= 0.0001:
@@ -55,6 +84,9 @@ class SaleOrderLine(models.Model):
                             new_qty = float(bd[str(quant.id)] or 0.0)
                             break
                 if new_qty is None:
+                    if lot_id in new_lot_ids:
+                        # Sigue asignado y el desglose no lo toca.
+                        continue
                     new_qty = 0.0
                 if new_qty + 0.0001 < delivered:
                     raise UserError(_(
