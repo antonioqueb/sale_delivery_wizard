@@ -1439,17 +1439,37 @@ class SaleOrder(models.Model):
         # Defaults (almacén/tipo de operación) de la compañía de la orden.
         Move = self.env['stock.move'].sudo().with_company(self.company_id)
 
-        def live_qty(line):
+        # ── CANDADO 1: a lo sumo UN picking de regeneración vivo por orden.
+        # Cada apertura del wizard creaba otro clon (V/147 llegó a 6, cada
+        # uno reservando el mismo pallet). Se conserva el que más material
+        # tiene reservado (a igualdad, el más antiguo) y el resto se cancela,
+        # liberando sus reservas.
+        keep = self._som_dedupe_regen_pickings()
+
+        def live_qty(line, exclude_picking=None):
+            """Demanda viva de la línea. PICK y OUT ENCADENADOS representan
+            la misma demanda (máximo por tipo, no suma); los OUT de
+            REGENERACIÓN nacen sueltos, sin PICK gemelo, y sí se SUMAN:
+            antes el PICK dominaba el máximo y los OUT de regeneración no
+            elevaban la demanda viva ni un metro → déficit idéntico en cada
+            corrida → clon nuevo en cada apertura del wizard."""
             moves = line.move_ids.filtered(
-                lambda m: m.state not in ('done', 'cancel'))
+                lambda m: m.state not in ('done', 'cancel')
+                and (not exclude_picking or m.picking_id != exclude_picking))
             by_type = {}
+            regen = 0.0
             for m in moves:
+                qty = m.product_uom_qty or 0.0
+                if self._som_is_regen_move(m):
+                    regen += qty
+                    continue
                 code = m.picking_type_id.code or 'other'
-                by_type[code] = by_type.get(code, 0.0) + (
-                    m.product_uom_qty or 0.0)
-            # PICK y OUT encadenados representan la MISMA demanda: contar
-            # el mayor por tipo, no la suma.
-            return max(by_type.values()) if by_type else 0.0
+                by_type[code] = by_type.get(code, 0.0) + qty
+            return (max(by_type.values()) if by_type else 0.0) + regen
+
+        def pending(line):
+            return max((line.product_uom_qty or 0.0)
+                       - (line.x_delivered_net_qty or 0.0), 0.0)
 
         needs = []
         for line in self.order_line:
@@ -1457,16 +1477,19 @@ class SaleOrder(models.Model):
                 continue
             if line.product_id.type == 'service':
                 continue
-            remaining = max(
-                (line.product_uom_qty or 0.0)
-                - (line.x_delivered_net_qty or 0.0), 0.0)
+            remaining = pending(line)
             if remaining <= tolerance:
                 continue
-            deficit = remaining - live_qty(line)
+            # El picking de regeneración conservado se excluye: su demanda
+            # se AJUSTA al déficit real más abajo (no se crea otro).
+            deficit = remaining - live_qty(line, exclude_picking=keep)
             if deficit > tolerance:
                 needs.append((line, deficit))
 
         if not needs:
+            if keep:
+                # Ya nada falta: el picking de regeneración sobra.
+                self._som_adjust_regen_picking(keep, {})
             return False
 
         # 1er intento: la regla de stock nativa (respeta rutas/almacén).
@@ -1483,12 +1506,16 @@ class SaleOrder(models.Model):
         # 2º intento: déficit restante → picking OUT manual explícito.
         still = []
         for line, _old in needs:
-            remaining = max(
-                (line.product_uom_qty or 0.0)
-                - (line.x_delivered_net_qty or 0.0), 0.0)
-            deficit = remaining - live_qty(line)
+            deficit = pending(line) - live_qty(line, exclude_picking=keep)
             if deficit > tolerance:
                 still.append((line, deficit))
+
+        # ── CANDADO 2: si ya existe un picking de regeneración vivo se
+        # REUTILIZA ajustando sus cantidades al déficit actual; jamás se
+        # crea otro encima.
+        if keep:
+            self._som_adjust_regen_picking(keep, {l.id: d for l, d in still})
+            return True
 
         if still:
             warehouse = self.warehouse_id or self.env[
@@ -1547,6 +1574,128 @@ class SaleOrder(models.Model):
                 self.name, picking.name,
                 [(l.id, d) for l, d in still])
         return True
+
+    # ------------------------------------------------------------------
+    # Pickings de regeneración: identificación, deduplicación y ajuste
+    # ------------------------------------------------------------------
+    SOM_REGEN_TAG = '(regeneración pendiente)'
+
+    def _som_regen_origin(self):
+        self.ensure_one()
+        return '%s %s' % (self.name, self.SOM_REGEN_TAG)
+
+    def _som_is_regen_move(self, move):
+        picking = move.picking_id
+        return bool(picking) and (picking.origin or '').strip().endswith(self.SOM_REGEN_TAG)
+
+    def _som_live_regen_pickings(self):
+        self.ensure_one()
+        return self.env['stock.picking'].sudo().search([
+            ('origin', '=', self._som_regen_origin()),
+            ('state', 'not in', ('done', 'cancel')),
+        ], order='id')
+
+    def _som_dedupe_regen_pickings(self):
+        """Deja a lo sumo UN picking de regeneración vivo: conserva el que
+        más tiene reservado (a igualdad, el más antiguo) y cancela el resto
+        (libera sus reservas). Devuelve el conservado o False."""
+        self.ensure_one()
+        regen = self._som_live_regen_pickings()
+        if not regen:
+            return False
+        keep = max(regen, key=lambda p: (
+            sum((m.quantity or 0.0) for m in p.move_ids if m.state not in ('done', 'cancel')),
+            -p.id))
+        dupes = regen - keep
+        if dupes:
+            names = ', '.join(dupes.mapped('name'))
+            for dupe in dupes:
+                try:
+                    dupe.with_context(skip_stone_sync_picking=True,
+                                      skip_stone_sync_so=True).action_cancel()
+                except Exception:
+                    _logger.exception('[DELIVERY HEAL] %s: no se pudo cancelar el clon %s',
+                                      self.name, dupe.name)
+            self.message_post(body=_(
+                'Se cancelaron %(n)d picking(s) de regeneración duplicados (%(names)s); '
+                'se conserva %(keep)s. Sus reservas quedaron liberadas.'
+            ) % {'n': len(dupes), 'names': names, 'keep': keep.name})
+            _logger.warning('[DELIVERY HEAL] %s: clones de regeneración cancelados %s; se conserva %s',
+                            self.name, dupes.mapped('name'), keep.name)
+        return keep
+
+    def _som_adjust_regen_picking(self, picking, deficits):
+        """Ajusta el picking de regeneración conservado al déficit ACTUAL por
+        línea ({sale_line_id: déficit}). Líneas sin déficit → su movimiento
+        se cancela; líneas con déficit sin movimiento → se crea; el resto
+        se corrige en cantidad. Si nada queda vivo, el picking se cancela."""
+        self.ensure_one()
+        tolerance = 0.0001
+        Move = self.env['stock.move'].sudo().with_company(self.company_id)
+        live_moves = picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
+        changed = []
+        seen_lines = set()
+        for move in live_moves:
+            line = move.sale_line_id
+            target = deficits.get(line.id, 0.0) if line else 0.0
+            seen_lines.add(line.id if line else 0)
+            if target <= tolerance:
+                move._action_cancel()
+                changed.append('%s ×0' % move.product_id.display_name)
+            elif abs((move.product_uom_qty or 0.0) - target) > tolerance:
+                move.write({'product_uom_qty': target})
+                changed.append('%s ×%.2f' % (move.product_id.display_name, target))
+        for line in self.order_line:
+            target = deficits.get(line.id, 0.0)
+            if line.id in seen_lines or target <= tolerance:
+                continue
+            move_vals = {
+                'name': line.product_id.display_name,
+                'product_id': line.product_id.id,
+                'product_uom_qty': target,
+                'product_uom': line.product_uom_id.id if line.product_uom_id else line.product_id.uom_id.id,
+                'picking_id': picking.id,
+                'picking_type_id': picking.picking_type_id.id,
+                'location_id': picking.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'sale_line_id': line.id,
+                'company_id': self.company_id.id,
+            }
+            if 'group_id' in Move._fields and self.procurement_group_id:
+                move_vals['group_id'] = self.procurement_group_id.id
+            move_vals = {k: v for k, v in move_vals.items() if k in Move._fields}
+            Move.create(move_vals)
+            changed.append('%s ×%.2f' % (line.product_id.display_name, target))
+        if not changed:
+            return False
+        if picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel')):
+            try:
+                picking.action_confirm()
+                picking.action_assign()
+            except Exception:
+                _logger.exception('[DELIVERY HEAL] %s: no se pudo reconfirmar %s', self.name, picking.name)
+        self.message_post(body=_(
+            'Picking de regeneración %(name)s ajustado al pendiente real: %(detail)s'
+        ) % {'name': picking.name, 'detail': ', '.join(changed)})
+        _logger.warning('[DELIVERY HEAL] %s: %s ajustado %s', self.name, picking.name, changed)
+        return True
+
+    @api.model
+    def _som_sweep_regen_pickings(self):
+        """Barrido de datos (migración y a demanda): órdenes con pickings de
+        regeneración vivos → deduplicar y ajustar al déficit real."""
+        Picking = self.env['stock.picking'].sudo()
+        pickings = Picking.search([('origin', 'like', '%' + self.SOM_REGEN_TAG),
+                                   ('state', 'not in', ('done', 'cancel'))])
+        names = {(p.origin or '').replace(self.SOM_REGEN_TAG, '').strip() for p in pickings}
+        orders = self.sudo().search([('name', 'in', list(names))])
+        for so in orders:
+            try:
+                with self.env.cr.savepoint():
+                    so._som_ensure_delivery_moves_for_pending()
+            except Exception:
+                _logger.exception('[DELIVERY HEAL] barrido falló en %s', so.name)
+        return orders
 
     def action_open_delivery_wizard(self):
         self.ensure_one()
