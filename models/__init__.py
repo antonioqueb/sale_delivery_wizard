@@ -6,3 +6,4 @@ from . import sale_delivery_document_line
 from . import sale_order
 from . import sale_order_line
 from . import sale_delivery_mobile
+from . import stock_return_guard

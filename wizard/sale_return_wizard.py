@@ -339,6 +339,7 @@ class SaleReturnWizard(models.TransientModel):
             # de origen, el tope real se recalcula aquí (entregado − ya
             # devuelto de ESA línea) e ignora lo que diga el cliente.
             server_line_id = sel.get('originRemissionLineId') or False
+            server_capped = False
             if server_line_id:
                 server_line = self.env['sale.delivery.document.line'].browse(
                     server_line_id).exists()
@@ -354,10 +355,15 @@ class SaleReturnWizard(models.TransientModel):
                         ])
                     )
                     qty_available = max(delivered_line - already_returned, 0.0)
+                    server_capped = True
 
             # Tolerancia de flotantes: devolver "todo" tras restas encadenadas
             # (0.3 − 0.1 = 0.19999…) no debe morir por el residuo binario.
-            if qty_available > 0 and qty > qty_available + 0.0001:
+            # Con tope de servidor se valida SIEMPRE (antes, si ya no quedaba
+            # nada por devolver, el tope era 0 y la validación se saltaba:
+            # por ahí se devolvía más de lo entregado). El candado definitivo
+            # está en stock.move._action_done (stock_return_guard).
+            if (server_capped or qty_available > 0) and qty > qty_available + 0.0001:
                 raise UserError(_(
                     'La cantidad a devolver %.2f excede la cantidad disponible %.2f.'
                 ) % (qty, qty_available))
