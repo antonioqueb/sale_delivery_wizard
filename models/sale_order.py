@@ -645,6 +645,45 @@ class SaleOrder(models.Model):
                 return str(lot[fname]).strip().lower()
         return ''
 
+    def _som_pick_ticket_block_reason(self):
+        """CANDADO DE PICK TICKET (3 sep 2026): sin dinero no hay pick ticket.
+
+        Regla del negocio: el pedido no es dinero hasta que hay pago. Se
+        permite generar el pick ticket solo si la orden
+          · tiene al menos un pago real registrado (anticipo incluido), o
+          · está autorizada manualmente para entrega (sale_delivery_auth), o
+          · ya está pagada / dentro de la tolerancia de entrega.
+        Devuelve el texto del bloqueo, o False si se puede generar. Si el
+        módulo de autorización no está instalado, no bloquea."""
+        self.ensure_one()
+        if 'delivery_auth_state' not in self._fields \
+                or not hasattr(self, '_delivery_is_authorized_now'):
+            return False
+        if self.env.context.get('som_skip_pt_auth_gate'):
+            return False
+        # Pagada al 100 %, autorizada manualmente o saldo dentro de tolerancia.
+        if self._delivery_is_authorized_now():
+            return False
+        # Un pago parcial (anticipo) ya libera el pick ticket; la remisión
+        # sigue exigiendo pago total o autorización.
+        paid, _has_posted = self._delivery_paid_live()
+        rounding = self.currency_id.rounding or 0.01
+        if paid > rounding:
+            return False
+        requested = any(
+            r.state in ('draft', 'requested')
+            for r in self.delivery_auth_request_ids)
+        return _(
+            'Pick ticket bloqueado: la orden %(name)s no tiene ningún pago '
+            'registrado ni autorización manual de entrega.\n\n'
+            'Registra el anticipo del cliente o solicita la autorización '
+            'de entrega antes de generar el pick ticket.%(req)s'
+        ) % {
+            'name': self.name,
+            'req': _('\n\nYa hay una solicitud de autorización pendiente: '
+                     'espera a que se apruebe.') if requested else '',
+        }
+
     def get_delivery_grouped_data(self, mode='delivery', editing_pt_id=None):
         self.ensure_one()
 

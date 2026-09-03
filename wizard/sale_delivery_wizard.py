@@ -881,6 +881,13 @@ class SaleDeliveryWizard(models.TransientModel):
         if target_pt:
             return self._update_existing_pick_ticket(target_pt, sels)
 
+        # CANDADO (3 sep 2026): un pick ticket NUEVO exige pago registrado
+        # (anticipo basta) o autorización manual de entrega. Editar uno ya
+        # existente no se bloquea aquí.
+        reason = self.sale_order_id._som_pick_ticket_block_reason()
+        if reason:
+            raise UserError(reason)
+
         if sels:
             return self._generate_pick_ticket_from_selections(sels)
         return self._generate_pick_ticket_from_lines()

@@ -159,6 +159,13 @@ class SaleDeliveryDocument(models.Model):
             elif doc_type == 'redelivery' and vals.get('name', '/') == '/':
                 vals['name'] = self._som_next_sequence(
                     'sale.delivery.redelivery', company) or '/'
+            # CANDADO: sin pago ni autorización manual no nace un pick
+            # ticket, venga de donde venga (asistente, RPC, app).
+            if doc_type == 'pick_ticket' and vals.get('sale_order_id'):
+                order = self.env['sale.order'].browse(vals['sale_order_id'])
+                reason = order._som_pick_ticket_block_reason()
+                if reason:
+                    raise UserError(reason)
         return super().create(vals_list)
 
     x_pt_consumed = fields.Boolean(
