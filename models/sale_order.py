@@ -103,7 +103,7 @@ class SaleOrder(models.Model):
     )
     x_return_count = fields.Integer(
         compute='_compute_document_counts',
-        string='Devoluciones',
+        string='Conteo de Devoluciones (Entregas)',
     )
     x_pick_ticket_count = fields.Integer(
         compute='_compute_document_counts',
