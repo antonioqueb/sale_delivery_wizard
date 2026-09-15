@@ -1507,6 +1507,14 @@ class SaleOrder(models.Model):
             return (max(by_type.values()) if by_type else 0.0) + regen
 
         def pending(line):
+            # Línea finiquitada (devolución con Finiquitar) o con la
+            # asignación cerrada en corto: ya no debe material, aunque el
+            # solicitado supere lo entregado. Antes se regeneraba un PICK
+            # por la diferencia y el material volvía a quedar asignado
+            # (caso V/733).
+            if getattr(line, 'x_finiquitado', False) \
+                    or getattr(line, 'tc_assignment_closed', False):
+                return 0.0
             return max((line.product_uom_qty or 0.0)
                        - (line.x_delivered_net_qty or 0.0), 0.0)
 

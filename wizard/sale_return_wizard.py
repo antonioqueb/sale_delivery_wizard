@@ -573,6 +573,8 @@ class SaleReturnWizard(models.TransientModel):
 
         if self.return_action == 'reagendar':
             self._action_reagendar_from_payloads(order, payloads)
+        elif self.return_action == 'finiquitar':
+            self._action_finiquitar_from_payloads(order, payloads, docs)
 
         action_label = dict(
             self._fields['return_action'].selection
@@ -638,6 +640,39 @@ class SaleReturnWizard(models.TransientModel):
             })
 
         return self._confirm_return_from_selections(sels)
+
+    def _action_finiquitar_from_payloads(self, order, payloads, docs=None):
+        """Finiquitar: la devolución ya regresó el material a existencias;
+        aquí se cierra la línea de venta para que NO vuelva a pedirlo ni a
+        asignar la misma placa (caso V/733: el finiquito quedaba solo en el
+        documento y el sistema regeneraba la recolección)."""
+        lots_by_line = {}
+        for p in payloads:
+            sl_id = p.get('sale_line_id')
+            if not sl_id:
+                continue
+            lots_by_line.setdefault(sl_id, set())
+            if p.get('lot_id'):
+                lots_by_line[sl_id].add(p['lot_id'])
+
+        if not lots_by_line:
+            return False
+
+        doc_names = ', '.join((docs or self.env['sale.delivery.document']).mapped('name'))
+        reason = _('Finiquito %(docs)s · %(motivo)s') % {
+            'docs': doc_names or _('devolución'),
+            'motivo': self.return_reason_id.name or '',
+        }
+        if self.notes:
+            reason = '%s · %s' % (reason, self.notes)
+
+        Line = self.env['sale.order.line']
+        for sl_id, lot_ids in lots_by_line.items():
+            line = Line.browse(sl_id).exists()
+            if not line or line.order_id != order:
+                continue
+            line._som_finiquitar_line(returned_lot_ids=lot_ids, reason=reason)
+        return True
 
     def _resolve_source_location(self, lot_id, product_id, parent_location_id):
         Quant = self.env['stock.quant']

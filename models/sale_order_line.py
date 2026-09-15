@@ -185,6 +185,23 @@ class SaleOrderLine(models.Model):
         store=True,
     )
 
+    # FINIQUITO (devolución con acción Finiquitar): la línea queda cerrada
+    # de forma explícita. Sin este flag el estado se calculaba solo con
+    # cantidades y la línea seguía "devuelto parcial" pidiendo material.
+    x_finiquitado = fields.Boolean(
+        string='Finiquitada',
+        default=False,
+        copy=False,
+        readonly=True,
+        help='La devolución se cerró con Finiquitar: la línea no vuelve a '
+             'pedir ni asignar material.',
+    )
+    x_finiquitado_at = fields.Datetime(
+        string='Finiquitada el',
+        copy=False,
+        readonly=True,
+    )
+
     x_delivery_status = fields.Selection(
         [
             ('sin_asignar', 'Sin Asignar'),
@@ -418,11 +435,16 @@ class SaleOrderLine(models.Model):
         'x_origin_demand_qty',
         'x_origin_demand_locked',
         'x_overdelivered_origin_qty',
+        'x_finiquitado',
     )
     def _compute_delivery_status(self):
         for line in self:
             if line.product_id.type == 'service':
                 line.x_delivery_status = 'entregado'
+                continue
+
+            if line.x_finiquitado:
+                line.x_delivery_status = 'finiquitado'
                 continue
 
             demand = line._get_delivery_base_demand_qty()
@@ -447,3 +469,103 @@ class SaleOrderLine(models.Model):
                 line.x_delivery_status = 'parcial_entregado'
             else:
                 line.x_delivery_status = 'sin_asignar'
+
+    # ═══════════════════════════════════════════════════════════════════
+    # Finiquito de línea (devolución con acción Finiquitar)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _som_finiquitar_line(self, returned_lot_ids=None, reason=None):
+        """Cierra la línea tras una devolución con Finiquitar (caso V/733):
+
+        1. Quita de la línea las placas devueltas (lot_ids, x_selected_lots
+           y su desglose): el material regresó a existencias y NO se
+           reentrega, queda libre para otros pedidos.
+        2. Cancela la demanda viva de la línea (PICK/OUT pendientes,
+           incluido el picking de regeneración que Odoo levanta al bajar lo
+           entregado).
+        3. Cierra la asignación en corto (Torre de Control) para que la
+           línea salga del tablero To Be Allocated. Con factura emitida se
+           marca 'credit_note' (avisa a facturación); sin factura, 'settle'.
+        4. Marca x_finiquitado: el estado de entrega pasa a 'Finiquitado' y
+           la regeneración de entregas ignora la línea.
+
+        Sin tocar cantidad solicitada ni factura: el dinero lo decide el
+        flujo administrativo."""
+        returned_lot_ids = set(returned_lot_ids or [])
+        for line in self:
+            if line.display_type or not line.product_id:
+                continue
+            if line.product_id.type == 'service':
+                continue
+
+            reason_text = reason or _('Finiquito de devolución')
+
+            # 1) Placas devueltas fuera de la línea.
+            removed = self.env['stock.lot']
+            if 'lot_ids' in line._fields and line.lot_ids and returned_lot_ids:
+                removed = line.lot_ids.filtered(lambda l: l.id in returned_lot_ids)
+            if removed:
+                vals = {'lot_ids': [(3, lot.id) for lot in removed]}
+                if 'x_selected_lots' in line._fields and line.x_selected_lots:
+                    quants = line.x_selected_lots.filtered(
+                        lambda q: q.lot_id.id in removed.ids)
+                    if quants:
+                        vals['x_selected_lots'] = [(3, q.id) for q in quants]
+                if hasattr(line, '_tc_read_lot_breakdown'):
+                    breakdown = dict(line._tc_read_lot_breakdown() or {})
+                    pruned = {
+                        k: v for k, v in breakdown.items()
+                        if str(k) not in {str(l.id) for l in removed}
+                    }
+                    if pruned != breakdown:
+                        vals['x_lot_breakdown_json'] = (
+                            line._tc_prepare_breakdown_value_for_line(pruned)
+                            if hasattr(line, '_tc_prepare_breakdown_value_for_line')
+                            else (pruned or False)
+                        )
+                line.with_context(som_skip_breakdown_floor=True).write(vals)
+
+            # 2) Demanda viva de la línea cancelada (no se reentrega).
+            live_moves = line.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel')
+                and m.picking_id
+                and m.picking_id.picking_type_id.code in ('outgoing', 'internal')
+            )
+            cancelled_pickings = live_moves.mapped('picking_id')
+            if live_moves:
+                live_moves.sudo()._action_cancel()
+
+            # 3) Cierre en corto en la Torre de Control.
+            closed_short = False
+            if 'tc_assignment_closed' in line._fields and not line.tc_assignment_closed:
+                pending = 0.0
+                if hasattr(line, '_tc_get_raw_pending_allocation_qty'):
+                    pending = line._tc_get_raw_pending_allocation_qty()
+                if pending > 0 and hasattr(line, 'action_tc_close_allocation_short'):
+                    closure = 'credit_note' if (line.qty_invoiced or 0.0) > 0 else 'settle'
+                    line.action_tc_close_allocation_short(
+                        reason=reason_text, closure_action=closure)
+                    closed_short = True
+
+            # 4) Marca explícita: estado Finiquitado y sin regeneración.
+            line.with_context(
+                skip_tc_allocation_recovery=True,
+                skip_tc_qty_manual_reset=True,
+            ).write({
+                'x_finiquitado': True,
+                'x_finiquitado_at': fields.Datetime.now(),
+            })
+
+            if line.order_id:
+                line.order_id.message_post(body=_(
+                    '🧾 Línea finiquitada: %(prod)s. Placas liberadas: %(lots)s. '
+                    'Entregas pendientes canceladas: %(picks)s. '
+                    'Asignación cerrada en corto: %(closed)s. Motivo: %(reason)s'
+                ) % {
+                    'prod': line.product_id.display_name or '',
+                    'lots': ', '.join(removed.mapped('name')) or '—',
+                    'picks': ', '.join(cancelled_pickings.mapped('name')) or '—',
+                    'closed': _('sí') if closed_short else _('no (sin pendiente)'),
+                    'reason': reason_text,
+                })
+        return True
