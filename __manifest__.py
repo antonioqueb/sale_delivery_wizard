@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.11.14.0',
+    'version': '19.0.11.14.1',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """

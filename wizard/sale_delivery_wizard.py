@@ -114,7 +114,7 @@ class SaleDeliveryWizard(models.TransientModel):
         'wizard_id', 'pt_id',
         string='PTs Abiertos')
     pt_count = fields.Integer(
-        compute='_compute_pt_count', string='PTs Abiertos')
+        compute='_compute_pt_count', string='Núm. PTs abiertos')
 
     widget_selections = fields.Text(
         string='Selecciones del Widget', default='[]')
