@@ -997,6 +997,63 @@ class SaleDeliveryLiveMap(models.TransientModel):
     # ══════════════════════════════════════════════════════════════
 
     @api.model
+    def board_move(self, doc_id, target):
+        """Arrastre entre carriles del tablero de Salidas.
+
+        pending → ready      : el PT pasa a Preparado (action_prepare).
+        ready   → in_route   : NO se mueve solo: devuelve la acción del wizard
+                               para generar la remisión (con escaneo).
+        in_route → delivered : entrega manual (mismos permisos y rastro que
+                               el botón del formulario).
+        Cualquier otro movimiento se rechaza con un mensaje claro."""
+        doc = self.env['sale.delivery.document'].browse(int(doc_id)).exists()
+        if not doc:
+            return {'error': _('El documento ya no existe.')}
+        try:
+            if target == 'ready':
+                if doc.document_type != 'pick_ticket' or doc.state != 'draft':
+                    return {'error': _('Solo un pick ticket pendiente puede pasar a «Listo para cargar».')}
+                doc.action_prepare()
+                return {'ok': True, 'message': _('%s listo para cargar.') % doc.name}
+            if target == 'in_route':
+                if doc.document_type != 'pick_ticket' or doc.state != 'prepared':
+                    return {'error': _('Solo un pick ticket listo puede salir a ruta (se genera su remisión).')}
+                return {'action': doc.action_edit_in_wizard()}
+            if target == 'delivered':
+                if doc.document_type != 'remission' or doc.state != 'confirmed' or doc.signed_at:
+                    return {'error': _('Solo una remisión en ruta puede marcarse como entregada.')}
+                doc.action_mark_delivered_manual()
+                return {'ok': True, 'message': _('%s marcada como entregada.') % (doc.remission_number or doc.name)}
+            if target == 'pending':
+                return {'error': _('No hay vuelta atrás: un documento no regresa a «Por preparar».')}
+        except UserError as exc:
+            return {'error': str(exc)}
+        return {'error': _('Movimiento no permitido.')}
+
+    @api.model
+    def board_assign_vehicle(self, doc_id, vehicle_id):
+        """Asigna (o quita, con vehicle_id=False) el camión a un documento
+        vivo del tablero; el chofer se toma del vehículo si el documento no
+        tiene uno."""
+        doc = self.env['sale.delivery.document'].browse(int(doc_id)).exists()
+        if not doc:
+            return {'error': _('El documento ya no existe.')}
+        if doc.signed_at or doc.state == 'cancelled':
+            return {'error': _('El documento ya está cerrado; no se le cambia el camión.')}
+        vals = {'vehicle_id': int(vehicle_id) if vehicle_id else False}
+        if vehicle_id:
+            veh = self.env['fleet.vehicle'].browse(int(vehicle_id)).exists()
+            if not veh:
+                return {'error': _('El vehículo ya no existe.')}
+            if not doc.vehicle_driver_id and veh.driver_id:
+                vals['vehicle_driver_id'] = veh.driver_id.id
+        try:
+            doc.write(vals)
+        except UserError as exc:
+            return {'error': str(exc)}
+        return {'ok': True}
+
+    @api.model
     def get_outbound_dashboard_data(self):
         """Todo lo que el almacén trabaja HOY: pick tickets abiertos
         (la orden del día), remisiones en ruta, entregas firmadas y la
@@ -1048,25 +1105,35 @@ class SaleDeliveryLiveMap(models.TransientModel):
                 key=lambda x: -x['qty'],
             )[:20]
             area, units = self._doc_qty_split(doc)
+            age_min = 0
+            if doc.create_date:
+                age_min = max(int((fields.Datetime.now() - doc.create_date).total_seconds() // 60), 0)
+            address = (doc.delivery_address or '').strip().replace('\n', ', ')
             return {
                 'id': doc.id,
                 'doc_type': doc.document_type,
+                'state': doc.state,
                 'materials': materials,
                 'name': doc.name or '',
                 'order': order.name or '',
                 'order_id': order.id or False,
                 'partner': doc.partner_id.name or '',
+                'address': address[:90],
                 'vehicle': doc.vehicle_id.display_name if doc.vehicle_id else '',
+                'vehicle_id': doc.vehicle_id.id or False,
                 'driver': doc.vehicle_driver_id.display_name
                           if doc.vehicle_driver_id else '',
+                'driver_id': doc.vehicle_driver_id.id or False,
                 'm2': round(area, 1),
                 'units': round(units, 1),
                 'qty_label': qty_label(area, units),
                 'lines': len(doc.line_ids),
                 'created': fmt_dt(doc.create_date),
+                'age_min': age_min,
                 'is_today': bool(doc.create_date and doc.create_date >= today_start),
                 'auth': auth,
                 'auth_ok': auth in ('authorized', 'paid'),
+                'note': (doc.special_instructions or '').strip()[:140],
             }
 
         # ── Pick tickets abiertos (backlog completo, no solo hoy) ──
@@ -1145,7 +1212,42 @@ class SaleDeliveryLiveMap(models.TransientModel):
         pts_today = [c for c in pending + ready if c['is_today']]
         no_vehicle = [c for c in pending + ready if not c['vehicle']]
 
+        # Flota completa (con o sin carga): destino de arrastre para asignar
+        # camión desde el tablero.
+        fleet = []
+        if 'fleet.vehicle' in self.env:
+            loaded = {t['id']: t for t in truck_list}
+            vehicles = self.env['fleet.vehicle'].sudo().search([
+                ('company_id', 'in', company_ids + [False]),
+            ], order='name asc')
+            for veh in vehicles:
+                t = loaded.get(veh.id)
+                cap = round(getattr(veh, 'x_capacity_sqm', 0.0) or 0.0, 1)
+                m2 = t['m2'] if t else 0.0
+                fleet.append({
+                    'id': veh.id,
+                    'name': veh.display_name,
+                    'driver': (t and t['driver']) or (veh.driver_id.display_name if veh.driver_id else ''),
+                    'driver_id': veh.driver_id.id or False,
+                    'capacity': cap,
+                    'm2': m2,
+                    'units': t['units'] if t else 0.0,
+                    'pct': round(m2 * 100.0 / cap) if cap else 0,
+                    'docs': t['docs'] if t else [],
+                })
+            fleet.sort(key=lambda x: (-x['m2'], x['name']))
+
+        user = self.env.user
+        can_deliver_manual = (
+            user.has_group('sale_delivery_wizard.group_delivery_manager')
+            or user.has_group('inventory_shopping_cart.group_price_authorizer')
+        )
+        local_today = fields.Date.context_today(self)
+
         return {
+            'today_label': '%d %s %d' % (local_today.day, MESES_ES[local_today.month - 1], local_today.year),
+            'can_deliver_manual': can_deliver_manual,
+            'fleet': fleet,
             'kpis': {
                 'pts_today': len(pts_today),
                 'pts_open': len(pending) + len(ready),

@@ -55,52 +55,163 @@
             <path d="M4 12h16M12 4v16"/>
         </svg>
     </t>
+    <t t-name="sale_delivery_wizard.icon_search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="6.5"/>
+            <path d="M16 16l4.5 4.5"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/>
+            <path d="M9 4v14M15 6v14"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_arrow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 12a8 8 0 1 1-2.3-5.7"/>
+            <path d="M20 4v5h-5"/>
+        </svg>
+    </t>
+    <t t-name="sale_delivery_wizard.icon_stage">
+        <t t-if="icon === 'clipboard'"><t t-call="sale_delivery_wizard.icon_clipboard"/></t>
+        <t t-elif="icon === 'scan'"><t t-call="sale_delivery_wizard.icon_scan"/></t>
+        <t t-elif="icon === 'truck'"><t t-call="sale_delivery_wizard.icon_truck"/></t>
+        <t t-else=""><t t-call="sale_delivery_wizard.icon_check"/></t>
+    </t>
 
     <!-- ═══ Tarjeta de documento ═══ -->
     <t t-name="sale_delivery_wizard.OutboundCard">
-        <div t-attf-class="o_out_card {{ !card.vehicle and card.state !== undefined ? 'noveh' : '' }}">
+        <div t-attf-class="o_out_card {{ stageKey }} {{ !card.vehicle and stageKey !== 'delivered' ? 'noveh' : '' }} {{ state.drag and state.drag.id === card.id ? 'dragging' : '' }}"
+             t-att-draggable="stageKey !== 'delivered' ? 'true' : 'false'"
+             t-on-dragstart="(ev) => this.onDragStart(ev, card, stageKey)"
+             t-on-dragend="onDragEnd">
             <div class="o_out_card_top">
                 <span class="o_out_card_name" t-esc="card.name"/>
                 <span t-if="card.auth_ok" class="o_out_badge green">Autorizada</span>
                 <span t-elif="card.auth" class="o_out_badge amber">Por autorizar</span>
+                <span t-attf-class="o_out_age {{ this.ageCls(card) }}" t-att-title="'Creado ' + card.created" t-esc="this.ageLabel(card)"/>
             </div>
             <div class="o_out_card_sub">
-                <t t-esc="card.partner"/>
-            </div>
-            <div class="o_out_card_stats">
-                <span><b t-esc="card.qty_label"/></span>
-                <span><b t-esc="card.lines"/> líneas</span>
+                <b t-esc="card.partner"/>
                 <span t-if="card.order" class="link" t-on-click.stop="() => this.openOrder(card.order_id)">
                     <t t-esc="card.order"/>
                 </span>
             </div>
+            <div t-if="card.address" class="o_out_addr" t-att-title="card.address" t-esc="card.address"/>
+            <div class="o_out_card_stats">
+                <span class="qty"><t t-call="sale_delivery_wizard.icon_area"/><b t-esc="card.qty_label"/></span>
+                <span><b t-esc="card.lines"/> líneas</span>
+                <span t-if="card.pt" class="o_out_pt" t-att-title="'Pick ticket origen'">PT <t t-esc="card.pt"/></span>
+            </div>
             <div class="o_out_mats" t-if="card.materials and card.materials.length">
-                <div class="m" t-foreach="card.materials.slice(0, 3)" t-as="mt" t-key="mt.product + mt.uom">
+                <div class="m" t-foreach="card.materials.slice(0, 2)" t-as="mt" t-key="mt.product + mt.uom">
                     <span t-att-title="mt.product" t-esc="mt.product"/>
                     <b><t t-esc="mt.qty"/> <t t-esc="mt.uom"/></b>
                 </div>
-                <div class="more" t-if="card.materials.length > 3">
-                    +<t t-esc="card.materials.length - 3"/> materiales más
+                <div class="more" t-if="card.materials.length > 2">
+                    +<t t-esc="card.materials.length - 2"/> materiales más
                 </div>
             </div>
+            <div t-if="card.note" class="o_out_note" t-att-title="card.note">
+                <t t-esc="card.note"/>
+            </div>
+
+            <!-- Camión: chip clicable → selector; también se asigna arrastrando la tarjeta al panel de camiones -->
             <div class="o_out_card_meta">
-                <span t-if="card.vehicle" class="o_out_veh">
+                <button t-if="stageKey !== 'delivered'" type="button"
+                        t-attf-class="o_out_veh {{ card.vehicle ? '' : 'warn' }}"
+                        t-on-click.stop="() => this.toggleAssign(card)"
+                        title="Cambiar camión">
+                    <t t-if="card.vehicle">
+                        <t t-call="sale_delivery_wizard.icon_truck"/>
+                        <span class="txt"><t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></span>
+                    </t>
+                    <t t-else="">
+                        <t t-call="sale_delivery_wizard.icon_alert2"/>
+                        <span class="txt">Sin camión: asignar</span>
+                    </t>
+                </button>
+                <span t-else="" class="o_out_veh done">
                     <t t-call="sale_delivery_wizard.icon_truck"/>
-                    <t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t>
-                </span>
-                <span t-else="" class="o_out_veh warn">
-                    <t t-call="sale_delivery_wizard.icon_alert2"/>
-                    Sin camión asignado
+                    <span class="txt"><t t-esc="card.vehicle || 'Sin camión'"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></span>
                 </span>
             </div>
+            <div t-if="state.assignFor === card.id" class="o_out_assign">
+                <select class="o_out_select" t-on-change="(ev) => this.onAssignSelect(ev, card)" t-on-click.stop="() => {}">
+                    <option value="">— Sin camión —</option>
+                    <t t-foreach="data.fleet" t-as="v" t-key="v.id">
+                        <option t-att-value="v.id" t-att-selected="v.id === card.vehicle_id">
+                            <t t-esc="v.name"/><t t-if="v.capacity"> · <t t-esc="v.m2"/>/<t t-esc="v.capacity"/> m²</t>
+                        </option>
+                    </t>
+                </select>
+            </div>
+
             <div t-if="card.signed_at" class="o_out_signed">
                 <t t-call="sale_delivery_wizard.icon_sign"/>
                 Firmada <t t-esc="card.signed_at"/>
             </div>
+
             <div class="o_out_card_actions">
-                <button class="o_out_btn ghost" t-on-click="() => this.openPdf(card.doc_type, card.id)">
-                    Ver PDF <t t-call="sale_delivery_wizard.icon_open2"/>
+                <button class="o_out_btn ghost" t-on-click.stop="() => this.openPdf(card.doc_type, card.id)" title="Ver PDF">
+                    PDF <t t-call="sale_delivery_wizard.icon_open2"/>
                 </button>
+                <button class="o_out_btn ghost" t-on-click.stop="() => this.openDoc(card.id)" title="Abrir el documento">
+                    Abrir
+                </button>
+                <span class="grow"/>
+                <button t-if="stageKey === 'pending'" class="o_out_btn" t-att-disabled="state.busy"
+                        t-on-click.stop="() => this.moveCard(card.id, 'ready')" title="Pasar a Listo para cargar">
+                    Listo <t t-call="sale_delivery_wizard.icon_arrow"/>
+                </button>
+                <button t-elif="stageKey === 'ready'" class="o_out_btn" t-att-disabled="state.busy"
+                        t-on-click.stop="() => this.moveCard(card.id, 'in_route')" title="Generar la remisión y salir a ruta">
+                    Remisión <t t-call="sale_delivery_wizard.icon_arrow"/>
+                </button>
+                <button t-elif="stageKey === 'in_route' and data.can_deliver_manual" class="o_out_btn" t-att-disabled="state.busy"
+                        t-on-click.stop="() => this.moveCard(card.id, 'delivered')" title="Marcar como entregada (manual, queda rastro)">
+                    Entregada <t t-call="sale_delivery_wizard.icon_check"/>
+                </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ═══ Carril (etapa) ═══ -->
+    <t t-name="sale_delivery_wizard.OutboundLane">
+        <div t-attf-class="o_out_col {{ state.over === stage.key ? 'over' : '' }} {{ state.drag and this.canMove(state.drag.from, stage.key) ? 'target' : '' }}"
+             t-on-dragover="(ev) => this.onLaneDragOver(ev, stage.key)"
+             t-on-dragleave="(ev) => this.onLaneDragLeave(ev, stage.key)"
+             t-on-drop="(ev) => this.onLaneDrop(ev, stage.key)">
+            <div t-attf-class="o_out_col_head {{ stage.tone }}">
+                <span class="step" t-esc="stage.step"/>
+                <t t-call="sale_delivery_wizard.icon_stage"><t t-set="icon" t-value="stage.icon"/></t>
+                <span class="lbl">
+                    <span class="name" t-esc="stage.label"/>
+                    <span class="hint" t-esc="stage.hint"/>
+                </span>
+                <span class="m2" t-if="this.stageM2(stage.key)"><t t-esc="this.stageM2(stage.key)"/> m²</span>
+                <b t-esc="(data[stage.key] || []).length"/>
+            </div>
+            <div class="o_out_col_body">
+                <t t-foreach="this.cards(stage.key)" t-as="card" t-key="card.id">
+                    <t t-call="sale_delivery_wizard.OutboundCard"><t t-set="stageKey" t-value="stage.key"/></t>
+                </t>
+                <div t-if="!this.cards(stage.key).length" class="o_out_empty">
+                    <t t-if="(data[stage.key] || []).length">Nada coincide con el filtro.</t>
+                    <t t-elif="stage.key === 'pending'">Sin pick tickets por preparar.</t>
+                    <t t-elif="stage.key === 'ready'">Nada listo para cargar.</t>
+                    <t t-elif="stage.key === 'in_route'">Sin remisiones en ruta.</t>
+                    <t t-else="">Aún sin entregas firmadas.</t>
+                </div>
+                <div t-if="state.drag and this.canMove(state.drag.from, stage.key)" class="o_out_dropzone">
+                    Suelta aquí para pasar a <b t-esc="stage.label"/>
+                </div>
             </div>
         </div>
     </t>
@@ -108,139 +219,107 @@
     <!-- ═══ Tablero ═══ -->
     <t t-name="sale_delivery_wizard.OutboundDashboard">
         <div class="o_outbound_dash">
+
+            <!-- Barra superior: título, búsqueda, filtros, accesos -->
             <div class="o_out_topbar">
-                <div class="o_out_title">Salidas de hoy</div>
-                <div class="o_out_topbtns">
-                    <button class="o_out_btn ghost" t-on-click="openPtList">
-                        Pick tickets <t t-call="sale_delivery_wizard.icon_open2"/>
+                <div class="o_out_title">
+                    <div class="t">Salidas</div>
+                    <div class="s" t-if="state.data">
+                        <t t-esc="data.today_label"/>
+                        · <b t-esc="data.kpis.pts_open"/> por surtir
+                        · <b t-esc="data.kpis.in_route"/> en ruta
+                        · <b t-esc="data.kpis.delivered"/> entregadas
+                        <t t-if="data.kpis.delivered_m2"> (<t t-esc="data.kpis.delivered_m2"/> m²)</t>
+                    </div>
+                </div>
+                <div class="o_out_search">
+                    <t t-call="sale_delivery_wizard.icon_search"/>
+                    <input type="text" placeholder="Folio, cliente, orden, camión, material…" t-att-value="state.search" t-on-input="onSearch"/>
+                </div>
+                <div class="o_out_chips" t-if="state.data">
+                    <button t-attf-class="o_out_chip red {{ state.filter === 'noveh' ? 'on' : '' }}" t-on-click="() => this.setFilter('noveh')" title="Documentos por surtir sin camión asignado">
+                        <t t-call="sale_delivery_wizard.icon_alert2"/> Sin camión <b t-esc="noVehicleCount"/>
                     </button>
-                    <button class="o_out_btn ghost" t-on-click="openRemissionList">
-                        Remisiones <t t-call="sale_delivery_wizard.icon_open2"/>
+                    <button t-attf-class="o_out_chip amber {{ state.filter === 'auth' ? 'on' : '' }}" t-on-click="() => this.setFilter('auth')" title="Órdenes que aún requieren autorización de entrega">
+                        Por autorizar <b t-esc="pendingAuthCount"/>
+                    </button>
+                    <button t-attf-class="o_out_chip {{ state.filter === 'today' ? 'on' : '' }}" t-on-click="() => this.setFilter('today')" title="Pick tickets creados hoy">
+                        Hoy <b t-esc="todayCount"/>
+                    </button>
+                </div>
+                <div class="o_out_topbtns">
+                    <button class="o_out_btn ghost" t-on-click="openPtList" title="Lista de pick tickets">Pick tickets</button>
+                    <button class="o_out_btn ghost" t-on-click="openRemissionList" title="Lista de remisiones">Remisiones</button>
+                    <button class="o_out_btn ghost" t-on-click="openLiveMap" title="Mapa en vivo"><t t-call="sale_delivery_wizard.icon_map"/> Mapa</button>
+                    <button t-attf-class="o_out_btn ghost {{ state.trucksOpen ? 'on' : '' }}" t-on-click="toggleTrucks" title="Mostrar u ocultar el panel de camiones">
+                        <t t-call="sale_delivery_wizard.icon_truck"/> Camiones
+                    </button>
+                    <button class="o_out_btn icon" t-on-click="refresh" title="Actualizar">
+                        <t t-call="sale_delivery_wizard.icon_refresh"/>
                     </button>
                 </div>
             </div>
 
-            <div t-if="state.loading" class="o_out_loading">Cargando…</div>
+            <div t-if="state.loading and !state.data" class="o_out_loading">Cargando el tablero…</div>
 
-            <t t-if="!state.loading and state.data">
-                <!-- KPIs -->
-                <div class="o_out_kpis">
-                    <div class="o_out_kpi blue">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_clipboard"/></div>
-                        <div><div class="v" t-esc="state.data.kpis.pts_open"/><div class="l">PTs abiertos</div></div>
-                    </div>
-                    <div class="o_out_kpi sky">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_scan"/></div>
-                        <div><div class="v" t-esc="state.data.kpis.ready"/><div class="l">Listos para surtir</div></div>
-                    </div>
-                    <div class="o_out_kpi blue">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_area"/></div>
-                        <div><div class="v"><t t-esc="state.data.kpis.m2_to_deliver"/><small>m²</small></div><div class="l">Por entregar<t t-if="state.data.kpis.units_to_deliver"> · +<t t-esc="state.data.kpis.units_to_deliver"/> pzas</t></div></div>
-                    </div>
-                    <div class="o_out_kpi sky">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_truck"/></div>
-                        <div><div class="v" t-esc="state.data.kpis.in_route"/><div class="l">En ruta</div></div>
-                    </div>
-                    <div class="o_out_kpi green">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_check"/></div>
-                        <div><div class="v" t-esc="state.data.kpis.delivered"/><div class="l">Entregadas hoy</div></div>
-                    </div>
-                    <div class="o_out_kpi green">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_sign"/></div>
-                        <div><div class="v"><t t-esc="state.data.kpis.delivered_m2"/><small>m²</small></div><div class="l">Entregados hoy<t t-if="state.data.kpis.delivered_units"> · +<t t-esc="state.data.kpis.delivered_units"/> pzas</t></div></div>
-                    </div>
-                    <div t-attf-class="o_out_kpi {{ state.data.kpis.no_vehicle ? 'red' : 'green' }}">
-                        <div class="ic"><t t-call="sale_delivery_wizard.icon_alert2"/></div>
-                        <div><div class="v" t-esc="state.data.kpis.no_vehicle"/><div class="l">Sin camión</div></div>
-                    </div>
-                </div>
-
-                <!-- Carga por camión -->
-                <div class="o_out_trucks" t-if="state.data.trucks.length">
-                    <div class="o_out_sec_title">
-                        <t t-call="sale_delivery_wizard.icon_truck"/>
-                        Carga asignada por camión
-                    </div>
-                    <div class="o_out_truck_grid">
-                        <div class="o_out_truck" t-foreach="state.data.trucks" t-as="tk" t-key="tk.id">
-                            <div class="o_out_truck_head">
-                                <div>
-                                    <div class="n" t-esc="tk.name"/>
-                                    <div class="d" t-if="tk.driver" t-esc="tk.driver"/>
-                                </div>
-                                <div class="load">
-                                    <b t-esc="tk.m2"/> / <t t-esc="tk.capacity ? tk.capacity : '—'"/> m²
-                                    <t t-if="tk.units"> · +<t t-esc="tk.units"/> pzas</t>
-                                </div>
-                            </div>
-                            <div class="o_out_bar">
-                                <div t-attf-class="fill {{ this.loadCls(tk.pct) }}"
-                                     t-attf-style="width: {{ Math.min(tk.pct, 100) }}%"/>
-                            </div>
-                            <div class="o_out_truck_pct">
-                                <span t-attf-class="{{ this.loadCls(tk.pct) }}"><t t-esc="tk.pct"/>%</span>
-                                <span class="cnt"><t t-esc="tk.docs.length"/> documentos</span>
-                            </div>
-                            <div class="o_out_truck_docs">
-                                <div class="doc" t-foreach="tk.docs" t-as="dc" t-key="dc.id"
-                                     t-on-click="() => this.openPdf(dc.doc_type, dc.id)">
-                                    <span class="f" t-esc="dc.label"/>
-                                    <span class="s" t-esc="dc.status"/>
-                                    <span class="m" t-esc="dc.qty_label"/>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Flujo del día -->
+            <div t-if="state.data" class="o_out_body">
+                <!-- Flujo del día: carriles secuenciales (la columna A taller se cuelga al final vía extensión) -->
                 <div class="o_out_cols">
-                    <div class="o_out_col">
-                        <div class="o_out_col_head slate">
-                            <t t-call="sale_delivery_wizard.icon_clipboard"/>
-                            <span>Pendientes</span>
-                            <b t-esc="state.data.pending.length"/>
-                        </div>
-                        <t t-foreach="state.data.pending" t-as="card" t-key="card.id">
-                            <t t-call="sale_delivery_wizard.OutboundCard"/>
-                        </t>
-                        <div t-if="!state.data.pending.length" class="o_out_empty">Sin PTs pendientes</div>
-                    </div>
-                    <div class="o_out_col">
-                        <div class="o_out_col_head strong">
-                            <t t-call="sale_delivery_wizard.icon_scan"/>
-                            <span>Listos para surtir</span>
-                            <b t-esc="state.data.ready.length"/>
-                        </div>
-                        <t t-foreach="state.data.ready" t-as="card" t-key="card.id">
-                            <t t-call="sale_delivery_wizard.OutboundCard"/>
-                        </t>
-                        <div t-if="!state.data.ready.length" class="o_out_empty">Nada listo para surtir</div>
-                    </div>
-                    <div class="o_out_col">
-                        <div class="o_out_col_head sky">
-                            <t t-call="sale_delivery_wizard.icon_truck"/>
-                            <span>En ruta</span>
-                            <b t-esc="state.data.in_route.length"/>
-                        </div>
-                        <t t-foreach="state.data.in_route" t-as="card" t-key="card.id">
-                            <t t-call="sale_delivery_wizard.OutboundCard"/>
-                        </t>
-                        <div t-if="!state.data.in_route.length" class="o_out_empty">Sin remisiones en ruta</div>
-                    </div>
-                    <div class="o_out_col">
-                        <div class="o_out_col_head green">
-                            <t t-call="sale_delivery_wizard.icon_check"/>
-                            <span>Entregadas hoy</span>
-                            <b t-esc="state.data.delivered.length"/>
-                        </div>
-                        <t t-foreach="state.data.delivered" t-as="card" t-key="card.id">
-                            <t t-call="sale_delivery_wizard.OutboundCard"/>
-                        </t>
-                        <div t-if="!state.data.delivered.length" class="o_out_empty">Aún sin entregas firmadas</div>
-                    </div>
+                    <t t-foreach="stages" t-as="stage" t-key="stage.key">
+                        <t t-call="sale_delivery_wizard.OutboundLane"/>
+                    </t>
                 </div>
-            </t>
+
+                <!-- Panel de camiones: carga vs capacidad; destino de arrastre para asignar -->
+                <aside t-if="state.trucksOpen" class="o_out_trucks">
+                    <div class="o_out_trucks_head">
+                        <t t-call="sale_delivery_wizard.icon_truck"/>
+                        <span>Camiones</span>
+                        <span class="hint">Arrastra una tarjeta a un camión para asignarlo</span>
+                    </div>
+                    <div t-if="!data.fleet.length" class="o_out_empty">Sin vehículos en la flota.</div>
+                    <t t-foreach="fleetLoaded" t-as="tk" t-key="tk.id">
+                        <t t-call="sale_delivery_wizard.OutboundTruck"/>
+                    </t>
+                    <div t-if="fleetIdle.length" class="o_out_trucks_sep">Sin carga asignada</div>
+                    <t t-foreach="fleetIdle" t-as="tk" t-key="tk.id">
+                        <t t-call="sale_delivery_wizard.OutboundTruck"/>
+                    </t>
+                </aside>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="sale_delivery_wizard.OutboundTruck">
+        <div t-attf-class="o_out_truck {{ state.over === 'truck:' + tk.id ? 'over' : '' }} {{ state.drag and state.drag.from !== 'delivered' ? 'target' : '' }}"
+             t-on-dragover="(ev) => this.onTruckDragOver(ev, tk)"
+             t-on-dragleave="(ev) => this.onTruckDragLeave(ev, tk)"
+             t-on-drop="(ev) => this.onTruckDrop(ev, tk)">
+            <div class="o_out_truck_head">
+                <div class="who">
+                    <div class="n" t-esc="tk.name"/>
+                    <div class="d" t-if="tk.driver" t-esc="tk.driver"/>
+                </div>
+                <div class="load">
+                    <b t-esc="tk.m2"/> / <t t-esc="tk.capacity ? tk.capacity : '—'"/> m²
+                    <t t-if="tk.units"> · +<t t-esc="tk.units"/> pzas</t>
+                </div>
+            </div>
+            <div class="o_out_bar">
+                <div t-attf-class="fill {{ this.loadCls(tk.pct) }}" t-attf-style="width: {{ Math.min(tk.pct, 100) }}%"/>
+            </div>
+            <div class="o_out_truck_pct">
+                <span t-attf-class="{{ this.loadCls(tk.pct) }}"><t t-esc="tk.pct"/>%</span>
+                <span class="cnt"><t t-esc="tk.docs.length"/> documento<t t-if="tk.docs.length !== 1">s</t></span>
+            </div>
+            <div class="o_out_truck_docs" t-if="tk.docs.length">
+                <div class="doc" t-foreach="tk.docs" t-as="dc" t-key="dc.id"
+                     t-on-click="() => this.openPdf(dc.doc_type, dc.id)" title="Ver PDF">
+                    <span class="f" t-esc="dc.label"/>
+                    <span class="s" t-esc="dc.status"/>
+                    <span class="m" t-esc="dc.qty_label"/>
+                </div>
+            </div>
         </div>
     </t>
 </templates>
