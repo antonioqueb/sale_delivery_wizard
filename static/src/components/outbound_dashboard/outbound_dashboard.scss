@@ -157,6 +157,9 @@ $out-card: #ffffff;
         overflow-y: auto; // por si una extensión pone tarjetas directo en la columna
         &.target { border-color: rgba(11, 87, 208, 0.35); }
         &.over { background: #dbe7fb; border-color: $out-blue; }
+        // Extensiones (columna «A taller») ponen tarjetas y vacíos directo en la columna.
+        > .o_out_card, > .o_out_empty { margin: 4px 8px; }
+        > .o_out_empty:last-child, > .o_out_card:last-child { margin-bottom: 12px; }
     }
     .o_out_col_head {
         display: flex;
