@@ -194,12 +194,11 @@
                 <filter name="open" string="Abiertas" domain="[('state', 'in', ('scheduled', 'confirmed', 'in_progress'))]"/>
                 <filter name="rescheduled" string="Reprogramadas" domain="[('reschedule_count', '>', 0)]"/>
                 <filter name="no_location" string="Sin ubicación" domain="[('has_location', '=', False)]"/>
-                <group string="Agrupar por">
-                    <filter name="group_date" string="Fecha" context="{'group_by': 'date'}"/>
-                    <filter name="group_seller" string="Vendedor" context="{'group_by': 'user_id'}"/>
-                    <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
-                    <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"/>
-                </group>
+                <separator/>
+                <filter name="group_date" string="Fecha" context="{'group_by': 'date'}"/>
+                <filter name="group_seller" string="Vendedor" context="{'group_by': 'user_id'}"/>
+                <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+                <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"/>
             </search>
         </field>
     </record>
