@@ -861,6 +861,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
             veh = doc.vehicle_id
             vkey = veh.id or 0
             v = vehicles.setdefault(vkey, {
+                'key': str(vkey),  # clave estable para el t-foreach (dos vehículos pueden llamarse igual)
                 'name': veh.display_name if veh else 'Sin vehículo',
                 'capacity': veh.x_capacity_sqm if veh else 0.0,
                 'odometer': veh.odometer if veh else 0.0,
@@ -881,6 +882,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
             drv = doc.vehicle_driver_id
             dkey = drv.id or 0
             dr = drivers.setdefault(dkey, {
+                'key': str(dkey),
                 'name': drv.display_name if drv else 'Sin chofer',
                 'trips': 0, 'm2': 0.0, 'units': 0.0, 'km': 0.0,
                 'moving_s': 0.0, 'stopped_s': 0.0, 'peak': 0.0,
@@ -933,6 +935,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
         def _veh_out(v):
             avg_util = sum(v['util']) / len(v['util']) if v['util'] else 0.0
             return {
+                'key': v['key'],
                 'name': v['name'],
                 'capacity': round(v['capacity'], 1),
                 'trips': v['trips'],
@@ -948,6 +951,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
 
         def _drv_out(d):
             return {
+                'key': d['key'],
                 'name': d['name'],
                 'trips': d['trips'],
                 'm2': round(d['m2'], 1),
@@ -1104,6 +1108,7 @@ class SaleDeliveryLiveMap(models.TransientModel):
             if not veh:
                 continue
             t = trucks.setdefault(veh.id, {
+                'id': veh.id,
                 'name': veh.display_name,
                 'driver': '',
                 'capacity': round(getattr(veh, 'x_capacity_sqm', 0.0) or 0.0, 1),

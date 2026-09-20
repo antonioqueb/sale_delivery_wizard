@@ -162,7 +162,7 @@
                         Carga asignada por camión
                     </div>
                     <div class="o_out_truck_grid">
-                        <div class="o_out_truck" t-foreach="state.data.trucks" t-as="tk" t-key="tk.name">
+                        <div class="o_out_truck" t-foreach="state.data.trucks" t-as="tk" t-key="tk.id">
                             <div class="o_out_truck_head">
                                 <div>
                                     <div class="n" t-esc="tk.name"/>

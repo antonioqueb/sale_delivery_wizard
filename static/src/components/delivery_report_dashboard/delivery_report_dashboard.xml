@@ -111,7 +111,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr t-foreach="state.data.vehicles" t-as="v" t-key="v.name">
+                                <tr t-foreach="state.data.vehicles" t-as="v" t-key="v.key">
                                     <td><t t-esc="v.name"/></td>
                                     <td class="num"><t t-esc="v.capacity"/></td>
                                     <td class="num"><t t-esc="v.trips"/></td>
@@ -151,7 +151,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr t-foreach="state.data.drivers" t-as="dr" t-key="dr.name">
+                                <tr t-foreach="state.data.drivers" t-as="dr" t-key="dr.key">
                                     <td><t t-esc="dr.name"/></td>
                                     <td class="num"><t t-esc="dr.trips"/></td>
                                     <td class="num"><t t-esc="dr.m2"/></td>
