@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_sale_delivery_schedule" model="ir.sequence">
+            <field name="name">Entrega programada SOM</field>
+            <field name="code">sale.delivery.schedule</field>
+            <field name="prefix">PRG/%(year)s/</field>
+            <field name="padding">5</field>
+        </record>
+    </data>
+    <!-- 05:30 UTC = 23:30 Monterrey (UTC-6). Lo programado para un día que
+         terminó y no se entregó se recorre al día siguiente y se avisa. -->
+    <record id="cron_sale_delivery_schedule_rollover" model="ir.cron">
+        <field name="name">Entregas: recorrer al día siguiente las programadas no entregadas</field>
+        <field name="model_id" ref="model_sale_delivery_schedule"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_rollover()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="nextcall" eval="(DateTime.now().replace(hour=5, minute=30, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

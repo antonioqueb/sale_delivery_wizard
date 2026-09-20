@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.11.15.1',
+    'version': '19.0.12.0.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -14,6 +14,8 @@
         - Cockpit operativo en el formulario de venta
         - Vista agrupada por producto con acordeones colapsables
         - Validación de colisión de lotes entre Pick Tickets abiertos
+        - Planificación de entregas: el vendedor programa (fecha, contacto, dirección,
+          ubicación en mapa, especificación); logística confirma, reprograma y ejecuta
     """,
     'author': 'Alphaqueb Consulting SAS',
     'website': 'https://alphaqueb.com',
@@ -39,6 +41,9 @@
         'data/multi_company_fill.xml',
         'views/sale_order_views.xml',
         'views/sale_delivery_document_views.xml',
+        'security/sale_delivery_schedule_security.xml',
+        'data/sale_delivery_schedule_data.xml',
+        'views/sale_delivery_schedule_views.xml',
         'views/fleet_vehicle_views.xml',
         'wizard/sale_delivery_wizard_views.xml',
         'wizard/sale_return_wizard_views.xml',
@@ -57,6 +62,12 @@
             'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.scss',
             'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.xml',
             'sale_delivery_wizard/static/src/components/outbound_dashboard/outbound_dashboard.js',
+            'sale_delivery_wizard/static/src/components/delivery_planner/delivery_planner.scss',
+            'sale_delivery_wizard/static/src/components/delivery_planner/delivery_planner.xml',
+            'sale_delivery_wizard/static/src/components/delivery_planner/delivery_planner.js',
+            'sale_delivery_wizard/static/src/components/map_picker/map_picker.scss',
+            'sale_delivery_wizard/static/src/components/map_picker/map_picker.xml',
+            'sale_delivery_wizard/static/src/components/map_picker/map_picker.js',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.scss',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.xml',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.js',

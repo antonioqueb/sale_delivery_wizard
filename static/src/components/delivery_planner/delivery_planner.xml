@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="sale_delivery_wizard.PlannerCard">
+        <div t-attf-class="o_dp_card st-{{ card.state }} {{ card.readiness ? 'has-issues' : '' }} {{ state.drag and state.drag.id === card.id ? 'dragging' : '' }} {{ state.expanded[card.id] ? 'open' : '' }}"
+             t-att-draggable="this.isOpen(card) ? 'true' : 'false'"
+             t-on-dragstart="(ev) => this.onDragStart(ev, card, day)"
+             t-on-dragend="onDragEnd"
+             t-on-click="() => this.toggleExpand(card)">
+            <div class="o_dp_card_top">
+                <span class="time" t-esc="card.time_label"/>
+                <span class="order" t-esc="card.order"/>
+                <span t-attf-class="o_dp_state st-{{ card.state }}" t-esc="card.state_label"/>
+            </div>
+            <div class="o_dp_partner" t-esc="card.partner"/>
+            <div class="o_dp_line"><span class="lbl">Vend.</span> <t t-esc="card.seller"/></div>
+            <div class="o_dp_line qty" t-esc="card.qty"/>
+            <div t-if="card.readiness" class="o_dp_issues" t-att-title="card.readiness">
+                <i class="fa fa-exclamation-triangle" title=""/> <t t-esc="card.readiness"/>
+            </div>
+            <div t-if="card.reschedules" class="o_dp_moved" t-att-title="card.last_move">
+                <i class="fa fa-history" title=""/> reprogramada <t t-esc="card.reschedules"/> vez<t t-if="card.reschedules !== 1">es</t>
+                <span t-if="card.last_move" class="muted"> · <t t-esc="card.last_move"/></span>
+            </div>
+            <div t-if="card.vehicle" class="o_dp_line"><i class="fa fa-truck" title=""/> <t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></div>
+
+            <div t-if="state.expanded[card.id]" class="o_dp_detail" t-on-click.stop="() => {}">
+                <div class="o_dp_line"><span class="lbl">Contacto</span> <t t-esc="card.contact"/> · <a t-att-href="'tel:' + card.phone" t-esc="card.phone"/></div>
+                <div class="o_dp_line addr"><span class="lbl">Dirección</span> <t t-esc="card.address"/></div>
+                <div class="o_dp_spec" t-esc="card.instructions"/>
+                <div t-if="card.pt or card.rem" class="o_dp_line"><span class="lbl">Docs</span> <t t-if="card.pt"><t t-esc="card.pt"/></t><t t-if="card.rem"> · <t t-esc="card.rem"/></t><t t-if="card.delivered_at"> · entregada <t t-esc="card.delivered_at"/></t></div>
+                <div class="o_dp_actions">
+                    <button class="o_dp_btn ghost" t-on-click.stop="() => this.openSchedule(card)">Abrir</button>
+                    <button class="o_dp_btn ghost" t-on-click.stop="() => this.openOrder(card)">Orden</button>
+                    <button t-if="card.has_location" class="o_dp_btn ghost" t-on-click.stop="() => this.openMap(card)"><i class="fa fa-map-marker" title=""/> Mapa</button>
+                    <span class="grow"/>
+                    <button t-if="data.is_staff and card.state === 'scheduled'" class="o_dp_btn" t-att-disabled="state.busy" t-on-click.stop="() => this.confirmCard(card)">Confirmar</button>
+                    <button t-if="data.can_generate and this.isOpen(card)" class="o_dp_btn" t-att-disabled="state.busy" t-on-click.stop="() => this.generateDelivery(card)">Generar entrega</button>
+                </div>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="sale_delivery_wizard.DeliveryPlanner">
+        <div class="o_delivery_planner">
+            <div class="o_dp_topbar">
+                <div class="o_dp_title">
+                    <div class="t"><t t-if="onlyMine">Mis entregas de la semana</t><t t-else="">Planificación de entregas</t></div>
+                    <div class="s" t-if="state.data">
+                        <b t-esc="weekTotals.open"/> por entregar · <b t-esc="weekTotals.done"/> entregadas
+                        <span t-if="weekTotals.issues" class="warn"> · <b t-esc="weekTotals.issues"/> con pendientes</span>
+                    </div>
+                </div>
+                <div class="o_dp_nav">
+                    <button class="o_dp_btn ghost" t-on-click="() => this.shiftWeek(-1)" title="Semana anterior"><i class="fa fa-chevron-left" title=""/></button>
+                    <button class="o_dp_btn ghost" t-on-click="goToday">Hoy</button>
+                    <button class="o_dp_btn ghost" t-on-click="() => this.shiftWeek(1)" title="Semana siguiente"><i class="fa fa-chevron-right" title=""/></button>
+                    <span class="o_dp_week" t-esc="data.week_label"/>
+                </div>
+                <div class="o_dp_search">
+                    <i class="fa fa-search" title=""/>
+                    <input type="text" placeholder="Orden, cliente, vendedor, dirección…" t-att-value="state.search" t-on-input="onSearch"/>
+                </div>
+                <div class="o_dp_tools">
+                    <button t-attf-class="o_dp_chip {{ state.onlyIssues ? 'on' : '' }}" t-on-click="toggleIssues" title="Solo entregas con información o autorización pendiente">
+                        <i class="fa fa-exclamation-triangle" title=""/> Con pendientes
+                    </button>
+                    <button t-if="data.overdue" class="o_dp_chip red" t-on-click="openOverdue" title="Programadas en días pasados y no entregadas">
+                        <i class="fa fa-clock-o" title=""/> Atrasadas <b t-esc="data.overdue"/>
+                    </button>
+                </div>
+            </div>
+
+            <div t-if="state.loading and !state.data" class="o_dp_loading">Cargando la semana…</div>
+
+            <div t-if="state.data" class="o_dp_week_grid">
+                <t t-foreach="data.days" t-as="day" t-key="day.iso">
+                    <div t-attf-class="o_dp_day {{ day.is_today ? 'today' : '' }} {{ day.is_past ? 'past' : '' }} {{ day.weekday >= 5 ? 'weekend' : '' }} {{ state.over === day.iso ? 'over' : '' }} {{ state.drag and state.drag.from !== day.iso ? 'target' : '' }}"
+                         t-on-dragover="(ev) => this.onDayDragOver(ev, day)"
+                         t-on-dragleave="(ev) => this.onDayDragLeave(ev, day)"
+                         t-on-drop="(ev) => this.onDayDrop(ev, day)">
+                        <div class="o_dp_day_head">
+                            <span class="d" t-esc="day.label"/>
+                            <span class="n" t-if="day.open_count"><t t-esc="day.open_count"/> por entregar</span>
+                            <span class="n done" t-if="day.done_count"><t t-esc="day.done_count"/> ok</span>
+                            <span class="n warn" t-if="day.issues"><t t-esc="day.issues"/> pend.</span>
+                        </div>
+                        <div class="o_dp_day_body">
+                            <t t-foreach="this.cardsOf(day)" t-as="card" t-key="card.id">
+                                <t t-call="sale_delivery_wizard.PlannerCard"/>
+                            </t>
+                            <div t-if="!this.cardsOf(day).length" class="o_dp_empty">—</div>
+                            <div t-if="state.drag and state.drag.from !== day.iso" class="o_dp_dropzone">Soltar aquí</div>
+                        </div>
+                    </div>
+                </t>
+            </div>
+
+            <!-- Diálogo de motivo al reprogramar por arrastre -->
+            <div t-if="state.move" class="o_dp_modal_bg" t-on-click="cancelMove">
+                <div class="o_dp_modal" t-on-click.stop="() => {}">
+                    <div class="h">Reprogramar <b t-esc="state.move.order"/></div>
+                    <div class="p">Del <b t-esc="this.fmtIso(state.move.from)"/> al <b t-esc="this.fmtIso(state.move.to)"/>. El vendedor recibirá el aviso con este motivo y quedará en el historial.</div>
+                    <textarea rows="3" placeholder="Motivo (obligatorio)" t-att-value="state.move.reason" t-on-input="onMoveReason"/>
+                    <div class="f">
+                        <button class="o_dp_btn ghost" t-on-click="cancelMove">Cancelar</button>
+                        <button class="o_dp_btn" t-att-disabled="state.busy" t-on-click="confirmMove">Reprogramar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

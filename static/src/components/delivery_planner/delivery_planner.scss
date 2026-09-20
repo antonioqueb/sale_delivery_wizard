@@ -1,0 +1,199 @@
+// ═══ Planificación de entregas — calendario semanal operativo ═══
+$dp-blue: #0b57d0;
+$dp-blue-dark: #083b8f;
+$dp-green: #159957;
+$dp-amber: #b45309;
+$dp-red: #d92d20;
+$dp-ink: #0f172a;
+$dp-mut: #64748b;
+$dp-line: #e2e8f0;
+$dp-bg: #f3f6fb;
+
+.o_delivery_planner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: $dp-bg;
+    color: $dp-ink;
+    font-size: 13px;
+    position: relative;
+
+    .o_dp_topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 18px;
+        background: #fff;
+        border-bottom: 1px solid $dp-line;
+    }
+    .o_dp_title {
+        .t { font-size: 20px; font-weight: 800; color: $dp-blue-dark; letter-spacing: -0.01em; line-height: 1.1; }
+        .s { color: $dp-mut; font-size: 12.5px; margin-top: 2px; b { color: $dp-ink; } .warn b { color: $dp-amber; } }
+    }
+    .o_dp_nav { display: flex; align-items: center; gap: 6px; }
+    .o_dp_week { font-weight: 700; margin-left: 6px; white-space: nowrap; }
+    .o_dp_search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1 1 220px;
+        max-width: 380px;
+        border: 1px solid $dp-line;
+        border-radius: 10px;
+        padding: 6px 10px;
+        color: $dp-mut;
+        background: #fff;
+        input { border: 0; outline: 0; flex: 1; background: transparent; color: $dp-ink; text-transform: none !important; min-width: 0; }
+        &:focus-within { border-color: $dp-blue; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+    }
+    .o_dp_tools { display: flex; gap: 6px; margin-left: auto; }
+    .o_dp_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid $dp-line;
+        background: #fff;
+        border-radius: 999px;
+        padding: 5px 11px;
+        font-size: 12.5px;
+        cursor: pointer;
+        color: $dp-ink;
+        b { background: #eef2f7; border-radius: 999px; padding: 0 7px; }
+        &.on { background: $dp-blue; border-color: $dp-blue; color: #fff; }
+        &.red { color: $dp-red; border-color: #f5c2c0; b { background: #fdecea; color: $dp-red; } }
+    }
+    .o_dp_btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid $dp-blue;
+        background: $dp-blue;
+        color: #fff;
+        border-radius: 9px;
+        padding: 6px 11px;
+        font-size: 12.5px;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        white-space: nowrap;
+        &:hover { background: $dp-blue-dark; border-color: $dp-blue-dark; }
+        &.ghost { background: #fff; color: $dp-blue-dark; border-color: $dp-line; &:hover { border-color: $dp-blue; background: #f2f6fd; } }
+        &[disabled] { opacity: 0.5; cursor: not-allowed; }
+    }
+    .o_dp_loading { padding: 40px; text-align: center; color: $dp-mut; }
+
+    // ─── Semana: 7 columnas ───
+    .o_dp_week_grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(7, minmax(190px, 1fr));
+        gap: 10px;
+        padding: 12px 18px 16px;
+        overflow: auto;
+    }
+    .o_dp_day {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: #e9eef6;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        transition: border-color 0.12s ease, background 0.12s ease;
+        &.weekend { background: #eceff5; }
+        &.past { opacity: 0.85; }
+        &.today { border-color: $dp-blue; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+        &.target { border-color: rgba(11, 87, 208, 0.35); border-style: dashed; }
+        &.over { background: #dbe7fb; border-color: $dp-blue; border-style: solid; }
+    }
+    .o_dp_day_head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding: 9px 10px 6px;
+        position: sticky;
+        top: 0;
+        background: inherit;
+        border-radius: 14px 14px 0 0;
+        z-index: 1;
+        .d { font-weight: 800; font-size: 13.5px; flex-basis: 100%; }
+        .n { font-size: 11px; color: $dp-mut; background: #fff; border-radius: 999px; padding: 1px 7px; &.done { color: $dp-green; } &.warn { color: $dp-amber; } }
+    }
+    .today .o_dp_day_head .d { color: $dp-blue; }
+    .o_dp_day_body { display: flex; flex-direction: column; gap: 7px; padding: 2px 7px 10px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+    .o_dp_empty { text-align: center; color: #b3bccb; padding: 10px; }
+    .o_dp_dropzone { border: 2px dashed rgba(11, 87, 208, 0.45); border-radius: 10px; padding: 10px; text-align: center; color: $dp-blue-dark; font-size: 12px; background: rgba(255, 255, 255, 0.5); }
+
+    // ─── Tarjeta ───
+    .o_dp_card {
+        background: #fff;
+        border: 1px solid $dp-line;
+        border-left: 4px solid $dp-mut;
+        border-radius: 11px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        cursor: grab;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+        transition: box-shadow 0.12s ease, opacity 0.12s ease;
+        &:hover { box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1); }
+        &.dragging { opacity: 0.45; }
+        &.st-confirmed { border-left-color: $dp-blue; }
+        &.st-in_progress { border-left-color: #0284c7; }
+        &.st-done { border-left-color: $dp-green; cursor: default; opacity: 0.85; }
+        &.st-cancelled { border-left-color: #cbd5e1; cursor: default; opacity: 0.6; text-decoration: line-through; }
+        &.has-issues { background: #fffdf7; }
+    }
+    .o_dp_card_top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        .time { font-size: 11px; font-weight: 700; color: $dp-blue-dark; background: #e4ecfb; border-radius: 999px; padding: 1px 7px; }
+        .order { font-weight: 800; font-size: 13px; }
+    }
+    .o_dp_state {
+        margin-left: auto;
+        font-size: 10.5px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 1px 7px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        background: #eef2f7; color: $dp-mut;
+        &.st-confirmed { background: #e4ecfb; color: $dp-blue-dark; }
+        &.st-in_progress { background: #e0f2fe; color: #0369a1; }
+        &.st-done { background: #e6f5ec; color: $dp-green; }
+        &.st-cancelled { background: #f1f5f9; color: #94a3b8; }
+    }
+    .o_dp_partner { font-weight: 600; font-size: 12.5px; }
+    .o_dp_line { font-size: 12px; color: #334155; .lbl { color: $dp-mut; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-right: 3px; } &.qty { color: $dp-ink; font-weight: 600; } &.addr { white-space: normal; } a { color: $dp-blue; } }
+    .o_dp_issues { font-size: 11.5px; color: $dp-amber; font-weight: 600; }
+    .o_dp_moved { font-size: 11px; color: $dp-mut; .muted { font-weight: 400; } }
+    .o_dp_detail { border-top: 1px dashed $dp-line; margin-top: 4px; padding-top: 6px; display: flex; flex-direction: column; gap: 5px; cursor: default; }
+    .o_dp_spec { font-size: 12px; background: #f8fafc; border-radius: 8px; padding: 6px 8px; white-space: pre-wrap; color: #334155; }
+    .o_dp_actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; .grow { flex: 1; } }
+
+    // ─── Modal de motivo ───
+    .o_dp_modal_bg { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.35); display: grid; place-items: center; z-index: 20; }
+    .o_dp_modal {
+        width: 420px;
+        max-width: 92%;
+        background: #fff;
+        border-radius: 14px;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+        .h { font-size: 16px; font-weight: 800; }
+        .p { color: $dp-mut; font-size: 12.5px; }
+        textarea { border: 1px solid $dp-line; border-radius: 10px; padding: 8px 10px; font-size: 13px; text-transform: none !important; resize: vertical; &:focus { outline: 0; border-color: $dp-blue; } }
+        .f { display: flex; justify-content: flex-end; gap: 8px; }
+    }
+
+    @media (max-width: 1100px) {
+        .o_dp_week_grid { grid-template-columns: repeat(7, 220px); }
+    }
+}

@@ -1,0 +1,61 @@
+// ═══ Selector de ubicación en mapa ═══
+.o_som_map_picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+
+    .o_smp_bar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .o_smp_input {
+        flex: 1 1 260px;
+        border: 1px solid #e2e8f0;
+        border-radius: 9px;
+        padding: 6px 10px;
+        font-size: 13px;
+        text-transform: none !important;
+        &:focus { outline: 0; border-color: #0b57d0; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+    }
+    .o_smp_results {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 6px;
+        background: #fff;
+        max-height: 160px;
+        overflow-y: auto;
+    }
+    .o_smp_result {
+        text-align: left;
+        border: 0;
+        background: transparent;
+        padding: 6px 8px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        cursor: pointer;
+        text-transform: none !important;
+        &:hover { background: #f2f6fd; }
+        .fa { color: #0b57d0; margin-right: 4px; }
+    }
+    .o_smp_map {
+        width: 100%;
+        height: 340px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        overflow: hidden;
+        background: #e9eef6;
+        z-index: 0;
+    }
+    .o_smp_foot {
+        font-size: 12.5px;
+        .ok { color: #159957; font-weight: 600; a { margin-left: 8px; font-weight: 500; } }
+        .warn { color: #b45309; font-weight: 600; }
+    }
+    &.o_readonly .o_smp_map { height: 260px; }
+}

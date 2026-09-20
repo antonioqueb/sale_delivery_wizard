@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="rule_sale_delivery_schedule_seller_own" model="ir.rule">
+        <field name="name">Entrega programada: el vendedor ve las suyas</field>
+        <field name="model_id" ref="model_sale_delivery_schedule"/>
+        <field name="domain_force">['|', ('user_id', '=', user.id), ('create_uid', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('sales_team.group_sale_salesman'))]"/>
+    </record>
+    <record id="rule_sale_delivery_schedule_staff_all" model="ir.rule">
+        <field name="name">Entrega programada: logística ve todas</field>
+        <field name="model_id" ref="model_sale_delivery_schedule"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('sale_delivery_wizard.group_delivery_user')), (4, ref('sales_team.group_sale_manager'))]"/>
+    </record>
+    <record id="rule_sale_delivery_schedule_company" model="ir.rule">
+        <field name="name">Entrega programada: multiempresa</field>
+        <field name="model_id" ref="model_sale_delivery_schedule"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+    <record id="rule_sale_delivery_schedule_move_company" model="ir.rule">
+        <field name="name">Movimiento de entrega programada: multiempresa</field>
+        <field name="model_id" ref="model_sale_delivery_schedule_move"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+</odoo>

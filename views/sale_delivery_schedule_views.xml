@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════ Wizards ═══════════ -->
+    <record id="view_sale_delivery_schedule_move_wizard" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.move.wizard.form</field>
+        <field name="model">sale.delivery.schedule.move.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reprogramar entrega">
+                <group>
+                    <field name="schedule_id"/>
+                    <field name="current_date"/>
+                    <field name="new_date"/>
+                    <field name="reason" placeholder="Por qué se mueve (lo ve el vendedor y queda en el historial)"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Reprogramar" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_sale_delivery_schedule_move_wizard" model="ir.actions.act_window">
+        <field name="name">Reprogramar entrega</field>
+        <field name="res_model">sale.delivery.schedule.move.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_sale_delivery_schedule_cancel_wizard" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.cancel.wizard.form</field>
+        <field name="model">sale.delivery.schedule.cancel.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Cancelar programación">
+                <group>
+                    <field name="schedule_id"/>
+                    <field name="reason" placeholder="Motivo de la cancelación"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Cancelar programación" class="btn-danger"/>
+                    <button string="Volver" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_sale_delivery_schedule_cancel_wizard" model="ir.actions.act_window">
+        <field name="name">Cancelar programación</field>
+        <field name="res_model">sale.delivery.schedule.cancel.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ═══════════ Formulario: lo que el vendedor debe completar ═══════════ -->
+    <record id="view_sale_delivery_schedule_form" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.form</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="arch" type="xml">
+            <form string="Entrega programada">
+                <header>
+                    <button name="action_confirm" type="object" string="Confirmar (logística)" class="btn-primary"
+                            invisible="state != 'scheduled'" groups="sale_delivery_wizard.group_delivery_user"/>
+                    <button name="action_generate_delivery" type="object" string="Generar entrega" class="btn-primary"
+                            invisible="state not in ('scheduled', 'confirmed', 'in_progress')"
+                            groups="sale_delivery_wizard.group_delivery_user"/>
+                    <button name="%(action_sale_delivery_schedule_move_wizard)d" type="action" string="Reprogramar"
+                            invisible="state not in ('scheduled', 'confirmed', 'in_progress')"
+                            context="{'default_schedule_id': id}"/>
+                    <button name="%(action_sale_delivery_schedule_cancel_wizard)d" type="action" string="Cancelar programación"
+                            invisible="state in ('done', 'cancelled')" context="{'default_schedule_id': id}"/>
+                    <button name="action_reopen" type="object" string="Reabrir" invisible="state != 'cancelled'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="scheduled,confirmed,in_progress,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_order" type="object" class="oe_stat_button" icon="fa-file-text-o">
+                            <div class="o_stat_info"><span class="o_stat_text">Orden</span><span class="o_stat_value"><field name="sale_order_id" readonly="1" nolabel="1"/></span></div>
+                        </button>
+                        <button name="action_open_map" type="object" class="oe_stat_button" icon="fa-map-marker" invisible="not has_location">
+                            <div class="o_stat_info"><span class="o_stat_text">Ver en mapa</span></div>
+                        </button>
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="not readiness or state in ('done','cancelled')">
+                        <b>Pendientes para logística:</b> <field name="readiness" readonly="1" nolabel="1" class="d-inline"/>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Cuándo">
+                            <field name="sale_order_id" options="{'no_create': True}" readonly="state != 'scheduled'"/>
+                            <field name="partner_id"/>
+                            <field name="user_id" readonly="1"/>
+                            <field name="date" readonly="id" help="Una vez creada, la fecha solo cambia con «Reprogramar» (queda historial)."/>
+                            <field name="time_window"/>
+                            <field name="time_exact" widget="float_time" invisible="time_window != 'exact'" required="time_window == 'exact'"/>
+                            <field name="qty_summary"/>
+                            <field name="auth_label" string="Autorización" invisible="not auth_label"/>
+                        </group>
+                        <group string="Con quién y dónde">
+                            <field name="contact_name"/>
+                            <field name="contact_phone" widget="phone"/>
+                            <field name="delivery_address" placeholder="Calle, número, colonia, municipio, referencias"/>
+                            <field name="vehicle_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                            <field name="vehicle_driver_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                        </group>
+                    </group>
+                    <group string="Ubicación exacta en el mapa (haz clic o busca la dirección)">
+                        <field name="latitude" widget="som_map_picker" nolabel="1" colspan="2"
+                               options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
+                        <field name="longitude" invisible="1"/>
+                        <field name="has_location" invisible="1"/>
+                    </group>
+                    <group string="Especificación de la entrega (lo que logística va a leer)">
+                        <field name="instructions" nolabel="1" colspan="2"
+                               placeholder="Qué se entrega y en qué presentación, quién recibe, horario del sitio, acceso y estacionamiento, maniobra o equipo necesario, piso, elevador, restricciones…"/>
+                    </group>
+                    <notebook>
+                        <page string="Movimientos" name="moves">
+                            <field name="move_ids" readonly="1">
+                                <list>
+                                    <field name="create_date" string="Cuándo"/>
+                                    <field name="kind"/>
+                                    <field name="date_from"/>
+                                    <field name="date_to"/>
+                                    <field name="source"/>
+                                    <field name="user_id"/>
+                                    <field name="reason"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Ejecución" name="execution">
+                            <group>
+                                <field name="original_date"/>
+                                <field name="reschedule_count"/>
+                                <field name="pick_ticket_id"/>
+                                <field name="remission_id"/>
+                                <field name="delivered_at"/>
+                                <field name="cancel_reason" invisible="not cancel_reason"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_sale_delivery_schedule_list" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.list</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="arch" type="xml">
+            <list decoration-success="state == 'done'" decoration-muted="state == 'cancelled'" decoration-info="state == 'in_progress'">
+                <field name="date"/>
+                <field name="time_window"/>
+                <field name="name"/>
+                <field name="sale_order_id"/>
+                <field name="partner_id"/>
+                <field name="user_id"/>
+                <field name="contact_phone" optional="show"/>
+                <field name="vehicle_id" optional="show"/>
+                <field name="reschedule_count" optional="show"/>
+                <field name="readiness" optional="show"/>
+                <field name="state" widget="badge"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_sale_delivery_schedule_calendar" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.calendar</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="arch" type="xml">
+            <calendar date_start="date" color="user_id" mode="week" quick_create="0" event_open_popup="1" hide_time="1">
+                <field name="sale_order_id"/>
+                <field name="partner_id"/>
+                <field name="time_window"/>
+                <field name="state"/>
+                <field name="vehicle_id"/>
+                <field name="user_id"/>
+            </calendar>
+        </field>
+    </record>
+
+    <record id="view_sale_delivery_schedule_search" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.search</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="sale_order_id"/>
+                <field name="partner_id"/>
+                <field name="user_id"/>
+                <field name="vehicle_id"/>
+                <filter name="mine" string="Mis entregas" domain="[('user_id', '=', uid)]"/>
+                <filter name="open" string="Abiertas" domain="[('state', 'in', ('scheduled', 'confirmed', 'in_progress'))]"/>
+                <filter name="rescheduled" string="Reprogramadas" domain="[('reschedule_count', '>', 0)]"/>
+                <filter name="no_location" string="Sin ubicación" domain="[('has_location', '=', False)]"/>
+                <group string="Agrupar por">
+                    <filter name="group_date" string="Fecha" context="{'group_by': 'date'}"/>
+                    <filter name="group_seller" string="Vendedor" context="{'group_by': 'user_id'}"/>
+                    <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+                    <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ═══════════ Acciones ═══════════ -->
+    <record id="action_delivery_planner" model="ir.actions.client">
+        <field name="name">Planificación</field>
+        <field name="tag">sale_delivery_wizard.delivery_planner</field>
+    </record>
+    <record id="action_delivery_planner_mine" model="ir.actions.client">
+        <field name="name">Mis entregas</field>
+        <field name="tag">sale_delivery_wizard.delivery_planner</field>
+        <field name="params" eval="{'only_mine': True}"/>
+    </record>
+    <record id="action_sale_delivery_schedule" model="ir.actions.act_window">
+        <field name="name">Entregas programadas</field>
+        <field name="res_model">sale.delivery.schedule</field>
+        <field name="view_mode">calendar,list,form</field>
+        <field name="context">{'search_default_open': 1}</field>
+    </record>
+    <record id="action_sale_delivery_schedule_mine" model="ir.actions.act_window">
+        <field name="name">Mis entregas programadas</field>
+        <field name="res_model">sale.delivery.schedule</field>
+        <field name="view_mode">list,calendar,form</field>
+        <field name="context">{'search_default_mine': 1, 'search_default_open': 1}</field>
+    </record>
+
+    <!-- ═══════════ Menús ═══════════ -->
+    <!-- Entregas (logística): Planificación es lo PRIMERO que se ve. -->
+    <menuitem id="menu_delivery_planner" name="Planificación"
+              parent="sale_delivery_wizard.menu_delivery_live_root"
+              action="action_delivery_planner" sequence="-10"/>
+    <menuitem id="menu_delivery_schedule" name="Calendario"
+              parent="sale_delivery_wizard.menu_delivery_live_root"
+              action="action_sale_delivery_schedule" sequence="-5"/>
+
+    <!-- Mis Entregas (vendedores): raíz propia. Logística no la necesita:
+         su trabajo vive en Entregas › Planificación. -->
+    <menuitem id="menu_my_deliveries_root" name="Mis Entregas"
+              web_icon="sale_delivery_wizard,static/description/icon_my_deliveries.svg"
+              sequence="35" groups="sales_team.group_sale_salesman"/>
+    <menuitem id="menu_my_deliveries_planner" name="Mi semana"
+              parent="menu_my_deliveries_root" action="action_delivery_planner_mine" sequence="1"/>
+    <menuitem id="menu_my_deliveries_list" name="Mis entregas programadas"
+              parent="menu_my_deliveries_root" action="action_sale_delivery_schedule_mine" sequence="2"/>
+
+    <!-- ═══════════ Orden de venta: botón y smart button ═══════════ -->
+    <record id="view_order_form_delivery_schedule" model="ir.ui.view">
+        <field name="name">sale.order.form.delivery.schedule</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">98</field>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_schedule_delivery"
+                        string="Programar entrega"
+                        type="object"
+                        class="btn-primary"
+                        icon="fa-calendar"
+                        invisible="state not in ('sale', 'done')"
+                        groups="sales_team.group_sale_salesman,sale_delivery_wizard.group_delivery_user"/>
+            </xpath>
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_delivery_schedules" type="object" class="oe_stat_button" icon="fa-calendar"
+                        invisible="delivery_schedule_count == 0">
+                    <div class="o_stat_info">
+                        <span class="o_stat_value"><field name="next_delivery_date" nolabel="1" readonly="1"/></span>
+                        <span class="o_stat_text">Entrega programada</span>
+                    </div>
+                </button>
+                <field name="delivery_schedule_count" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
