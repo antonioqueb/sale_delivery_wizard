@@ -119,8 +119,8 @@
 
             <!-- ═══ DÍA ═══ -->
             <div t-if="state.data and state.mode === 'day'" class="o_dp_dayview"
-                 t-on-dragover="(ev) => this.onDayDragOver(ev, day.iso)"
-                 t-on-drop="(ev) => this.onDayDrop(ev, day.iso)">
+                 t-on-dragover="(ev) => this.onDayDragOver(ev, currentDay.iso)"
+                 t-on-drop="(ev) => this.onDayDrop(ev, currentDay.iso)">
                 <div class="o_dp_day_strip">
                     <t t-foreach="[-3, -2, -1, 0, 1, 2, 3]" t-as="off" t-key="off">
                         <button t-attf-class="o_dp_strip_day {{ off === 0 ? 'on' : '' }} {{ state.over === this.dayOffset(off) ? 'over' : '' }}"
@@ -135,7 +135,7 @@
                     </t>
                 </div>
                 <div t-if="!daySections.length" class="o_dp_empty big">
-                    <t t-if="day.cards.length">Nada coincide con el filtro.</t>
+                    <t t-if="currentDay.cards.length">Nada coincide con el filtro.</t>
                     <t t-else="">Sin entregas programadas para este día.</t>
                 </div>
                 <t t-foreach="daySections" t-as="sec" t-key="sec.key">
@@ -143,7 +143,7 @@
                         <div class="o_dp_section_head"><span t-esc="sec.label"/><b t-esc="sec.cards.length"/></div>
                         <div class="o_dp_section_grid">
                             <t t-foreach="sec.cards" t-as="card" t-key="card.id">
-                                <t t-call="sale_delivery_wizard.PlannerCard"><t t-set="dayIso" t-value="day.iso"/></t>
+                                <t t-call="sale_delivery_wizard.PlannerCard"><t t-set="dayIso" t-value="currentDay.iso"/></t>
                             </t>
                         </div>
                     </div>

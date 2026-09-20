@@ -144,7 +144,10 @@ export class DeliveryPlanner extends Component {
         return this.data.days || [];
     }
 
-    get day() {
+    // OJO: no se llama `day` porque el t-foreach usa t-as="day" y OWL no
+    // puede asignar la variable del bucle sobre un getter del componente
+    // (todas las iteraciones quedaban con el primer día → clave duplicada).
+    get currentDay() {
         return this.days[0] || { iso: this.state.anchor, cards: [], open_count: 0, done_count: 0, issues: 0 };
     }
 
@@ -254,7 +257,7 @@ export class DeliveryPlanner extends Component {
 
     /** Vista Día: secciones por horario, en orden operativo. */
     get daySections() {
-        const cards = this.cardsOf(this.day);
+        const cards = this.cardsOf(this.currentDay);
         const exact = cards.filter((c) => c.time_window === "exact").sort((a, b) => a.time_exact - b.time_exact);
         const sections = [
             { key: "am", label: "Mañana (9–13 h)", cards: cards.filter((c) => c.time_window === "am") },
