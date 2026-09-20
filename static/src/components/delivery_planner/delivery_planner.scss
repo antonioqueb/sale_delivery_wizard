@@ -175,6 +175,98 @@ $dp-bg: #f3f6fb;
     .o_dp_spec { font-size: 12px; background: #f8fafc; border-radius: 8px; padding: 6px 8px; white-space: pre-wrap; color: #334155; }
     .o_dp_actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; .grow { flex: 1; } }
 
+    // ─── Selector de vista ───
+    .o_dp_modes { display: inline-flex; border: 1px solid $dp-line; border-radius: 10px; overflow: hidden; background: #fff; }
+    .o_dp_mode {
+        border: 0;
+        background: transparent;
+        padding: 6px 14px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: $dp-mut;
+        cursor: pointer;
+        &.on { background: $dp-blue; color: #fff; }
+        &:hover:not(.on) { background: #f2f6fd; color: $dp-blue-dark; }
+    }
+
+    // ─── Vista Día ───
+    .o_dp_dayview { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+    .o_dp_day_strip { display: flex; gap: 6px; justify-content: center; }
+    .o_dp_strip_day {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        min-width: 58px;
+        border: 1px solid $dp-line;
+        border-radius: 12px;
+        background: #fff;
+        padding: 6px 8px;
+        cursor: pointer;
+        .w { font-size: 11px; color: $dp-mut; text-transform: uppercase; letter-spacing: 0.04em; }
+        .n { font-size: 18px; font-weight: 800; color: $dp-ink; }
+        &.on { background: $dp-blue; border-color: $dp-blue; .w, .n { color: #fff; } }
+        &.over { border-color: $dp-blue; background: #dbe7fb; border-style: solid; }
+        &:hover:not(.on) { border-color: $dp-blue; }
+    }
+    .o_dp_section { background: #e9eef6; border-radius: 14px; padding: 10px 12px 12px; }
+    .o_dp_section_head { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; margin-bottom: 8px; b { background: #fff; border-radius: 999px; padding: 0 8px; font-size: 12.5px; } }
+    .o_dp_section_grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+    .o_dp_empty.big { padding: 40px; font-size: 14px; background: #fff; border-radius: 14px; }
+
+    // ─── Vista Mes ───
+    .o_dp_month { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px 18px 16px; overflow: auto; }
+    .o_dp_month_head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; .h { text-align: center; font-size: 11.5px; font-weight: 700; color: $dp-mut; text-transform: uppercase; letter-spacing: 0.04em; } }
+    .o_dp_month_grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: minmax(118px, auto); gap: 6px; flex: 1 1 auto; }
+    .o_dp_cell {
+        background: #fff;
+        border: 1px solid $dp-line;
+        border-radius: 12px;
+        padding: 6px 7px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-height: 0;
+        cursor: pointer;
+        transition: border-color 0.12s ease, background 0.12s ease;
+        &.out { background: #f8fafc; .o_dp_cell_head .n { color: #b3bccb; } }
+        &.weekend { background: #f6f8fc; }
+        &.past { opacity: 0.9; }
+        &.today { border-color: $dp-blue; box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.15); .o_dp_cell_head .n { background: $dp-blue; color: #fff; } }
+        &.target { border-style: dashed; border-color: rgba(11, 87, 208, 0.4); }
+        &.over { background: #dbe7fb; border-color: $dp-blue; border-style: solid; }
+        &:hover { border-color: $dp-blue; }
+    }
+    .o_dp_cell_head { display: flex; align-items: center; gap: 4px;
+        .n { font-weight: 800; font-size: 12.5px; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; }
+        .c { margin-left: auto; font-size: 10.5px; font-weight: 700; color: $dp-blue-dark; background: #e4ecfb; border-radius: 999px; padding: 0 6px; &.done { margin-left: 2px; color: $dp-green; background: #e6f5ec; } }
+    }
+    .o_dp_cell_body { display: flex; flex-direction: column; gap: 3px; min-height: 0; }
+    .o_dp_chip_card {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 7px;
+        background: #eef2f7;
+        cursor: grab;
+        overflow: hidden;
+        .dot { width: 7px; height: 7px; border-radius: 50%; background: $dp-mut; flex: 0 0 auto; }
+        .o { font-weight: 700; white-space: nowrap; }
+        .p { color: $dp-mut; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fa { color: $dp-amber; margin-left: auto; }
+        &.st-confirmed .dot { background: $dp-blue; }
+        &.st-in_progress .dot { background: #0284c7; }
+        &.st-done { opacity: 0.7; .dot { background: $dp-green; } cursor: default; }
+        &.st-cancelled { opacity: 0.5; text-decoration: line-through; cursor: default; }
+        &.has-issues { background: #fff4e0; }
+        &.dragging { opacity: 0.4; }
+        &:hover { background: #e4ecfb; }
+    }
+    .o_dp_more { font-size: 10.5px; color: $dp-mut; padding-left: 4px; }
+    .o_dp_day_head .d { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; font: inherit; font-weight: 800; font-size: 13.5px; color: inherit; &:hover { color: $dp-blue; text-decoration: underline; } }
+
     // ─── Modal de motivo ───
     .o_dp_modal_bg { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.35); display: grid; place-items: center; z-index: 20; }
     .o_dp_modal {
@@ -195,5 +287,7 @@ $dp-bg: #f3f6fb;
 
     @media (max-width: 1100px) {
         .o_dp_week_grid { grid-template-columns: repeat(7, 220px); }
+        .o_dp_month_grid { grid-template-columns: repeat(7, 150px); }
+        .o_dp_section_grid { grid-template-columns: 1fr; }
     }
 }

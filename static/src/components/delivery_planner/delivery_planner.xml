@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
 
+    <!-- ═══ Tarjeta (semana y día) ═══ -->
     <t t-name="sale_delivery_wizard.PlannerCard">
-        <div t-attf-class="o_dp_card st-{{ card.state }} {{ card.readiness ? 'has-issues' : '' }} {{ state.drag and state.drag.id === card.id ? 'dragging' : '' }} {{ state.expanded[card.id] ? 'open' : '' }}"
+        <div t-attf-class="o_dp_card st-{{ card.state }} {{ card.readiness ? 'has-issues' : '' }} {{ state.drag and state.drag.id === card.id ? 'dragging' : '' }} {{ this.isExpanded(card) ? 'open' : '' }}"
              t-att-draggable="this.isOpen(card) ? 'true' : 'false'"
-             t-on-dragstart="(ev) => this.onDragStart(ev, card, day)"
+             t-on-dragstart="(ev) => this.onDragStart(ev, card, dayIso)"
              t-on-dragend="onDragEnd"
              t-on-click="() => this.toggleExpand(card)">
             <div class="o_dp_card_top">
@@ -24,7 +25,7 @@
             </div>
             <div t-if="card.vehicle" class="o_dp_line"><i class="fa fa-truck" title=""/> <t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></div>
 
-            <div t-if="state.expanded[card.id]" class="o_dp_detail" t-on-click.stop="() => {}">
+            <div t-if="this.isExpanded(card)" class="o_dp_detail" t-on-click.stop="() => {}">
                 <div class="o_dp_line"><span class="lbl">Contacto</span> <t t-esc="card.contact"/> · <a t-att-href="'tel:' + card.phone" t-esc="card.phone"/></div>
                 <div class="o_dp_line addr"><span class="lbl">Dirección</span> <t t-esc="card.address"/></div>
                 <div class="o_dp_spec" t-esc="card.instructions"/>
@@ -41,21 +42,64 @@
         </div>
     </t>
 
+    <!-- ═══ Ficha compacta (mes) ═══ -->
+    <t t-name="sale_delivery_wizard.PlannerChip">
+        <div t-attf-class="o_dp_chip_card st-{{ card.state }} {{ card.readiness ? 'has-issues' : '' }} {{ state.drag and state.drag.id === card.id ? 'dragging' : '' }}"
+             t-att-draggable="this.isOpen(card) ? 'true' : 'false'"
+             t-on-dragstart="(ev) => this.onDragStart(ev, card, dayIso)"
+             t-on-dragend="onDragEnd"
+             t-on-click.stop="() => this.openSchedule(card)"
+             t-att-title="card.order + ' · ' + card.partner + ' · ' + card.time_label + (card.readiness ? ' · ' + card.readiness : '')">
+            <span class="dot"/>
+            <span class="o" t-esc="card.order"/>
+            <span class="p" t-esc="card.partner"/>
+            <i t-if="card.readiness" class="fa fa-exclamation-triangle" title=""/>
+        </div>
+    </t>
+
+    <!-- ═══ Columna de día (semana) ═══ -->
+    <t t-name="sale_delivery_wizard.PlannerDayColumn">
+        <div t-attf-class="o_dp_day {{ day.is_today ? 'today' : '' }} {{ day.is_past ? 'past' : '' }} {{ day.weekday >= 5 ? 'weekend' : '' }} {{ state.over === day.iso ? 'over' : '' }} {{ state.drag and state.drag.from !== day.iso ? 'target' : '' }}"
+             t-on-dragover="(ev) => this.onDayDragOver(ev, day.iso)"
+             t-on-dragleave="(ev) => this.onDayDragLeave(ev, day.iso)"
+             t-on-drop="(ev) => this.onDayDrop(ev, day.iso)">
+            <div class="o_dp_day_head">
+                <button class="d" t-on-click="() => this.openDay(day.iso)" title="Abrir el día"><t t-esc="day.label"/></button>
+                <span class="n" t-if="day.open_count"><t t-esc="day.open_count"/> por entregar</span>
+                <span class="n done" t-if="day.done_count"><t t-esc="day.done_count"/> ok</span>
+                <span class="n warn" t-if="day.issues"><t t-esc="day.issues"/> pend.</span>
+            </div>
+            <div class="o_dp_day_body">
+                <t t-foreach="this.cardsOf(day)" t-as="card" t-key="card.id">
+                    <t t-call="sale_delivery_wizard.PlannerCard"><t t-set="dayIso" t-value="day.iso"/></t>
+                </t>
+                <div t-if="!this.cardsOf(day).length" class="o_dp_empty">—</div>
+                <div t-if="state.drag and state.drag.from !== day.iso" class="o_dp_dropzone">Soltar aquí</div>
+            </div>
+        </div>
+    </t>
+
+    <!-- ═══ Tablero ═══ -->
     <t t-name="sale_delivery_wizard.DeliveryPlanner">
-        <div class="o_delivery_planner">
+        <div t-attf-class="o_delivery_planner mode-{{ state.mode }}">
             <div class="o_dp_topbar">
                 <div class="o_dp_title">
-                    <div class="t"><t t-if="onlyMine">Mis entregas de la semana</t><t t-else="">Planificación de entregas</t></div>
+                    <div class="t"><t t-if="onlyMine">Mis entregas</t><t t-else="">Planificación de entregas</t></div>
                     <div class="s" t-if="state.data">
-                        <b t-esc="weekTotals.open"/> por entregar · <b t-esc="weekTotals.done"/> entregadas
-                        <span t-if="weekTotals.issues" class="warn"> · <b t-esc="weekTotals.issues"/> con pendientes</span>
+                        <b t-esc="totals.open"/> por entregar · <b t-esc="totals.done"/> entregadas
+                        <span t-if="totals.issues" class="warn"> · <b t-esc="totals.issues"/> con pendientes</span>
                     </div>
                 </div>
+                <div class="o_dp_modes">
+                    <button t-attf-class="o_dp_mode {{ state.mode === 'day' ? 'on' : '' }}" t-on-click="() => this.setMode('day')">Día</button>
+                    <button t-attf-class="o_dp_mode {{ state.mode === 'week' ? 'on' : '' }}" t-on-click="() => this.setMode('week')">Semana</button>
+                    <button t-attf-class="o_dp_mode {{ state.mode === 'month' ? 'on' : '' }}" t-on-click="() => this.setMode('month')">Mes</button>
+                </div>
                 <div class="o_dp_nav">
-                    <button class="o_dp_btn ghost" t-on-click="() => this.shiftWeek(-1)" title="Semana anterior"><i class="fa fa-chevron-left" title=""/></button>
+                    <button class="o_dp_btn ghost" t-on-click="() => this.shift(-1)" title="Anterior"><i class="fa fa-chevron-left" title=""/></button>
                     <button class="o_dp_btn ghost" t-on-click="goToday">Hoy</button>
-                    <button class="o_dp_btn ghost" t-on-click="() => this.shiftWeek(1)" title="Semana siguiente"><i class="fa fa-chevron-right" title=""/></button>
-                    <span class="o_dp_week" t-esc="data.week_label"/>
+                    <button class="o_dp_btn ghost" t-on-click="() => this.shift(1)" title="Siguiente"><i class="fa fa-chevron-right" title=""/></button>
+                    <span class="o_dp_week" t-esc="title"/>
                 </div>
                 <div class="o_dp_search">
                     <i class="fa fa-search" title=""/>
@@ -71,29 +115,74 @@
                 </div>
             </div>
 
-            <div t-if="state.loading and !state.data" class="o_dp_loading">Cargando la semana…</div>
+            <div t-if="state.loading and !state.data" class="o_dp_loading">Cargando…</div>
 
-            <div t-if="state.data" class="o_dp_week_grid">
-                <t t-foreach="data.days" t-as="day" t-key="day.iso">
-                    <div t-attf-class="o_dp_day {{ day.is_today ? 'today' : '' }} {{ day.is_past ? 'past' : '' }} {{ day.weekday >= 5 ? 'weekend' : '' }} {{ state.over === day.iso ? 'over' : '' }} {{ state.drag and state.drag.from !== day.iso ? 'target' : '' }}"
-                         t-on-dragover="(ev) => this.onDayDragOver(ev, day)"
-                         t-on-dragleave="(ev) => this.onDayDragLeave(ev, day)"
-                         t-on-drop="(ev) => this.onDayDrop(ev, day)">
-                        <div class="o_dp_day_head">
-                            <span class="d" t-esc="day.label"/>
-                            <span class="n" t-if="day.open_count"><t t-esc="day.open_count"/> por entregar</span>
-                            <span class="n done" t-if="day.done_count"><t t-esc="day.done_count"/> ok</span>
-                            <span class="n warn" t-if="day.issues"><t t-esc="day.issues"/> pend.</span>
-                        </div>
-                        <div class="o_dp_day_body">
-                            <t t-foreach="this.cardsOf(day)" t-as="card" t-key="card.id">
-                                <t t-call="sale_delivery_wizard.PlannerCard"/>
+            <!-- ═══ DÍA ═══ -->
+            <div t-if="state.data and state.mode === 'day'" class="o_dp_dayview"
+                 t-on-dragover="(ev) => this.onDayDragOver(ev, day.iso)"
+                 t-on-drop="(ev) => this.onDayDrop(ev, day.iso)">
+                <div class="o_dp_day_strip">
+                    <t t-foreach="[-3, -2, -1, 0, 1, 2, 3]" t-as="off" t-key="off">
+                        <button t-attf-class="o_dp_strip_day {{ off === 0 ? 'on' : '' }} {{ state.over === this.dayOffset(off) ? 'over' : '' }}"
+                                t-on-click="() => this.openDay(this.dayOffset(off))"
+                                t-on-dragover="(ev) => this.onDayDragOver(ev, this.dayOffset(off))"
+                                t-on-dragleave="(ev) => this.onDayDragLeave(ev, this.dayOffset(off))"
+                                t-on-drop="(ev) => this.onDayDrop(ev, this.dayOffset(off))"
+                                t-att-title="off === 0 ? '' : 'Ver este día (o soltar aquí para reprogramar)'">
+                            <span class="w" t-esc="this.dayShort(this.dayOffset(off))"/>
+                            <span class="n" t-esc="this.dayNumber(this.dayOffset(off))"/>
+                        </button>
+                    </t>
+                </div>
+                <div t-if="!daySections.length" class="o_dp_empty big">
+                    <t t-if="day.cards.length">Nada coincide con el filtro.</t>
+                    <t t-else="">Sin entregas programadas para este día.</t>
+                </div>
+                <t t-foreach="daySections" t-as="sec" t-key="sec.key">
+                    <div class="o_dp_section">
+                        <div class="o_dp_section_head"><span t-esc="sec.label"/><b t-esc="sec.cards.length"/></div>
+                        <div class="o_dp_section_grid">
+                            <t t-foreach="sec.cards" t-as="card" t-key="card.id">
+                                <t t-call="sale_delivery_wizard.PlannerCard"><t t-set="dayIso" t-value="day.iso"/></t>
                             </t>
-                            <div t-if="!this.cardsOf(day).length" class="o_dp_empty">—</div>
-                            <div t-if="state.drag and state.drag.from !== day.iso" class="o_dp_dropzone">Soltar aquí</div>
                         </div>
                     </div>
                 </t>
+            </div>
+
+            <!-- ═══ SEMANA ═══ -->
+            <div t-if="state.data and state.mode === 'week'" class="o_dp_week_grid">
+                <t t-foreach="days" t-as="day" t-key="day.iso">
+                    <t t-call="sale_delivery_wizard.PlannerDayColumn"/>
+                </t>
+            </div>
+
+            <!-- ═══ MES ═══ -->
+            <div t-if="state.data and state.mode === 'month'" class="o_dp_month">
+                <div class="o_dp_month_head">
+                    <t t-foreach="daysShort" t-as="dn" t-key="dn"><div class="h" t-esc="dn"/></t>
+                </div>
+                <div class="o_dp_month_grid">
+                    <t t-foreach="days" t-as="day" t-key="day.iso">
+                        <div t-attf-class="o_dp_cell {{ day.month !== anchorMonth ? 'out' : '' }} {{ day.is_today ? 'today' : '' }} {{ day.is_past ? 'past' : '' }} {{ day.weekday >= 5 ? 'weekend' : '' }} {{ state.over === day.iso ? 'over' : '' }} {{ state.drag and state.drag.from !== day.iso ? 'target' : '' }}"
+                             t-on-dragover="(ev) => this.onDayDragOver(ev, day.iso)"
+                             t-on-dragleave="(ev) => this.onDayDragLeave(ev, day.iso)"
+                             t-on-drop="(ev) => this.onDayDrop(ev, day.iso)"
+                             t-on-click="() => this.openDay(day.iso)">
+                            <div class="o_dp_cell_head">
+                                <span class="n" t-esc="day.day"/>
+                                <span class="c" t-if="day.open_count" t-esc="day.open_count"/>
+                                <span class="c done" t-if="day.done_count" t-esc="day.done_count"/>
+                            </div>
+                            <div class="o_dp_cell_body">
+                                <t t-foreach="this.cardsOf(day).slice(0, 4)" t-as="card" t-key="card.id">
+                                    <t t-call="sale_delivery_wizard.PlannerChip"><t t-set="dayIso" t-value="day.iso"/></t>
+                                </t>
+                                <div t-if="this.cardsOf(day).length > 4" class="o_dp_more">+<t t-esc="this.cardsOf(day).length - 4"/> más</div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
             </div>
 
             <!-- Diálogo de motivo al reprogramar por arrastre -->

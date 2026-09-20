@@ -461,13 +461,24 @@ class SaleDeliverySchedule(models.Model):
     @api.model
     def planner_data(self, week_start=None, only_mine=False):
         start = self._week_start(week_start)
-        end = start + timedelta(days=6)
+        return self.planner_range(start.isoformat(), (start + timedelta(days=6)).isoformat(), only_mine)
+
+    @api.model
+    def planner_range(self, date_from, date_to, only_mine=False):
+        """Días con sus entregas para cualquier rango (día, semana o mes):
+        el cliente decide el rango; aquí solo se arma un día por fecha."""
+        start = fields.Date.to_date(date_from)
+        end = fields.Date.to_date(date_to)
+        if not start or not end or end < start:
+            raise UserError(_('Rango de fechas inválido.'))
+        if (end - start).days > 62:
+            raise UserError(_('El rango máximo es de dos meses.'))
         today = datetime.now(MONTERREY).date()
         domain = [('date', '>=', start), ('date', '<=', end)]
         if only_mine:
             domain.append(('user_id', '=', self.env.uid))
         records = self.search(domain)
-        by_day = {start + timedelta(days=i): [] for i in range(7)}
+        by_day = {start + timedelta(days=i): [] for i in range((end - start).days + 1)}
         for rec in records:
             by_day[rec.date].append(self._planner_card(rec))
         overdue = self.search_count([('date', '<', today), ('state', 'in', OPEN_STATES)] +
@@ -478,6 +489,8 @@ class SaleDeliverySchedule(models.Model):
             days.append({
                 'iso': d.isoformat(),
                 'label': '%s %d %s' % (DIAS[d.weekday()], d.day, MESES[d.month - 1]),
+                'day': d.day,
+                'month': d.month,
                 'weekday': d.weekday(),
                 'is_today': d == today,
                 'is_past': d < today,
@@ -488,6 +501,8 @@ class SaleDeliverySchedule(models.Model):
             })
         return {
             'week_start': start.isoformat(),
+            'date_from': start.isoformat(),
+            'date_to': end.isoformat(),
             'week_label': '%d %s – %d %s %d' % (start.day, MESES[start.month - 1], end.day, MESES[end.month - 1], end.year),
             'today': today.isoformat(),
             'days': days,
