@@ -5,9 +5,9 @@
 //   1 Por preparar (PT borrador) → 2 Listo para cargar (PT preparado)
 //   → 3 En ruta (remisión confirmada) → 4 Entregadas hoy (firmadas).
 // Las tarjetas se ARRASTRAN entre carriles; el servidor (board_move) decide
-// qué transición es válida y con qué permisos. El panel lateral "Camiones"
-// es destino de arrastre para asignar vehículo. La operación de campo sigue
-// en el teléfono; aquí se planifica, se asigna y se cierra.
+// qué transición es válida y con qué permisos. El camión se asigna desde la
+// orden de venta al generar la entrega; aquí solo se muestra. La operación
+// de campo sigue en el teléfono; aquí se planifica y se cierra.
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, onMounted, onWillUnmount, useState } from "@odoo/owl";
@@ -43,11 +43,9 @@ export class OutboundDashboard extends Component {
             data: null,
             search: "",
             filter: "all", // all | noveh | auth | today
-            trucksOpen: true,
             drag: null, // { id, from, docType }
-            over: null, // carril o "truck:<id>" resaltado
+            over: null, // carril resaltado
             busy: false,
-            assignFor: null, // id de tarjeta con el selector de camión abierto
         });
         this.timer = null;
         this.lastPayload = null;
@@ -94,7 +92,7 @@ export class OutboundDashboard extends Component {
     }
 
     get data() {
-        return this.state.data || { kpis: {}, pending: [], ready: [], in_route: [], delivered: [], fleet: [], trucks: [] };
+        return this.state.data || { kpis: {}, pending: [], ready: [], in_route: [], delivered: [] };
     }
 
     matches(card) {
@@ -136,14 +134,6 @@ export class OutboundDashboard extends Component {
         return this.data.kpis.pts_today || 0;
     }
 
-    get fleetLoaded() {
-        return (this.data.fleet || []).filter((v) => v.m2 > 0 || v.docs.length);
-    }
-
-    get fleetIdle() {
-        return (this.data.fleet || []).filter((v) => !(v.m2 > 0 || v.docs.length));
-    }
-
     ageLabel(card) {
         const m = card.age_min || 0;
         if (m < 60) {
@@ -168,19 +158,6 @@ export class OutboundDashboard extends Component {
         return "";
     }
 
-    loadCls(pct) {
-        if (pct > 100) {
-            return "over";
-        }
-        if (pct >= 75) {
-            return "high";
-        }
-        if (pct >= 40) {
-            return "mid";
-        }
-        return "low";
-    }
-
     // ------------------------------------------------------------------
     // Filtros y UI
     // ------------------------------------------------------------------
@@ -190,14 +167,6 @@ export class OutboundDashboard extends Component {
 
     onSearch(ev) {
         this.state.search = ev.target.value;
-    }
-
-    toggleTrucks() {
-        this.state.trucksOpen = !this.state.trucksOpen;
-    }
-
-    toggleAssign(card) {
-        this.state.assignFor = this.state.assignFor === card.id ? null : card.id;
     }
 
     // ------------------------------------------------------------------
@@ -251,32 +220,6 @@ export class OutboundDashboard extends Component {
         await this.moveCard(drag.id, stageKey);
     }
 
-    onTruckDragOver(ev, vehicle) {
-        if (!this.state.drag || this.state.drag.from === "delivered") {
-            return;
-        }
-        ev.preventDefault();
-        ev.dataTransfer.dropEffect = "link";
-        this.state.over = `truck:${vehicle.id}`;
-    }
-
-    onTruckDragLeave(ev, vehicle) {
-        if (this.state.over === `truck:${vehicle.id}` && !ev.currentTarget.contains(ev.relatedTarget)) {
-            this.state.over = null;
-        }
-    }
-
-    async onTruckDrop(ev, vehicle) {
-        ev.preventDefault();
-        const drag = this.state.drag;
-        this.state.over = null;
-        this.state.drag = null;
-        if (!drag || drag.from === "delivered") {
-            return;
-        }
-        await this.assignVehicle(drag.id, vehicle.id);
-    }
-
     // ------------------------------------------------------------------
     // Acciones
     // ------------------------------------------------------------------
@@ -302,32 +245,6 @@ export class OutboundDashboard extends Component {
         } finally {
             this.state.busy = false;
         }
-    }
-
-    async assignVehicle(docId, vehicleId) {
-        if (this.state.busy) {
-            return;
-        }
-        this.state.busy = true;
-        try {
-            const res = await this.orm.call("sale.delivery.live.map", "board_assign_vehicle", [docId, vehicleId || false]);
-            if (res && res.error) {
-                this.notification.add(res.error, { type: "danger" });
-            }
-            this.state.assignFor = null;
-            this.lastPayload = null;
-            await this.load();
-        } catch (e) {
-            console.error("[SALIDAS] no se pudo asignar el camión", e);
-            this.notification.add("No se pudo asignar el camión.", { type: "danger" });
-        } finally {
-            this.state.busy = false;
-        }
-    }
-
-    onAssignSelect(ev, card) {
-        const value = ev.target.value;
-        this.assignVehicle(card.id, value ? parseInt(value, 10) : false);
     }
 
     // Abrir = el PDF del documento en una pestaña nueva (sin descargar):

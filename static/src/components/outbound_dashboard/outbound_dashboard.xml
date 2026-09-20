@@ -122,35 +122,16 @@
                 <t t-esc="card.note"/>
             </div>
 
-            <!-- Camión: chip clicable → selector; también se asigna arrastrando la tarjeta al panel de camiones -->
+            <!-- Camión y chofer: se asignan desde la orden de venta al generar la entrega; aquí solo se muestran -->
             <div class="o_out_card_meta">
-                <button t-if="stageKey !== 'delivered'" type="button"
-                        t-attf-class="o_out_veh {{ card.vehicle ? '' : 'warn' }}"
-                        t-on-click.stop="() => this.toggleAssign(card)"
-                        title="Cambiar camión">
-                    <t t-if="card.vehicle">
-                        <t t-call="sale_delivery_wizard.icon_truck"/>
-                        <span class="txt"><t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></span>
-                    </t>
-                    <t t-else="">
-                        <t t-call="sale_delivery_wizard.icon_alert2"/>
-                        <span class="txt">Sin camión: asignar</span>
-                    </t>
-                </button>
-                <span t-else="" class="o_out_veh done">
+                <span t-if="card.vehicle" class="o_out_veh done">
                     <t t-call="sale_delivery_wizard.icon_truck"/>
-                    <span class="txt"><t t-esc="card.vehicle || 'Sin camión'"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></span>
+                    <span class="txt"><t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></span>
                 </span>
-            </div>
-            <div t-if="state.assignFor === card.id" class="o_out_assign">
-                <select class="o_out_select" t-on-change="(ev) => this.onAssignSelect(ev, card)" t-on-click.stop="() => {}">
-                    <option value="">— Sin camión —</option>
-                    <t t-foreach="data.fleet" t-as="v" t-key="v.id">
-                        <option t-att-value="v.id" t-att-selected="v.id === card.vehicle_id">
-                            <t t-esc="v.name"/><t t-if="v.capacity"> · <t t-esc="v.m2"/>/<t t-esc="v.capacity"/> m²</t>
-                        </option>
-                    </t>
-                </select>
+                <span t-elif="stageKey !== 'delivered'" class="o_out_veh warn" title="Asigna el camión desde la orden de venta al generar la entrega">
+                    <t t-call="sale_delivery_wizard.icon_alert2"/>
+                    <span class="txt">Sin camión</span>
+                </span>
             </div>
 
             <div t-if="card.signed_at" class="o_out_signed">
@@ -251,9 +232,6 @@
                     <button class="o_out_btn ghost" t-on-click="openPtList" title="Lista de pick tickets">Pick tickets</button>
                     <button class="o_out_btn ghost" t-on-click="openRemissionList" title="Lista de remisiones">Remisiones</button>
                     <button class="o_out_btn ghost" t-on-click="openLiveMap" title="Mapa en vivo"><t t-call="sale_delivery_wizard.icon_map"/> Mapa</button>
-                    <button t-attf-class="o_out_btn ghost {{ state.trucksOpen ? 'on' : '' }}" t-on-click="toggleTrucks" title="Mostrar u ocultar el panel de camiones">
-                        <t t-call="sale_delivery_wizard.icon_truck"/> Camiones
-                    </button>
                     <button class="o_out_btn icon" t-on-click="refresh" title="Actualizar">
                         <t t-call="sale_delivery_wizard.icon_refresh"/>
                     </button>
@@ -263,63 +241,16 @@
             <div t-if="state.loading and !state.data" class="o_out_loading">Cargando el tablero…</div>
 
             <div t-if="state.data" class="o_out_body">
-                <!-- Flujo del día: carriles secuenciales (la columna A taller se cuelga al final vía extensión) -->
+                <!-- Flujo del día: carriles secuenciales (la columna A taller se cuelga al final vía extensión).
+                     El camión se asigna desde la orden de venta al generar la entrega, no aquí. -->
                 <div class="o_out_cols">
                     <t t-foreach="stages" t-as="stage" t-key="stage.key">
                         <t t-call="sale_delivery_wizard.OutboundLane"/>
                     </t>
                 </div>
 
-                <!-- Panel de camiones: carga vs capacidad; destino de arrastre para asignar -->
-                <aside t-if="state.trucksOpen" class="o_out_trucks">
-                    <div class="o_out_trucks_head">
-                        <t t-call="sale_delivery_wizard.icon_truck"/>
-                        <span>Camiones</span>
-                        <span class="hint">Arrastra una tarjeta a un camión para asignarlo</span>
-                    </div>
-                    <div t-if="!data.fleet.length" class="o_out_empty">Sin vehículos en la flota.</div>
-                    <t t-foreach="fleetLoaded" t-as="tk" t-key="tk.id">
-                        <t t-call="sale_delivery_wizard.OutboundTruck"/>
-                    </t>
-                    <div t-if="fleetIdle.length" class="o_out_trucks_sep">Sin carga asignada</div>
-                    <t t-foreach="fleetIdle" t-as="tk" t-key="tk.id">
-                        <t t-call="sale_delivery_wizard.OutboundTruck"/>
-                    </t>
-                </aside>
             </div>
         </div>
     </t>
 
-    <t t-name="sale_delivery_wizard.OutboundTruck">
-        <div t-attf-class="o_out_truck {{ state.over === 'truck:' + tk.id ? 'over' : '' }} {{ state.drag and state.drag.from !== 'delivered' ? 'target' : '' }}"
-             t-on-dragover="(ev) => this.onTruckDragOver(ev, tk)"
-             t-on-dragleave="(ev) => this.onTruckDragLeave(ev, tk)"
-             t-on-drop="(ev) => this.onTruckDrop(ev, tk)">
-            <div class="o_out_truck_head">
-                <div class="who">
-                    <div class="n" t-esc="tk.name"/>
-                    <div class="d" t-if="tk.driver" t-esc="tk.driver"/>
-                </div>
-                <div class="load">
-                    <b t-esc="tk.m2"/> / <t t-esc="tk.capacity ? tk.capacity : '—'"/> m²
-                    <t t-if="tk.units"> · +<t t-esc="tk.units"/> pzas</t>
-                </div>
-            </div>
-            <div class="o_out_bar">
-                <div t-attf-class="fill {{ this.loadCls(tk.pct) }}" t-attf-style="width: {{ Math.min(tk.pct, 100) }}%"/>
-            </div>
-            <div class="o_out_truck_pct">
-                <span t-attf-class="{{ this.loadCls(tk.pct) }}"><t t-esc="tk.pct"/>%</span>
-                <span class="cnt"><t t-esc="tk.docs.length"/> documento<t t-if="tk.docs.length !== 1">s</t></span>
-            </div>
-            <div class="o_out_truck_docs" t-if="tk.docs.length">
-                <div class="doc" t-foreach="tk.docs" t-as="dc" t-key="dc.id"
-                     t-on-click="() => this.openPdf(dc.doc_type, dc.id)" title="Ver PDF">
-                    <span class="f" t-esc="dc.label"/>
-                    <span class="s" t-esc="dc.status"/>
-                    <span class="m" t-esc="dc.qty_label"/>
-                </div>
-            </div>
-        </div>
-    </t>
 </templates>

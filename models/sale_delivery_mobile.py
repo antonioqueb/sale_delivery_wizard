@@ -1031,29 +1031,6 @@ class SaleDeliveryLiveMap(models.TransientModel):
         return {'error': _('Movimiento no permitido.')}
 
     @api.model
-    def board_assign_vehicle(self, doc_id, vehicle_id):
-        """Asigna (o quita, con vehicle_id=False) el camión a un documento
-        vivo del tablero; el chofer se toma del vehículo si el documento no
-        tiene uno."""
-        doc = self.env['sale.delivery.document'].browse(int(doc_id)).exists()
-        if not doc:
-            return {'error': _('El documento ya no existe.')}
-        if doc.signed_at or doc.state == 'cancelled':
-            return {'error': _('El documento ya está cerrado; no se le cambia el camión.')}
-        vals = {'vehicle_id': int(vehicle_id) if vehicle_id else False}
-        if vehicle_id:
-            veh = self.env['fleet.vehicle'].browse(int(vehicle_id)).exists()
-            if not veh:
-                return {'error': _('El vehículo ya no existe.')}
-            if not doc.vehicle_driver_id and veh.driver_id:
-                vals['vehicle_driver_id'] = veh.driver_id.id
-        try:
-            doc.write(vals)
-        except UserError as exc:
-            return {'error': str(exc)}
-        return {'ok': True}
-
-    @api.model
     def get_outbound_dashboard_data(self):
         """Todo lo que el almacén trabaja HOY: pick tickets abiertos
         (la orden del día), remisiones en ruta, entregas firmadas y la
@@ -1212,31 +1189,6 @@ class SaleDeliveryLiveMap(models.TransientModel):
         pts_today = [c for c in pending + ready if c['is_today']]
         no_vehicle = [c for c in pending + ready if not c['vehicle']]
 
-        # Flota completa (con o sin carga): destino de arrastre para asignar
-        # camión desde el tablero.
-        fleet = []
-        if 'fleet.vehicle' in self.env:
-            loaded = {t['id']: t for t in truck_list}
-            vehicles = self.env['fleet.vehicle'].sudo().search([
-                ('company_id', 'in', company_ids + [False]),
-            ], order='name asc')
-            for veh in vehicles:
-                t = loaded.get(veh.id)
-                cap = round(getattr(veh, 'x_capacity_sqm', 0.0) or 0.0, 1)
-                m2 = t['m2'] if t else 0.0
-                fleet.append({
-                    'id': veh.id,
-                    'name': veh.display_name,
-                    'driver': (t and t['driver']) or (veh.driver_id.display_name if veh.driver_id else ''),
-                    'driver_id': veh.driver_id.id or False,
-                    'capacity': cap,
-                    'm2': m2,
-                    'units': t['units'] if t else 0.0,
-                    'pct': round(m2 * 100.0 / cap) if cap else 0,
-                    'docs': t['docs'] if t else [],
-                })
-            fleet.sort(key=lambda x: (-x['m2'], x['name']))
-
         user = self.env.user
         can_deliver_manual = (
             user.has_group('sale_delivery_wizard.group_delivery_manager')
@@ -1247,7 +1199,6 @@ class SaleDeliveryLiveMap(models.TransientModel):
         return {
             'today_label': '%d %s %d' % (local_today.day, MESES_ES[local_today.month - 1], local_today.year),
             'can_deliver_manual': can_deliver_manual,
-            'fleet': fleet,
             'kpis': {
                 'pts_today': len(pts_today),
                 'pts_open': len(pending) + len(ready),
