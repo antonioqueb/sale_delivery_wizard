@@ -24,14 +24,15 @@
                         invisible="state not in ('sale', 'done')"
                         groups="sale_delivery_wizard.group_delivery_user"/>
 
-                <!-- El swap lo usa el VENDEDOR: "esta placa no apareció,
-                     va esta otra" es de sus procesos más comunes. Estaba
-                     detrás del grupo Entregas, que un vendedor no tiene. -->
+                <!-- Swap: "esta placa no apareció, va esta otra". Lo ve el
+                     grupo Vendedor en Entrega (21 sep 2026), no todo
+                     vendedor. Usuario/Autorizador/Gerente de Entregas lo
+                     heredan por implied_ids. -->
                 <button name="action_open_swap_wizard"
                         string="Swap"
                         type="object"
                         invisible="state not in ('sale', 'done')"
-                        groups="sale_delivery_wizard.group_delivery_user,sales_team.group_sale_salesman"/>
+                        groups="sale_delivery_wizard.group_delivery_seller"/>
             </xpath>
 
             <!-- Botones inteligentes de entrega/devolución: SOLO perfil
