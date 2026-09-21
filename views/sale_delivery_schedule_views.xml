@@ -97,6 +97,9 @@
                             <field name="auth_label" string="Autorización" invisible="not auth_label"/>
                         </group>
                         <group string="Con quién y dónde">
+                            <field name="commercial_partner_id" invisible="1"/>
+                            <field name="partner_shipping_id" options="{'no_create': True, 'no_open': True}"
+                                   placeholder="Otra dirección o contacto del cliente…"/>
                             <field name="contact_name"/>
                             <field name="contact_phone" widget="phone"/>
                             <field name="delivery_address" placeholder="Calle, número, colonia, municipio, referencias"/>

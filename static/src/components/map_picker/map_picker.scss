@@ -56,6 +56,7 @@
         font-size: 12.5px;
         .ok { color: #159957; font-weight: 600; a { margin-left: 8px; font-weight: 500; } }
         .warn { color: #b45309; font-weight: 600; }
+        .note { color: #475569; font-weight: 500; margin-top: 2px; }
     }
     &.o_readonly .o_smp_map { height: 260px; }
 }

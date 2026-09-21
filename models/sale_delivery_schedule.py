@@ -80,6 +80,13 @@ class SaleDeliverySchedule(models.Model):
     contact_name = fields.Char('Contacto en sitio', required=True)
     contact_phone = fields.Char('Teléfono del contacto', required=True)
     delivery_address = fields.Text('Dirección de entrega', required=True)
+    partner_shipping_id = fields.Many2one(
+        'res.partner', string='Dirección del cliente',
+        domain="['|', ('id', '=', partner_id), ('commercial_partner_id', '=', commercial_partner_id)]",
+        help='Elige otro contacto o dirección del cliente: rellena contacto, teléfono, '
+             'dirección y ubicación en el mapa. Después puedes ajustar el texto y el punto.')
+    commercial_partner_id = fields.Many2one(
+        related='partner_id.commercial_partner_id', string='Empresa del cliente')
     latitude = fields.Float('Latitud', digits=(10, 7))
     longitude = fields.Float('Longitud', digits=(10, 7))
     has_location = fields.Boolean('Con ubicación en mapa', compute='_compute_has_location', store=True)
@@ -154,6 +161,47 @@ class SaleDeliverySchedule(models.Model):
         palette = {'scheduled': 4, 'confirmed': 10, 'in_progress': 2, 'done': 10, 'cancelled': 1}
         for rec in self:
             rec.color = palette.get(rec.state, 0)
+
+    # ------------------------------------------------------------------
+    # Dirección del cliente → contacto, teléfono, dirección y ubicación
+    # ------------------------------------------------------------------
+    @api.model
+    def _som_vals_from_partner(self, partner):
+        """Valores de la programación a partir de un contacto del cliente.
+
+        Si el contacto no tiene calle/ciudad, la dirección (y sus
+        coordenadas) se toman de la empresa. El teléfono solo se pisa si el
+        contacto trae uno."""
+        if not partner:
+            return {}
+        addr_partner = partner
+        if not (partner.street or partner.street2 or partner.city or partner.zip):
+            commercial = partner.commercial_partner_id
+            if commercial and commercial != partner and (
+                commercial.street or commercial.city or commercial.zip
+            ):
+                addr_partner = commercial
+        lines = [
+            ' '.join(x for x in [addr_partner.street or '', addr_partner.street2 or ''] if x),
+            ', '.join(x for x in [
+                addr_partner.city or '', addr_partner.state_id.name or '', addr_partner.zip or ''] if x),
+            addr_partner.country_id.name or '',
+        ]
+        vals = {
+            'contact_name': partner.name or partner.commercial_partner_id.name or '',
+            'delivery_address': '\n'.join(l for l in lines if l.strip()),
+            'latitude': getattr(addr_partner, 'partner_latitude', 0.0) or 0.0,
+            'longitude': getattr(addr_partner, 'partner_longitude', 0.0) or 0.0,
+        }
+        phone = partner.phone or addr_partner.phone
+        if phone:
+            vals['contact_phone'] = phone
+        return vals
+
+    @api.onchange('partner_shipping_id')
+    def _onchange_partner_shipping_id(self):
+        if self.partner_shipping_id:
+            self.update(self._som_vals_from_partner(self.partner_shipping_id))
 
     # ------------------------------------------------------------------
     # Reglas: sin información completa no hay programación
@@ -645,6 +693,7 @@ class SaleOrder(models.Model):
             address = partner.contact_address or ''
         return {
             'default_sale_order_id': self.id,
+            'default_partner_shipping_id': partner.id,
             'default_user_id': self.user_id.id or self.env.uid,
             'default_contact_name': partner.name or self.partner_id.name,
             'default_contact_phone': phone,

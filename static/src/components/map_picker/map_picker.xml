@@ -30,6 +30,9 @@
                 <span t-else="" class="warn">
                     <i class="fa fa-exclamation-triangle" title=""/> Sin ubicación: haz clic en el mapa o busca la dirección. Es obligatoria para programar.
                 </span>
+                <div t-if="state.autoNote" class="note">
+                    <i class="fa fa-info-circle" title=""/> <t t-esc="state.autoNote"/>
+                </div>
             </div>
         </div>
     </t>
