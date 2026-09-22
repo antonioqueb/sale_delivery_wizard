@@ -343,12 +343,10 @@ class SaleDeliverySchedule(models.Model):
         for rec in self:
             if rec.state != 'scheduled':
                 raise UserError(_('Solo se confirman entregas programadas.'))
-            # Logística confirma poniendo lo suyo: camión (y chofer). El
-            # vendedor no los captura; sin camión no hay confirmación.
-            if not rec.vehicle_id:
-                raise UserError(_(
-                    'Para confirmar %s asigna el camión (y el chofer) en la pestaña '
-                    'Logística. El vendedor programa; logística confirma con su unidad.') % rec.name)
+            # Camión y chofer NO son obligatorios en la programación (22 sep
+            # 2026): quien programa es el vendedor y no sabe qué unidad irá;
+            # la unidad se define al generar la entrega (asistente). Si
+            # logística ya puso camión, el chofer se toma de la unidad.
             if not rec.vehicle_driver_id and 'driver_id' in rec.vehicle_id._fields and rec.vehicle_id.driver_id:
                 rec.vehicle_driver_id = rec.vehicle_id.driver_id
             rec.state = 'confirmed'
@@ -443,6 +441,30 @@ class SaleDeliverySchedule(models.Model):
         return self.search([
             ('sale_order_id', '=', order.id), ('state', 'in', OPEN_STATES),
         ], order='date asc, id asc', limit=1)
+
+    def _som_propagate_contact_to_partner(self):
+        """Si el contacto de entrega del cliente no tiene teléfono o dirección,
+        se le copian los de la programación (una sola vez, solo lo que le
+        falta). Si ya tiene datos, se respetan: para la entrega vale lo
+        capturado en la programación."""
+        for rec in self:
+            order = rec.sale_order_id
+            partner = (order.partner_shipping_id or order.partner_id).sudo()
+            if not partner:
+                continue
+            vals = {}
+            phone = (rec.contact_phone or '').strip()
+            if phone and not (partner.phone or ('mobile' in partner._fields and partner.mobile)):
+                vals['phone'] = phone
+            address = (rec.delivery_address or '').strip()
+            if address and not (partner.street or partner.street2 or partner.city or partner.zip):
+                # Texto libre de la programación: va completo en calle (una
+                # sola línea) para que el contacto deje de estar "sin dirección".
+                vals['street'] = ' '.join(address.split())[:256]
+            if vals:
+                partner.write(vals)
+                _logger.info('[SCHEDULE→PARTNER] %s: contacto %s completado con %s',
+                             rec.name, partner.display_name, list(vals))
 
     def _link_pick_ticket(self, doc):
         for rec in self:
@@ -757,6 +779,20 @@ class SaleOrder(models.Model):
             open_ones = order.delivery_schedule_ids.filtered(lambda s: s.state in OPEN_STATES).sorted('date')
             order.delivery_schedule_count = len(order.delivery_schedule_ids)
             order.next_delivery_date = open_ones[:1].date if open_ones else False
+
+    def _som_schedule_for_delivery_info(self):
+        """Programación cuya información de entrega manda: la del contexto
+        (som_schedule_id, desde «Generar entrega») o la abierta más próxima
+        de la orden, siempre que tenga teléfono y dirección capturados."""
+        self.ensure_one()
+        Schedule = self.env['sale.delivery.schedule'].sudo()
+        schedule = Schedule.browse(self.env.context.get('som_schedule_id')).exists() \
+            if self.env.context.get('som_schedule_id') else Schedule
+        if not schedule or schedule.sale_order_id != self:
+            schedule = Schedule._find_open_for_order(self)
+        if schedule and (schedule.contact_phone or '').strip() and len((schedule.delivery_address or '').strip()) >= 10:
+            return schedule
+        return Schedule
 
     def _som_schedule_defaults(self):
         self.ensure_one()

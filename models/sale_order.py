@@ -132,8 +132,20 @@ class SaleOrder(models.Model):
         Si al contacto le falta dirección o teléfono, levanta un
         RedirectWarning amigable con botón "Editar contacto" que abre la
         ficha del contacto de entrega.
+
+        PROGRAMACIÓN MANDA (22 sep 2026): si la orden tiene una entrega
+        programada (la del contexto o la abierta más próxima) con contacto,
+        teléfono y dirección, ESA es la información de entrega: se usa tal
+        cual y, si el contacto del cliente no tiene teléfono o dirección, se
+        le propagan para que no vuelva a estorbar. Antes el asistente
+        reventaba con "Editar contacto" aunque el vendedor ya hubiera
+        capturado todo en la programación.
         """
         self.ensure_one()
+        schedule = self._som_schedule_for_delivery_info()
+        if schedule:
+            schedule._som_propagate_contact_to_partner()
+            return schedule._address_for_wizard()
         partner = self.partner_shipping_id or self.partner_id
         if not partner:
             return ''
