@@ -8,27 +8,45 @@
     .o_smp_bar {
         display: flex;
         gap: 6px;
-        align-items: center;
+        align-items: flex-start;
         flex-wrap: wrap;
     }
+    // Buscador con lista desplegable de coincidencias (búsqueda en vivo).
+    .o_smp_search {
+        position: relative;
+        flex: 1 1 320px;
+        min-width: 220px;
+    }
     .o_smp_input {
-        flex: 1 1 260px;
+        width: 100%;
         border: 1px solid #e2e8f0;
         border-radius: 9px;
-        padding: 6px 10px;
+        padding: 6px 30px 6px 10px;
         font-size: 13px;
         text-transform: none !important;
         &:focus { outline: 0; border-color: #0b57d0; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
     }
+    .o_smp_spin {
+        position: absolute;
+        right: 10px;
+        top: 9px;
+        color: #64748b;
+    }
     .o_smp_results {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 1100; // por encima del mapa (Leaflet usa z-index altos internos)
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
         border: 1px solid #e2e8f0;
         border-radius: 10px;
         padding: 6px;
         background: #fff;
-        max-height: 160px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+        max-height: 240px;
         overflow-y: auto;
     }
     .o_smp_result {
@@ -38,6 +56,7 @@
         padding: 6px 8px;
         border-radius: 8px;
         font-size: 12.5px;
+        line-height: 1.3;
         cursor: pointer;
         text-transform: none !important;
         &:hover { background: #f2f6fd; }
@@ -59,4 +78,11 @@
         .note { color: #475569; font-weight: 500; margin-top: 2px; }
     }
     &.o_readonly .o_smp_map { height: 260px; }
+}
+
+// Marcador propio (SVG inline): sin imágenes externas de Leaflet.
+.o_smp_pin {
+    background: transparent;
+    border: 0;
+    svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
 }

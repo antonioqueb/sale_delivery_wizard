@@ -257,7 +257,31 @@ class SaleDeliverySchedule(models.Model):
                 '📅 Entrega <b>programada</b> para el <b>%s</b> (%s) por %s. Folio %s.'
             ) % (_fmt_date(rec.date), dict(TIME_WINDOWS)[rec.time_window], self.env.user.name, rec.name),
                 message_type='notification', subtype_xmlid='mail.mt_note')
+        records._som_notify_logistics_new()
         return records
+
+    def _som_notify_logistics_new(self):
+        """Al guardar la programación arranca el proceso de logística: aviso
+        (Centro de Actividades) a los usuarios del grupo «Logística — Avisos»
+        para que confirmen con camión y chofer. Sin el grupo instalado o sin
+        usuarios, no hace nada."""
+        group = self.env.ref('sale_delivery_auth.group_delivery_logistics', raise_if_not_found=False)
+        if not group:
+            return
+        users = group.sudo().user_ids.filtered(lambda u: u.active and not u.share)
+        for rec in self:
+            for user in users:
+                if user == self.env.user:
+                    continue
+                rec.activity_schedule(
+                    'mail.mail_activity_data_todo', user_id=user.id,
+                    summary=_('Confirmar entrega: %s · %s · %s') % (
+                        rec.sale_order_id.name, rec.partner_id.name or '', _fmt_date(rec.date)),
+                    note=_('<p>%s programó la entrega <b>%s</b> para el <b>%s</b> (%s).</p>'
+                           '<p>Asigna camión y chofer y confirma.</p>') % (
+                        self.env.user.name, rec.name, _fmt_date(rec.date),
+                        dict(TIME_WINDOWS).get(rec.time_window, '')),
+                    date_deadline=rec.date)
 
     def write(self, vals):
         # La fecha solo cambia por action_reschedule (deja historial). Un
@@ -319,6 +343,14 @@ class SaleDeliverySchedule(models.Model):
         for rec in self:
             if rec.state != 'scheduled':
                 raise UserError(_('Solo se confirman entregas programadas.'))
+            # Logística confirma poniendo lo suyo: camión (y chofer). El
+            # vendedor no los captura; sin camión no hay confirmación.
+            if not rec.vehicle_id:
+                raise UserError(_(
+                    'Para confirmar %s asigna el camión (y el chofer) en la pestaña '
+                    'Logística. El vendedor programa; logística confirma con su unidad.') % rec.name)
+            if not rec.vehicle_driver_id and 'driver_id' in rec.vehicle_id._fields and rec.vehicle_id.driver_id:
+                rec.vehicle_driver_id = rec.vehicle_id.driver_id
             rec.state = 'confirmed'
             rec.message_post(body=_('✅ Confirmada por logística (%s).') % self.env.user.name,
                              message_type='notification', subtype_xmlid='mail.mt_note')
@@ -755,13 +787,10 @@ class SaleOrder(models.Model):
         reason = self._som_schedule_block_reason()
         if reason:
             raise UserError(reason)
-        open_one = self.env['sale.delivery.schedule']._find_open_for_order(self)
-        if open_one:
-            return {
-                'type': 'ir.actions.act_window', 'name': _('Entrega programada'),
-                'res_model': 'sale.delivery.schedule', 'res_id': open_one.id,
-                'view_mode': 'form', 'target': 'current',
-            }
+        # VARIAS ENTREGAS POR ORDEN (21 sep 2026): una venta puede entregarse
+        # en varios lugares o fechas; cada «Programar entrega» abre una
+        # programación NUEVA prellenada. Las anteriores se ven en el botón
+        # «Entregas programadas» de la orden. (Antes redirigía a la abierta.)
         return {
             'type': 'ir.actions.act_window', 'name': _('Programar entrega'),
             'res_model': 'sale.delivery.schedule', 'view_mode': 'form', 'target': 'current',

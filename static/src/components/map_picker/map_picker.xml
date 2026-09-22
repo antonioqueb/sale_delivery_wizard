@@ -3,22 +3,25 @@
     <t t-name="sale_delivery_wizard.SomMapPicker">
         <div class="o_som_map_picker" t-att-class="{ 'o_readonly': readonly, 'o_has_point': hasPoint }">
             <div class="o_smp_bar" t-if="!readonly">
-                <input type="text" class="o_smp_input"
-                       t-att-placeholder="addressText ? 'Buscar: ' + addressText.slice(0, 60) : 'Buscar dirección…'"
-                       t-att-value="state.query" t-on-input="onQuery" t-on-keydown="onQueryKeydown"/>
-                <button type="button" class="btn btn-primary btn-sm" t-att-disabled="state.searching" t-on-click="search">
-                    <i t-attf-class="fa {{ state.searching ? 'fa-circle-o-notch fa-spin' : 'fa-search' }}" title=""/> Buscar dirección
+                <div class="o_smp_search">
+                    <input type="text" class="o_smp_input"
+                           placeholder="Escribe la dirección y elige de la lista…"
+                           t-att-value="state.query" t-on-input="onQuery" t-on-keydown="onQueryKeydown"/>
+                    <i t-if="state.searching" class="fa fa-circle-o-notch fa-spin o_smp_spin" title=""/>
+                    <div t-if="state.results.length" class="o_smp_results">
+                        <button type="button" class="o_smp_result" t-foreach="state.results" t-as="r" t-key="r_index" t-on-click="() => this.pick(r)">
+                            <i class="fa fa-map-marker" title=""/> <t t-esc="r.label"/>
+                        </button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" t-att-disabled="state.searching" t-on-click="search" title="Buscar con el texto capturado en Dirección de entrega">
+                    <i class="fa fa-search" title=""/> Buscar
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="locateMe" title="Usar la ubicación de este dispositivo">
                     <i class="fa fa-crosshairs" title=""/>
                 </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" t-if="hasPoint" t-on-click="clearPoint" title="Quitar el punto">
                     <i class="fa fa-times" title=""/>
-                </button>
-            </div>
-            <div t-if="state.results.length > 1" class="o_smp_results">
-                <button type="button" class="o_smp_result" t-foreach="state.results" t-as="r" t-key="r_index" t-on-click="() => this.pick(r)">
-                    <i class="fa fa-map-marker" title=""/> <t t-esc="r.label"/>
                 </button>
             </div>
             <div class="o_smp_map" t-ref="map"/>
@@ -28,7 +31,7 @@
                     <a href="#" t-on-click.prevent="openExternal">abrir en Google Maps</a>
                 </span>
                 <span t-else="" class="warn">
-                    <i class="fa fa-exclamation-triangle" title=""/> Sin ubicación: haz clic en el mapa o busca la dirección. Es obligatoria para programar.
+                    <i class="fa fa-exclamation-triangle" title=""/> Sin ubicación: escribe la dirección arriba y elige de la lista, o haz clic en el mapa. Es obligatoria para programar.
                 </span>
                 <div t-if="state.autoNote" class="note">
                     <i class="fa fa-info-circle" title=""/> <t t-esc="state.autoNote"/>

@@ -102,12 +102,11 @@
                                    placeholder="Otra dirección o contacto del cliente…"/>
                             <field name="contact_name"/>
                             <field name="contact_phone" widget="phone"/>
-                            <field name="delivery_address" placeholder="Calle, número, colonia, municipio, referencias"/>
-                            <field name="vehicle_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
-                            <field name="vehicle_driver_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                            <field name="delivery_address" placeholder="Calle, número, colonia, municipio, referencias"
+                                   help="Se llena al elegir la dirección del cliente o una coincidencia del buscador del mapa; puedes ajustar el texto."/>
                         </group>
                     </group>
-                    <group string="Ubicación exacta en el mapa (haz clic o busca la dirección)">
+                    <group string="Ubicación en el mapa: escribe la dirección y elige de la lista, o marca el punto">
                         <field name="latitude" widget="som_map_picker" nolabel="1" colspan="2"
                                options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
                         <field name="longitude" invisible="1"/>
@@ -118,7 +117,25 @@
                                placeholder="Qué se entrega y en qué presentación, quién recibe, horario del sitio, acceso y estacionamiento, maniobra o equipo necesario, piso, elevador, restricciones…"/>
                     </group>
                     <notebook>
-                        <page string="Movimientos" name="moves">
+                        <page string="Logística" name="execution">
+                            <group>
+                                <group string="Unidad (la asigna logística al confirmar)">
+                                    <field name="vehicle_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                                    <field name="vehicle_driver_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                                </group>
+                                <group string="Documentos de entrega">
+                                    <field name="pick_ticket_id" readonly="1"/>
+                                    <field name="remission_id" readonly="1"/>
+                                    <field name="delivered_at" readonly="1"/>
+                                    <field name="cancel_reason" invisible="not cancel_reason"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Historial de cambios" name="moves">
+                            <group>
+                                <field name="original_date"/>
+                                <field name="reschedule_count"/>
+                            </group>
                             <field name="move_ids" readonly="1">
                                 <list>
                                     <field name="create_date" string="Cuándo"/>
@@ -130,16 +147,6 @@
                                     <field name="reason"/>
                                 </list>
                             </field>
-                        </page>
-                        <page string="Ejecución" name="execution">
-                            <group>
-                                <field name="original_date"/>
-                                <field name="reschedule_count"/>
-                                <field name="pick_ticket_id"/>
-                                <field name="remission_id"/>
-                                <field name="delivered_at"/>
-                                <field name="cancel_reason" invisible="not cancel_reason"/>
-                            </group>
                         </page>
                     </notebook>
                 </sheet>
