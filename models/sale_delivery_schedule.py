@@ -240,6 +240,12 @@ class SaleDeliverySchedule(models.Model):
         for vals in vals_list:
             if vals.get('name', 'Nuevo') == 'Nuevo':
                 vals['name'] = self.env['ir.sequence'].next_by_code('sale.delivery.schedule') or 'Nuevo'
+            if vals.get('sale_order_id'):
+                # El candado también aplica creando desde la lista o por RPC.
+                gate_order = self.env['sale.order'].browse(vals['sale_order_id']).exists()
+                reason = gate_order._som_schedule_block_reason() if gate_order else False
+                if reason:
+                    raise UserError(reason)
             if vals.get('sale_order_id') and not vals.get('user_id'):
                 order = self.env['sale.order'].browse(vals['sale_order_id'])
                 vals['user_id'] = order.user_id.id or self.env.uid
@@ -673,6 +679,43 @@ class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
     delivery_schedule_ids = fields.One2many('sale.delivery.schedule', 'sale_order_id', 'Entregas programadas')
+    # CANDADO (21 sep 2026): sin pago registrado ni autorización de entrega
+    # sin pago no se programa. Misma regla que el pick ticket.
+    x_can_schedule_delivery = fields.Boolean(
+        string='Puede programar entrega', compute='_compute_x_can_schedule_delivery',
+        help='Verdadero cuando la orden tiene al menos un pago registrado o autorización de entrega sin pago.')
+
+    @api.depends('state', 'amount_total')
+    def _compute_x_can_schedule_delivery(self):
+        for order in self:
+            order.x_can_schedule_delivery = not order._som_schedule_block_reason()
+
+    def _som_schedule_block_reason(self):
+        """Motivo por el que NO se puede programar la entrega, o False.
+        Regla del negocio (21 sep 2026): el vendedor solo programa cuando la
+        orden ya es dinero (al menos un pago registrado) o tiene autorización
+        de entrega sin pago. Reusa el gate del pick ticket para que las dos
+        puertas se abran y cierren juntas."""
+        self.ensure_one()
+        if self.state not in ('sale', 'done'):
+            return False
+        if self.env.context.get('som_skip_schedule_gate'):
+            return False
+        if not self._som_pick_ticket_block_reason():
+            return False
+        requested = any(
+            r.state in ('draft', 'requested')
+            for r in getattr(self, 'delivery_auth_request_ids', []))
+        return _(
+            'No se puede programar la entrega de %(name)s: la orden no tiene '
+            'ningún pago registrado ni autorización de entrega sin pago.\n\n'
+            'Registra el anticipo del cliente o solicita "Entregar sin pago" '
+            'y, cuando esté aprobada, programa la entrega.%(req)s'
+        ) % {
+            'name': self.name,
+            'req': _('\n\nYa hay una solicitud de autorización pendiente: '
+                     'espera a que se apruebe.') if requested else '',
+        }
     delivery_schedule_count = fields.Integer(compute='_compute_delivery_schedule_count')
     next_delivery_date = fields.Date('Próxima entrega', compute='_compute_delivery_schedule_count')
 
@@ -709,6 +752,9 @@ class SaleOrder(models.Model):
         self.ensure_one()
         if self.state not in ('sale', 'done'):
             raise UserError(_('Solo se programan entregas de órdenes confirmadas.'))
+        reason = self._som_schedule_block_reason()
+        if reason:
+            raise UserError(reason)
         open_one = self.env['sale.delivery.schedule']._find_open_for_order(self)
         if open_one:
             return {
