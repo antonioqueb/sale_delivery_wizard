@@ -671,12 +671,16 @@ class SaleDeliveryDocument(models.Model):
                 lambda m: m.product_id == doc_line.product_id
                 and m.state not in ('done', 'cancel')
             )
-            move = candidatos[:1]
+            # Sin cadena ni renglón: el movimiento con más pendiente, no el
+            # primero. Tomar siempre el primero apilaba todas las placas en
+            # el primer renglón (V/150: 26.92 / 0 / 0 en vez de
+            # 13.46 / 6.73 / 6.73).
+            move = self._som_pick_move_with_most_pending(candidatos)
             if len(candidatos) > 1:
                 _logger.warning(
                     '[REMISSION] %s tiene %s movimientos vivos de %s y la línea '
-                    'no trae cadena ni renglón de venta. Se toma el primero '
-                    '(mv=%s) — revisar atribución.',
+                    'no trae cadena ni renglón de venta. Se toma el de mayor '
+                    'pendiente (mv=%s) — revisar atribución.',
                     picking.name, len(candidatos),
                     doc_line.product_id.display_name,
                     move.id if move else 'N/A',
@@ -686,6 +690,22 @@ class SaleDeliveryDocument(models.Model):
 
         # Ubicación origen: la forzada por el llamador (p. ej. Salida en el
         # OUT), la capturada en la remisión o donde realmente vive el lote.
+        # Si el lote ya está DENTRO del origen del movimiento (el PICK ya lo
+        # bajó a Salida), se descuenta de ahí y no del bin: Odoo 19 descuenta
+        # en la ubicación literal de la move line y el OUT volvía a restar
+        # del bin lo que el PICK ya había movido (S58-04: 2 m² dos veces).
+        src = doc_line.source_location_id
+        if not location and src and (src.parent_path or '').startswith(
+            move.location_id.parent_path or '/'
+        ):
+            location = src
+        if not location and doc_line.lot_id:
+            quant_in_src = self._som_lot_quant_under(
+                move.location_id, doc_line.product_id, doc_line.lot_id,
+                picking.company_id,
+            )
+            if quant_in_src:
+                location = quant_in_src.location_id
         location = location or doc_line.source_location_id
         if not location and doc_line.lot_id:
             # sudo salta las reglas: acotar a la compañía del picking.
@@ -699,6 +719,20 @@ class SaleDeliveryDocument(models.Model):
             location = quant.location_id if quant else False
         if not location:
             location = move.location_id
+        elif not (location.parent_path or '').startswith(
+            move.location_id.parent_path or '/'
+        ):
+            # OUT de regeneración (nace en Salida, sin PICK): el lote sigue en
+            # su bin y se descuenta de ahí, que es donde está físicamente.
+            # Forzar Salida dejaría el quant de Salida en negativo y el bin
+            # con metraje fantasma.
+            _logger.warning(
+                '[REMISSION] %s: el lote %s no está bajo el origen %s del '
+                'movimiento; se descuenta de %s (donde vive).',
+                picking.name,
+                doc_line.lot_id.name if doc_line.lot_id else 'N/A',
+                move.location_id.complete_name, location.complete_name,
+            )
 
         qty_field = 'quantity' if 'quantity' in MoveLine._fields else 'reserved_uom_qty'
         uom = (
@@ -730,6 +764,59 @@ class SaleDeliveryDocument(models.Model):
         )
 
         return move_line
+
+    def _som_pick_move_with_most_pending(self, moves):
+        """Entre varios movimientos candidatos, el de mayor demanda aún no
+        reservada/hecha (empate: el de menor id)."""
+        if not moves:
+            return moves
+
+        def pending(m):
+            done = sum(
+                self._som_get_move_line_pending_qty(ml) for ml in m.move_line_ids
+            )
+            return (m.product_uom_qty or 0.0) - done
+
+        return moves.sorted(lambda m: (-pending(m), m.id))[:1]
+
+    def _som_lot_quant_under(self, location, product, lot, company):
+        """Quant positivo del lote dentro de `location` (child_of), o vacío."""
+        if not location or not lot:
+            return self.env['stock.quant']
+        # sudo salta las reglas: acotar a la compañía del picking.
+        return self.env['stock.quant'].sudo().search([
+            ('product_id', '=', product.id),
+            ('lot_id', '=', lot.id),
+            ('location_id', 'child_of', location.id),
+            ('quantity', '>', 0),
+            ('company_id', '=', company.id),
+        ], order='quantity desc', limit=1)
+
+    def _som_repoint_out_move_line_to_source(self, move_line, qty):
+        """Una move line de OUT que quedó apuntando al bin del lote (se armó
+        antes de que el PICK lo bajara a Salida) se re-apunta a donde el lote
+        vive DENTRO del origen del movimiento. Sin esto el OUT descontaba del
+        bin y dejaba el metraje del PICK huérfano en Salida (S58-04)."""
+        move = move_line.move_id
+        if not move or not move_line.lot_id or not move.location_id:
+            return
+        if (move_line.location_id.parent_path or '').startswith(
+            move.location_id.parent_path or '/'
+        ):
+            return
+        quant = self._som_lot_quant_under(
+            move.location_id, move_line.product_id, move_line.lot_id,
+            move_line.company_id or move.company_id,
+        )
+        if not quant or (quant.quantity or 0.0) + 0.0001 < qty:
+            return
+        _logger.info(
+            '[REMISSION] OUT %s: move line %s del lote %s re-apuntada de %s a %s '
+            '(el lote ya está en el origen del movimiento).',
+            move_line.picking_id.name, move_line.id, move_line.lot_id.name,
+            move_line.location_id.complete_name, quant.location_id.complete_name,
+        )
+        move_line.write({'location_id': quant.location_id.id})
 
     def _resolve_doc_move_lines_for_picking(self, picking):
         self.ensure_one()
@@ -845,7 +932,21 @@ class SaleDeliveryDocument(models.Model):
                             'lot': doc_line.lot_id.name,
                             'free': max(lot_free, 0.0),
                         })
-                first_ml = candidate_mls[0]
+                # El remanente va a la move line del MISMO renglón de venta;
+                # solo sin renglón, a la de mayor pendiente del movimiento.
+                same_line = candidate_mls.filtered(
+                    lambda ml: doc_line.sale_line_id
+                    and ml.move_id.sale_line_id == doc_line.sale_line_id
+                )
+                if same_line:
+                    first_ml = same_line[0]
+                else:
+                    best_move = self._som_pick_move_with_most_pending(
+                        candidate_mls.move_id
+                    )
+                    first_ml = candidate_mls.filtered(
+                        lambda ml: ml.move_id == best_move
+                    )[:1] or candidate_mls[0]
                 doc_ml_ids.add(first_ml.id)
                 doc_ml_qty[first_ml.id] = doc_ml_qty.get(first_ml.id, 0.0) + remaining
                 _logger.info(
@@ -1052,51 +1153,104 @@ class SaleDeliveryDocument(models.Model):
             if out_picking.state not in ('done', 'cancel'):
                 out_doc_ml_ids = set()
                 out_doc_ml_qty = {}
-                covered_lot_ids = set()
 
-                for move in out_picking.move_ids:
-                    for ml in move.move_line_ids:
-                        if ml.move_id.state in ('done', 'cancel'):
+                # Cantidad remisionada por (lote, renglón de venta). Antes se
+                # emparejaba SOLO por lote con el total del lote: si un lote
+                # servía a dos renglones, cada move line del OUT recibía el
+                # total y todo terminaba cargado a un solo renglón.
+                key_qty = {}
+                key_doc_line = {}
+                for doc_line in self.line_ids:
+                    if not doc_line.lot_id or (doc_line.qty_selected or 0.0) <= 0:
+                        continue
+                    if doc_line.lot_id.id not in doc_lot_ids:
+                        continue
+                    key = (doc_line.lot_id.id, doc_line.sale_line_id.id or False)
+                    key_qty[key] = key_qty.get(key, 0.0) + doc_line.qty_selected
+                    key_doc_line.setdefault(key, doc_line)
+
+                live_mls = out_picking.move_ids.filtered(
+                    lambda m: m.state not in ('done', 'cancel')
+                ).move_line_ids.filtered(
+                    lambda ml: ml.lot_id and ml.lot_id.id in doc_lot_ids
+                )
+                used_ml_ids = set()
+                uncovered = []
+
+                # Primero las claves con renglón (emparejan exacto), al final
+                # las huérfanas (toman lo que quede del lote).
+                for key in sorted(key_qty, key=lambda k: (k[1] is False, k)):
+                    lot_id, sale_line_id = key
+                    remaining = key_qty[key]
+                    mls = live_mls.filtered(
+                        lambda ml: ml.lot_id.id == lot_id
+                        and ml.id not in used_ml_ids
+                    )
+                    if sale_line_id:
+                        exact = mls.filtered(
+                            lambda ml: ml.move_id.sale_line_id.id == sale_line_id
+                        )
+                        # Sin renglón en el move (OUT manual/legado): se acepta.
+                        mls = exact or mls.filtered(
+                            lambda ml: not ml.move_id.sale_line_id
+                        )
+                    if not mls:
+                        uncovered.append(key)
+                        continue
+                    last_ml = False
+                    for ml in mls.sorted('id'):
+                        if remaining <= 0.0001:
+                            break
+                        pending = self._som_get_move_line_pending_qty(ml)
+                        assign = min(remaining, pending) if pending > 0 else remaining
+                        if assign <= 0:
                             continue
-                        lot_id = ml.lot_id.id if ml.lot_id else False
-                        if lot_id and lot_id in doc_lot_ids:
-                            covered_lot_ids.add(lot_id)
-                            out_doc_ml_ids.add(ml.id)
-                            out_doc_ml_qty[ml.id] = doc_lot_qty.get(
-                                lot_id,
-                                self._som_get_move_line_pending_qty(ml),
-                            )
+                        out_doc_ml_ids.add(ml.id)
+                        used_ml_ids.add(ml.id)
+                        out_doc_ml_qty[ml.id] = out_doc_ml_qty.get(ml.id, 0.0) + assign
+                        remaining -= assign
+                        last_ml = ml
+                    if remaining > 0.0001:
+                        # El PICK ya pasó esta cantidad a Salida: el OUT debe
+                        # llevarla completa, sobre el mismo renglón.
+                        last_ml = last_ml or mls.sorted('id')[:1]
+                        out_doc_ml_ids.add(last_ml.id)
+                        used_ml_ids.add(last_ml.id)
+                        out_doc_ml_qty[last_ml.id] = (
+                            out_doc_ml_qty.get(last_ml.id, 0.0) + remaining
+                        )
 
                 # Lotes remisionados sin move line en el OUT: pasa en entregas
                 # parciales de líneas Torre de Control (la reserva encadenada
                 # nativa está deshabilitada a propósito). Se crean explícitas
-                # desde la ubicación origen del movimiento de salida.
-                for doc_line in self.line_ids:
-                    lot = doc_line.lot_id
-                    if not lot or lot.id not in doc_lot_ids or lot.id in covered_lot_ids:
-                        continue
-                    if (doc_line.qty_selected or 0.0) <= 0:
-                        continue
-
-                    out_move = out_picking.move_ids.filtered(
-                        lambda m: m.product_id == doc_line.product_id
-                        and m.state not in ('done', 'cancel')
-                    )[:1]
-                    if not out_move:
-                        continue
-
+                # sobre el movimiento del MISMO renglón (lo resuelve
+                # _som_create_move_line_for_doc_line: cadena → renglón → mayor
+                # pendiente), tomando el lote de donde vive dentro del origen
+                # del OUT (Salida).
+                for key in uncovered:
+                    doc_line = key_doc_line[key]
                     new_ml = self._som_create_move_line_for_doc_line(
-                        out_picking,
-                        doc_line,
-                        location=out_move.location_id,
+                        out_picking, doc_line,
                     )
                     if new_ml:
-                        covered_lot_ids.add(lot.id)
+                        if not (new_ml.location_id.parent_path or '').startswith(
+                            new_ml.move_id.location_id.parent_path or '/'
+                        ):
+                            # El lote no está bajo el origen del OUT: se
+                            # conserva el comportamiento previo (Salida).
+                            new_ml.write({
+                                'location_id': new_ml.move_id.location_id.id,
+                            })
                         out_doc_ml_ids.add(new_ml.id)
-                        out_doc_ml_qty[new_ml.id] = doc_lot_qty.get(
-                            lot.id,
-                            doc_line.qty_selected or 0.0,
-                        )
+                        out_doc_ml_qty[new_ml.id] = key_qty[key]
+
+                # Move lines reutilizadas que quedaron en el bin del lote (se
+                # armaron antes de que el PICK lo bajara a Salida): se
+                # re-apuntan a donde el lote vive dentro del origen del OUT.
+                for ml in self.env['stock.move.line'].browse(list(out_doc_ml_ids)):
+                    self._som_repoint_out_move_line_to_source(
+                        ml, out_doc_ml_qty.get(ml.id, 0.0),
+                    )
 
                 if out_doc_ml_ids:
                     self._validate_picking_partial(
