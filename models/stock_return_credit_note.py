@@ -41,7 +41,10 @@ class StockPicking(models.Model):
     def _action_done(self):
         res = super()._action_done()
         for picking in self:
-            if picking.state != 'done' or picking.x_return_credit_note_ids:
+            # sudo: el campo apunta a account.move y almacén/taller no tienen
+            # lectura de contabilidad; leerlo como el usuario tumbaba TODA
+            # validación de traslado (SOM/INT/00745, 24 sep 2026).
+            if picking.state != 'done' or picking.sudo().x_return_credit_note_ids:
                 continue
             try:
                 with self.env.cr.savepoint():
