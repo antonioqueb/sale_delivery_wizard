@@ -207,6 +207,16 @@ class SaleDeliveryDocument(models.Model):
             # candado anti-sobre-entrega.
             if doc.document_type == 'remission':
                 doc._som_consume_open_pick_tickets()
+                # El backorder hereda la demanda inflada por la selección
+                # de lotes: se recorta a lo pendiente real (caso V/579).
+                if doc.sale_order_id:
+                    try:
+                        with self.env.cr.savepoint():
+                            doc.sale_order_id._som_trim_excess_delivery_demand()
+                    except Exception:
+                        _logger.exception(
+                            '[DELIVERY HEAL] %s: no se pudo recortar la demanda',
+                            doc.sale_order_id.name)
 
         return True
 

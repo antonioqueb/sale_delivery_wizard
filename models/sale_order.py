@@ -1474,6 +1474,63 @@ class SaleOrder(models.Model):
                         'Este pedido no tiene autorización de entrega. '
                         'Contacte a un autorizador.'))
 
+    def _som_trim_excess_delivery_demand(self):
+        """Recorta la demanda viva que EXCEDE lo pendiente de la línea
+        (caso V/579, 25 sep 2026): antes de validar, la selección de lotes
+        reescribe la demanda del PICK (117.12 → 180) y el backorder nativo
+        hereda demanda − hecho, así que cada parcial arrastraba metros
+        fantasma (PICK/01606 con 125.28 cuando faltaban 2.4). Por tipo de
+        operación (PICK y OUT encadenados son la misma demanda) se baja al
+        pendiente real, del movimiento más nuevo al más viejo, sin quedar
+        nunca por debajo de lo ya reservado. Los de regeneración los ajusta
+        su propio flujo."""
+        tolerance = 0.0001
+        for order in self:
+            trimmed = []
+            for line in order.order_line:
+                if line.display_type or not line.product_id \
+                        or line.product_id.type == 'service':
+                    continue
+                if getattr(line, 'x_finiquitado', False) \
+                        or getattr(line, 'tc_assignment_closed', False):
+                    continue
+                pending = max((line.product_uom_qty or 0.0)
+                              - (line.x_delivered_net_qty or 0.0), 0.0)
+                moves = line.move_ids.filtered(
+                    lambda m: m.state not in ('done', 'cancel')
+                    and not order._som_is_regen_move(m))
+                by_type = {}
+                for m in moves:
+                    by_type.setdefault(m.picking_type_id.code or 'other', []).append(m)
+                for type_moves in by_type.values():
+                    excess = sum((m.product_uom_qty or 0.0) for m in type_moves) - pending
+                    if excess <= tolerance:
+                        continue
+                    for m in sorted(type_moves, key=lambda x: x.id, reverse=True):
+                        if excess <= tolerance:
+                            break
+                        demand = m.product_uom_qty or 0.0
+                        floor = m.quantity or 0.0
+                        target = max(demand - excess, floor, 0.0)
+                        if demand - target <= tolerance:
+                            continue
+                        excess -= demand - target
+                        m.sudo().with_context(
+                            skip_stone_sync_picking=True,
+                            skip_stone_sync_so=True,
+                            skip_stone_sync=True,
+                        ).write({'product_uom_qty': target})
+                        trimmed.append('%s %s: %.2f → %.2f' % (
+                            m.picking_id.name or '', m.product_id.display_name,
+                            demand, target))
+            if trimmed:
+                order.message_post(body=_(
+                    'Demanda de entrega ajustada a lo pendiente real: %s'
+                ) % '; '.join(trimmed))
+                _logger.warning('[DELIVERY HEAL] %s: demanda recortada %s',
+                                order.name, trimmed)
+        return True
+
     def _som_ensure_delivery_moves_for_pending(self):
         """AUTO-REPARACIÓN de la cadena de entrega (caso V/045): tras una
         devolución recepcionada (o backorders cancelados), los pickings
@@ -1487,6 +1544,12 @@ class SaleOrder(models.Model):
         picking de salida manual con el déficit ligado a la línea."""
         self.ensure_one()
         tolerance = 0.0001
+        # Primero lo que SOBRA (demanda heredada de backorders inflados).
+        try:
+            with self.env.cr.savepoint():
+                self._som_trim_excess_delivery_demand()
+        except Exception:
+            _logger.exception('[DELIVERY HEAL] %s: no se pudo recortar la demanda', self.name)
         # Defaults (almacén/tipo de operación) de la compañía de la orden.
         Move = self.env['stock.move'].sudo().with_company(self.company_id)
 
