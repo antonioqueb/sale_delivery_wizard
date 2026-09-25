@@ -1496,8 +1496,11 @@ class SaleOrder(models.Model):
                     continue
                 pending = max((line.product_uom_qty or 0.0)
                               - (line.x_delivered_net_qty or 0.0), 0.0)
+                # Solo recolección/salida: las recepciones (devoluciones)
+                # ligadas a la línea no son demanda de entrega.
                 moves = line.move_ids.filtered(
                     lambda m: m.state not in ('done', 'cancel')
+                    and m.picking_type_id.code in ('internal', 'outgoing')
                     and not order._som_is_regen_move(m))
                 by_type = {}
                 for m in moves:
@@ -1515,11 +1518,16 @@ class SaleOrder(models.Model):
                         if demand - target <= tolerance:
                             continue
                         excess -= demand - target
-                        m.sudo().with_context(
+                        ctx_move = m.sudo().with_context(
                             skip_stone_sync_picking=True,
                             skip_stone_sync_so=True,
                             skip_stone_sync=True,
-                        ).write({'product_uom_qty': target})
+                        )
+                        if target <= tolerance:
+                            # Nada pendiente ni reservado: el movimiento sobra.
+                            ctx_move._action_cancel()
+                        else:
+                            ctx_move.write({'product_uom_qty': target})
                         trimmed.append('%s %s: %.2f → %.2f' % (
                             m.picking_id.name or '', m.product_id.display_name,
                             demand, target))
