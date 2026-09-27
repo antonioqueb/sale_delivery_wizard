@@ -86,18 +86,23 @@
         <field name="name">sale.delivery.schedule.form</field>
         <field name="model">sale.delivery.schedule</field>
         <field name="arch" type="xml">
-            <form string="Solicitud de entrega" create="0">
+            <!-- Diseño propio (27 sep 2026): tarjetas con estilos de
+                 static/src/scss/schedule_form.scss (clase o_som_request_form),
+                 misma paleta del asistente «Solicitar entrega». -->
+            <form string="Solicitud de entrega" create="0" class="o_som_request_form">
                 <header>
                     <button name="action_confirm" type="object" string="Confirmar solicitud" class="btn-primary"
-                            invisible="state not in ('scheduled', 'rescheduled')" groups="sale_delivery_wizard.group_delivery_user"/>
+                            icon="fa-check" invisible="state not in ('scheduled', 'rescheduled')"
+                            groups="sale_delivery_wizard.group_delivery_user"/>
                     <button name="%(action_sale_delivery_schedule_plan_wizard)d" type="action" string="Asignar unidad y programar"
-                            class="btn-primary" context="{'default_schedule_id': id, 'default_vehicle_id': vehicle_id, 'default_vehicle_driver_id': vehicle_driver_id}"
+                            icon="fa-truck" class="btn-primary"
+                            context="{'default_schedule_id': id, 'default_vehicle_id': vehicle_id, 'default_vehicle_driver_id': vehicle_driver_id}"
                             invisible="state not in ('confirmed', 'programmed')" groups="sale_delivery_wizard.group_delivery_user"/>
-                    <button name="action_generate_delivery" type="object" string="Continuar a la entrega"
+                    <button name="action_generate_delivery" type="object" string="Continuar a la entrega" icon="fa-arrow-right"
                             invisible="state not in ('confirmed', 'programmed', 'in_progress')"
                             groups="sale_delivery_wizard.group_delivery_user"
                             help="Abre el asistente de entrega de la orden (flujo actual) con la dirección, la unidad y los materiales de esta solicitud."/>
-                    <button name="%(action_sale_delivery_schedule_move_wizard)d" type="action" string="Reprogramar"
+                    <button name="%(action_sale_delivery_schedule_move_wizard)d" type="action" string="Reprogramar" icon="fa-calendar"
                             invisible="state not in ('scheduled', 'confirmed', 'programmed', 'rescheduled', 'in_progress')"
                             context="{'default_schedule_id': id}"/>
                     <button name="%(action_sale_delivery_schedule_cancel_wizard)d" type="action" string="Cancelar solicitud"
@@ -111,101 +116,191 @@
                             <div class="o_stat_info"><span class="o_stat_text">Orden</span><span class="o_stat_value"><field name="sale_order_id" readonly="1" nolabel="1"/></span></div>
                         </button>
                         <button name="action_open_map" type="object" class="oe_stat_button" icon="fa-map-marker" invisible="not has_location">
-                            <div class="o_stat_info"><span class="o_stat_text">Ver en mapa</span></div>
+                            <div class="o_stat_info"><span class="o_stat_text">Ver en</span><span class="o_stat_value">Google Maps</span></div>
                         </button>
                     </div>
-                    <div class="alert alert-info" role="alert" invisible="state != 'rescheduled'">
-                        <i class="fa fa-calendar" title="Reprogramada"/> La fecha cambió: logística debe volver a confirmar la solicitud.
-                    </div>
-                    <div class="alert alert-warning" role="alert" groups="sale_delivery_wizard.group_delivery_user"
-                         invisible="not readiness or state in ('done','cancelled')">
-                        <b>Pendientes para logística:</b> <field name="readiness" readonly="1" nolabel="1" class="d-inline"/>
-                    </div>
-                    <div class="oe_title">
-                        <h1><field name="name" readonly="1"/></h1>
-                        <div class="text-muted">
-                            <field name="partner_id" readonly="1" class="d-inline"/> ·
-                            Solicitó <field name="user_id" readonly="1" class="d-inline"/>
+
+                    <div class="o_sr_root">
+                        <field name="commercial_partner_id" invisible="1"/>
+                        <field name="longitude" invisible="1"/>
+                        <field name="has_location" invisible="1"/>
+
+                        <!-- ═══ Encabezado ═══ -->
+                        <div class="o_sr_hero">
+                            <div class="o_sr_hero_main">
+                                <div class="o_sr_kicker"><i class="fa fa-truck" title="Solicitud de entrega"/> Solicitud de entrega</div>
+                                <h1 class="o_sr_title"><field name="name" readonly="1"/></h1>
+                                <div class="o_sr_meta">
+                                    <span class="o_sr_meta_item"><i class="fa fa-building-o" title="Cliente"/> <field name="partner_id" readonly="1"/></span>
+                                    <span class="o_sr_meta_item"><i class="fa fa-user-o" title="Solicitó"/> Solicitó <field name="user_id" readonly="1"/></span>
+                                    <span class="o_sr_meta_item" invisible="not logistics_user_id" groups="sale_delivery_wizard.group_delivery_user">
+                                        <i class="fa fa-headphones" title="Responsable de logística"/> <field name="logistics_user_id" readonly="1"/>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="o_sr_when">
+                                <div class="o_sr_when_label">Fecha solicitada</div>
+                                <div class="o_sr_when_date"><field name="date" readonly="id" help="Una vez creada, la fecha solo cambia con «Reprogramar» (queda historial)."/></div>
+                                <div class="o_sr_when_window">
+                                    <field name="time_window" readonly="state not in ('scheduled', 'rescheduled')"/>
+                                    <field name="time_exact" widget="float_time" invisible="time_window != 'exact'"
+                                           required="time_window == 'exact'" readonly="state not in ('scheduled', 'rescheduled')"/>
+                                </div>
+                                <div class="o_sr_when_moves" invisible="not reschedule_count">
+                                    <i class="fa fa-history" title="Reprogramaciones"/> Reprogramaciones: <field name="reschedule_count" readonly="1"/>
+                                </div>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- 1. Qué se entrega -->
-                    <separator string="1. Materiales a entregar"/>
-                    <field name="line_ids" readonly="1" nolabel="1" invisible="not line_ids">
-                        <list>
-                            <field name="product_id"/>
-                            <field name="qty"/>
-                            <field name="uom_name"/>
-                        </list>
-                    </field>
-                    <div class="text-muted mb-3" invisible="line_ids">
-                        Solicitud anterior al detalle por material: toda la orden. Pendiente por entregar:
-                        <field name="qty_summary" readonly="1" class="d-inline"/>
-                    </div>
+                        <!-- ═══ Avisos ═══ -->
+                        <div class="o_sr_notice o_sr_notice_info" invisible="state != 'rescheduled'">
+                            <i class="fa fa-calendar" title="Reprogramada"/>
+                            <span>La fecha cambió: logística debe volver a confirmar la solicitud.</span>
+                        </div>
+                        <div class="o_sr_notice o_sr_notice_warn" groups="sale_delivery_wizard.group_delivery_user"
+                             invisible="not readiness or state in ('done','cancelled')">
+                            <i class="fa fa-exclamation-triangle" title="Pendientes"/>
+                            <span><b>Pendientes para logística:</b> <field name="readiness" readonly="1"/></span>
+                        </div>
+                        <div class="o_sr_notice o_sr_notice_muted" invisible="state != 'cancelled'">
+                            <i class="fa fa-ban" title="Cancelada"/>
+                            <span><b>Cancelada.</b> <field name="cancel_reason" readonly="1"/></span>
+                        </div>
 
-                    <!-- 2. Dónde -->
-                    <separator string="2. Dirección y ubicación"/>
-                    <group>
-                        <group>
-                            <field name="commercial_partner_id" invisible="1"/>
-                            <field name="partner_shipping_id" options="{'no_create': True, 'no_open': True}"
-                                   readonly="state not in ('scheduled', 'rescheduled')"/>
-                            <field name="contact_name" readonly="state not in ('scheduled', 'rescheduled')"/>
-                            <field name="contact_phone" widget="phone" readonly="state not in ('scheduled', 'rescheduled')"/>
-                        </group>
-                        <group>
-                            <field name="delivery_address" readonly="state not in ('scheduled', 'rescheduled')"
-                                   help="La dirección capturada no se cambia al mover el punto del mapa: el mapa solo guarda las coordenadas."/>
-                        </group>
-                    </group>
-                    <field name="latitude" widget="som_map_picker" nolabel="1"
-                           readonly="state not in ('scheduled', 'rescheduled', 'confirmed', 'programmed')"
-                           options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
-                    <field name="longitude" invisible="1"/>
-                    <field name="has_location" invisible="1"/>
+                        <!-- ═══ 1. Materiales ═══ -->
+                        <div class="o_sr_card">
+                            <div class="o_sr_card_head">
+                                <span class="o_sr_num">1</span>
+                                <div><div class="o_sr_card_title">Materiales a entregar</div>
+                                    <div class="o_sr_card_sub">Lo que se entrega en esta solicitud</div></div>
+                            </div>
+                            <field name="line_ids" readonly="1" nolabel="1" class="o_sr_lines" invisible="not line_ids">
+                                <list>
+                                    <field name="product_id"/>
+                                    <field name="qty"/>
+                                    <field name="uom_name"/>
+                                </list>
+                            </field>
+                            <div class="o_sr_empty" invisible="line_ids">
+                                Solicitud anterior al detalle por material: toda la orden. Pendiente por entregar:
+                                <field name="qty_summary" readonly="1"/>
+                            </div>
+                        </div>
 
-                    <!-- 3. Cuándo -->
-                    <separator string="3. Fecha y condiciones"/>
-                    <group>
-                        <group>
-                            <field name="date" readonly="id" help="Una vez creada, la fecha solo cambia con «Reprogramar» (queda historial)."/>
-                            <field name="time_window" readonly="state not in ('scheduled', 'rescheduled')"/>
-                            <field name="time_exact" widget="float_time" invisible="time_window != 'exact'"
-                                   required="time_window == 'exact'" readonly="state not in ('scheduled', 'rescheduled')"/>
-                        </group>
-                        <group>
-                            <field name="auth_label" string="Pago / autorización" invisible="not auth_label"/>
-                        </group>
-                    </group>
+                        <!-- ═══ 2. Dirección y ubicación ═══ -->
+                        <div class="o_sr_card">
+                            <div class="o_sr_card_head">
+                                <span class="o_sr_num">2</span>
+                                <div><div class="o_sr_card_title">Dirección y ubicación</div>
+                                    <div class="o_sr_card_sub">El mapa valida la dirección; moverlo no cambia el texto</div></div>
+                            </div>
+                            <div class="o_sr_split">
+                                <div class="o_sr_fields">
+                                    <div class="o_sr_field">
+                                        <label for="partner_shipping_id" string="Dirección del cliente"/>
+                                        <field name="partner_shipping_id" options="{'no_create': True, 'no_open': True}"
+                                               readonly="state not in ('scheduled', 'rescheduled')"/>
+                                    </div>
+                                    <div class="o_sr_field_row">
+                                        <div class="o_sr_field">
+                                            <label for="contact_name" string="Contacto en sitio"/>
+                                            <field name="contact_name" readonly="state not in ('scheduled', 'rescheduled')"/>
+                                        </div>
+                                        <div class="o_sr_field">
+                                            <label for="contact_phone" string="Teléfono"/>
+                                            <field name="contact_phone" widget="phone" readonly="state not in ('scheduled', 'rescheduled')"/>
+                                        </div>
+                                    </div>
+                                    <div class="o_sr_field">
+                                        <label for="delivery_address" string="Dirección de entrega"/>
+                                        <field name="delivery_address" readonly="state not in ('scheduled', 'rescheduled')"
+                                               help="La dirección capturada no se cambia al mover el punto del mapa: el mapa solo guarda las coordenadas."/>
+                                    </div>
+                                </div>
+                                <div class="o_sr_map">
+                                    <field name="latitude" widget="som_map_picker" nolabel="1"
+                                           readonly="state not in ('scheduled', 'rescheduled', 'confirmed', 'programmed')"
+                                           options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
+                                </div>
+                            </div>
+                        </div>
 
-                    <!-- 4. Especificaciones -->
-                    <separator string="4. Especificaciones de la entrega"/>
-                    <field name="instructions" nolabel="1" readonly="state in ('done', 'cancelled')"
-                           placeholder="Quién recibe, horario del sitio, acceso, maniobra o equipo necesario, piso, restricciones…"/>
+                        <div class="o_sr_pair">
+                            <!-- ═══ 3. Condiciones ═══ -->
+                            <div class="o_sr_card">
+                                <div class="o_sr_card_head">
+                                    <span class="o_sr_num">3</span>
+                                    <div><div class="o_sr_card_title">Condiciones</div>
+                                        <div class="o_sr_card_sub">Pago y autorización de la orden</div></div>
+                                </div>
+                                <div class="o_sr_facts">
+                                    <div class="o_sr_fact">
+                                        <span class="k">Pago / autorización</span>
+                                        <span class="v"><field name="auth_label" readonly="1"/></span>
+                                    </div>
+                                    <div class="o_sr_fact">
+                                        <span class="k">Fecha original</span>
+                                        <span class="v"><field name="original_date" readonly="1"/></span>
+                                    </div>
+                                    <div class="o_sr_fact" invisible="not delivered_at">
+                                        <span class="k">Entregada el</span>
+                                        <span class="v"><field name="delivered_at" readonly="1"/></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- ═══ 4. Especificaciones ═══ -->
+                            <div class="o_sr_card">
+                                <div class="o_sr_card_head">
+                                    <span class="o_sr_num">4</span>
+                                    <div><div class="o_sr_card_title">Especificaciones</div>
+                                        <div class="o_sr_card_sub">Lo primero que lee logística</div></div>
+                                </div>
+                                <field name="instructions" nolabel="1" class="o_sr_specs" readonly="state in ('done', 'cancelled')"
+                                       placeholder="Quién recibe, horario del sitio, acceso, maniobra o equipo necesario, piso, restricciones…"/>
+                            </div>
+                        </div>
 
-                    <notebook>
-                        <page string="Logística" name="execution" groups="sale_delivery_wizard.group_delivery_user">
-                            <group>
-                                <group string="Responsable y unidad">
+                        <!-- ═══ Logística (solo Usuario de Entregas) ═══ -->
+                        <div class="o_sr_card o_sr_card_logistics" groups="sale_delivery_wizard.group_delivery_user">
+                            <div class="o_sr_card_head">
+                                <span class="o_sr_num o_sr_num_log"><i class="fa fa-truck" title="Logística"/></span>
+                                <div><div class="o_sr_card_title">Logística</div>
+                                    <div class="o_sr_card_sub">Responsable, unidad y documentos del flujo de entrega</div></div>
+                            </div>
+                            <div class="o_sr_field_row o_sr_field_row_3">
+                                <div class="o_sr_field">
+                                    <label for="logistics_user_id" string="Responsable"/>
                                     <field name="logistics_user_id" options="{'no_create': True}"/>
+                                </div>
+                                <div class="o_sr_field">
+                                    <label for="vehicle_id" string="Vehículo"/>
                                     <field name="vehicle_id" options="{'no_create': True}"/>
+                                </div>
+                                <div class="o_sr_field">
+                                    <label for="vehicle_driver_id" string="Chofer"/>
                                     <field name="vehicle_driver_id" options="{'no_create': True}"/>
-                                </group>
-                                <group string="Documentos de entrega (flujo actual)">
+                                </div>
+                            </div>
+                            <div class="o_sr_docs">
+                                <div class="o_sr_doc">
+                                    <span class="k"><i class="fa fa-list-alt" title="Pick ticket"/> Pick ticket</span>
                                     <field name="pick_ticket_id" readonly="1"/>
+                                </div>
+                                <div class="o_sr_doc">
+                                    <span class="k"><i class="fa fa-file-text" title="Remisión"/> Remisión</span>
                                     <field name="remission_id" readonly="1"/>
-                                    <field name="delivered_at" readonly="1"/>
-                                    <field name="cancel_reason" invisible="not cancel_reason"/>
-                                </group>
-                            </group>
-                        </page>
-                        <page string="Historial de cambios" name="moves">
-                            <group>
-                                <field name="original_date"/>
-                                <field name="reschedule_count"/>
-                                <field name="cancel_reason" invisible="not cancel_reason"/>
-                            </group>
-                            <field name="move_ids" readonly="1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══ Historial ═══ -->
+                        <div class="o_sr_card" invisible="not move_ids">
+                            <div class="o_sr_card_head">
+                                <span class="o_sr_num o_sr_num_hist"><i class="fa fa-history" title="Historial"/></span>
+                                <div><div class="o_sr_card_title">Historial de cambios</div>
+                                    <div class="o_sr_card_sub">Reprogramaciones y cancelaciones: quién, cuándo y por qué</div></div>
+                            </div>
+                            <field name="move_ids" readonly="1" nolabel="1" class="o_sr_lines">
                                 <list>
                                     <field name="create_date" string="Cuándo"/>
                                     <field name="kind"/>
@@ -216,8 +311,8 @@
                                     <field name="reason"/>
                                 </list>
                             </field>
-                        </page>
-                    </notebook>
+                        </div>
+                    </div>
                 </sheet>
                 <chatter/>
             </form>
