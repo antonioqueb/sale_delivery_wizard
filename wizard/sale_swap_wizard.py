@@ -794,6 +794,11 @@ class SaleSwapWizard(models.TransientModel):
             sale_line.with_context(
                 skip_stone_sync_picking=True,
                 skip_stone_sync_so=True,
+                # Bitácora de asignación con motivo real (antes el genérico).
+                som_lot_log_reason=_('Swap de placa %(old)s → %(new)s') % {
+                    'old': origin_lot.name if origin_lot else '-',
+                    'new': target_lot.name if target_lot else '-',
+                },
             ).write({'lot_ids': commands})
 
     def _som_create_origin_move_line(self, sale_line, product, origin_lot, qty):
