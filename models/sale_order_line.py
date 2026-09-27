@@ -504,6 +504,31 @@ class SaleOrderLine(models.Model):
             removed = self.env['stock.lot']
             if 'lot_ids' in line._fields and line.lot_ids and returned_lot_ids:
                 removed = line.lot_ids.filtered(lambda l: l.id in returned_lot_ids)
+            # DEVOLUCIÓN PARCIAL de formato/pieza: el cliente conserva
+            # entregado − devuelto. Antes el lote salía completo de la línea
+            # (28.32 entregados, 5 devueltos → se perdía el candado por lote
+            # y el reporte seguía mostrando 28.32). Se conserva con el
+            # desglose = neto y solo sale si el neto llega a 0.
+            keep_partial = {}
+            if removed and hasattr(line.order_id, '_som_lot_delivered_net_map'):
+                net_map = line.order_id._som_lot_delivered_net_map()
+                tol = line.order_id._som_line_qty_tolerance(line) \
+                    if hasattr(line.order_id, '_som_line_qty_tolerance') else 0.0001
+                for lot in removed:
+                    tipo = str(getattr(lot, 'x_tipo', '') or '').lower()
+                    net = net_map.get((line.id, lot.id), 0.0)
+                    if tipo in ('formato', 'pieza') and net > tol:
+                        keep_partial[str(lot.id)] = net
+                removed = removed.filtered(lambda l: str(l.id) not in keep_partial)
+            if keep_partial and hasattr(line, '_tc_read_lot_breakdown'):
+                breakdown = dict(line._tc_read_lot_breakdown() or {})
+                breakdown.update(keep_partial)
+                line.with_context(som_skip_breakdown_floor=True).write({
+                    'x_lot_breakdown_json': (
+                        line._tc_prepare_breakdown_value_for_line(breakdown)
+                        if hasattr(line, '_tc_prepare_breakdown_value_for_line')
+                        else breakdown),
+                })
             if removed:
                 vals = {'lot_ids': [(3, lot.id) for lot in removed]}
                 if 'x_selected_lots' in line._fields and line.x_selected_lots:

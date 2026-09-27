@@ -4,6 +4,7 @@ import logging
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.tools import float_round
 
 _logger = logging.getLogger(__name__)
 
@@ -323,14 +324,29 @@ class SaleDeliveryWizard(models.TransientModel):
         return ''
 
     @api.model
-    def _som_placa_full_qty(self, lot, fallback=0.0):
-        """Metraje completo del lote placa (existencia física interna)."""
+    def _som_placa_full_qty(self, lot, fallback=0.0, company=None):
+        """Metraje completo del lote placa: suma de sus quants POSITIVOS en
+        ubicaciones internas que no son tránsito, de la compañía del lote,
+        redondeada a la UdM. Antes se usaba lot.product_qty, que en Odoo 19
+        suma también tránsito, residuos y negativos: una placa de 5.00 con
+        0.01 residual en SOM/TRANSIT salía como 5.01 (remisión rechazada o
+        bin en −0.01, un residuo nuevo)."""
         qty = 0.0
         if lot:
-            try:
-                qty = lot.product_qty or 0.0
-            except Exception:
-                qty = 0.0
+            company = company or lot.company_id
+            domain = [
+                ('lot_id', '=', lot.id),
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'internal'),
+            ]
+            if company:
+                domain.append(('company_id', '=', company.id))
+            quants = self.env['stock.quant'].sudo().search(domain).filtered(
+                lambda q: not (hasattr(q.location_id, '_som_is_transit')
+                               and q.location_id._som_is_transit()))
+            qty = sum(quants.mapped('quantity'))
+            rounding = lot.product_id.uom_id.rounding or 0.0001
+            qty = float_round(qty, precision_rounding=rounding)
         return qty if qty > 0 else (fallback or 0.0)
 
     def _som_line_qty_for_delivery(self, line):

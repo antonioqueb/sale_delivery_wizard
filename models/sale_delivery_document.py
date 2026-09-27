@@ -2237,10 +2237,9 @@ class SaleDeliveryDocumentLine(models.Model):
         for line in self:
             if not line.x_is_placa_lot or not line.lot_id:
                 continue
-            try:
-                full = line.lot_id.product_qty or 0.0
-            except Exception:
-                full = 0.0
+            # Mismo metraje que el asistente (quants internos sin tránsito).
+            full = self.env['sale.delivery.wizard']._som_placa_full_qty(
+                line.lot_id, company=line.document_id.company_id or None)
             if full > 0 and line.qty_selected != full:
                 line.qty_selected = full
 

@@ -1552,6 +1552,17 @@ class SaleOrder(models.Model):
                                 order.name, trimmed)
         return True
 
+    @api.model
+    def _som_line_qty_tolerance(self, line, floor=0.0001):
+        """Media unidad de redondeo de la UdM de la línea (mínimo `floor`):
+        debajo de eso la cantidad es ruido de redondeo, no demanda."""
+        uom = line.product_id.uom_id
+        for fname in ('product_uom_id', 'product_uom'):
+            if fname in line._fields and line[fname]:
+                uom = line[fname]
+                break
+        return max(floor, (uom.rounding or 0.0) / 2.0)
+
     def _som_ensure_delivery_moves_for_pending(self):
         """AUTO-REPARACIÓN de la cadena de entrega (caso V/045): tras una
         devolución recepcionada (o backorders cancelados), los pickings
@@ -1620,13 +1631,17 @@ class SaleOrder(models.Model):
                 continue
             if line.product_id.type == 'service':
                 continue
+            # Tolerancia = media unidad de redondeo de la UdM: un déficit de
+            # milésimas (reparto 10/3, conversiones) generaba un picking de
+            # regeneración por centésimas que nadie podía surtir.
+            line_tol = self._som_line_qty_tolerance(line, tolerance)
             remaining = pending(line)
-            if remaining <= tolerance:
+            if remaining <= line_tol:
                 continue
             # El picking de regeneración conservado se excluye: su demanda
             # se AJUSTA al déficit real más abajo (no se crea otro).
             deficit = remaining - live_qty(line, exclude_picking=keep)
-            if deficit > tolerance:
+            if deficit > line_tol:
                 needs.append((line, deficit))
 
         if not needs:
@@ -1650,7 +1665,7 @@ class SaleOrder(models.Model):
         still = []
         for line, _old in needs:
             deficit = pending(line) - live_qty(line, exclude_picking=keep)
-            if deficit > tolerance:
+            if deficit > self._som_line_qty_tolerance(line, tolerance):
                 still.append((line, deficit))
 
         # ── CANDADO 2: si ya existe un picking de regeneración vivo se
