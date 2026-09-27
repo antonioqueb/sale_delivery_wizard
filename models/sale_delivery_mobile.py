@@ -114,7 +114,8 @@ class SaleDeliveryDocument(models.Model):
                     'Solo las remisiones CONFIRMADAS pueden marcarse como '
                     'entregadas.'
                 ))
-            doc.write({
+            # sudo: signed_at es de plomería (derechos ya validados arriba).
+            doc.sudo().write({
                 'signed_at': fields.Datetime.now(),
                 'signed_by': 'ENTREGA MANUAL — %s' % self.env.user.name,
             })
@@ -237,7 +238,7 @@ class SaleDeliveryDocument(models.Model):
             'vehicle_id': pt.vehicle_id.id or False,
             'vehicle_driver_id': pt.vehicle_driver_id.id or False,
         })
-        wizard._generate_remission_from_pick_ticket()
+        wizard.with_context(som_schedule_id=pt.schedule_id.id or False)._generate_remission_from_pick_ticket()
 
         after = self.search([
             ('sale_order_id', '=', pt.sale_order_id.id),
@@ -294,6 +295,12 @@ class SaleDeliveryDocument(models.Model):
         vals = {}
         signed = bool(payload.get('signature'))
         if signed:
+            # Solo una remisión CONFIRMADA y SIN firma previa: antes firmar de
+            # nuevo pisaba la evidencia original (firma, hora y GPS).
+            if doc.document_type != 'remission' or doc.state != 'confirmed':
+                raise UserError(_('Solo se firman remisiones confirmadas.'))
+            if doc.signed_at:
+                raise UserError(_('La remisión %s ya está firmada.') % doc.name)
             # Garantía: la entrega firmada requiere AMBAS firmas
             if not payload.get('delivery_signature'):
                 raise UserError(_(
@@ -309,7 +316,8 @@ class SaleDeliveryDocument(models.Model):
                 'signed_longitude': payload.get('longitude') or 0.0,
             })
         if vals:
-            doc.write(vals)
+            # sudo: signed_at y GPS son de plomería (validado arriba).
+            doc.sudo().write(vals)
 
         # Bitácora con GPS
         lat, lng = payload.get('latitude'), payload.get('longitude')

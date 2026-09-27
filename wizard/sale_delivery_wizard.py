@@ -1045,6 +1045,22 @@ class SaleDeliveryWizard(models.TransientModel):
                 'Genera primero el Pick Ticket (con él recolecta el almacén) '
                 'y después la remisión.'
             ))
+        # El PT debe ser de ESTA orden y seguir vivo: uno ya consumido (en
+        # otra ventana o en la app) no autoriza remisionar lo que traiga la
+        # selección del widget.
+        if active_pt.sale_order_id != self.sale_order_id:
+            raise UserError(_(
+                'El Pick Ticket %(pt)s es de la orden %(other)s, no de %(order)s.'
+            ) % {
+                'pt': active_pt.name,
+                'other': active_pt.sale_order_id.name,
+                'order': self.sale_order_id.name,
+            })
+        if active_pt.state != 'prepared':
+            raise UserError(_(
+                'El Pick Ticket %s ya fue consumido por otra remisión. Recarga '
+                'la orden y genera un Pick Ticket nuevo para lo pendiente.'
+            ) % active_pt.name)
 
         if (active_pt
                 and active_pt.state == 'prepared'
@@ -1291,6 +1307,9 @@ class SaleDeliveryWizard(models.TransientModel):
             doc = self.env['sale.delivery.document'].create({
                 'document_type': 'remission',
                 'sale_order_id': order.id,
+                # Liga con su PT desde el create: la programación se resuelve
+                # por pick_ticket_id.schedule_id (antes caía a la más antigua).
+                'pick_ticket_id': self.pick_ticket_id.id or False,
                 'picking_id': picking.id if picking else False,
                 'delivery_address': self.delivery_address,
                 'special_instructions': self.special_instructions,
@@ -1341,6 +1360,9 @@ class SaleDeliveryWizard(models.TransientModel):
             doc = self.env['sale.delivery.document'].create({
                 'document_type': 'remission',
                 'sale_order_id': order.id,
+                # Liga con su PT desde el create: la programación se resuelve
+                # por pick_ticket_id.schedule_id (antes caía a la más antigua).
+                'pick_ticket_id': self.pick_ticket_id.id or False,
                 'picking_id': picking.id if picking else False,
                 'delivery_address': self.delivery_address,
                 'special_instructions': self.special_instructions,

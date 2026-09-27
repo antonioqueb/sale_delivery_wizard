@@ -671,8 +671,6 @@ class SaleOrder(models.Model):
         if 'delivery_auth_state' not in self._fields \
                 or not hasattr(self, '_delivery_is_authorized_now'):
             return False
-        if self.env.context.get('som_skip_pt_auth_gate'):
-            return False
         # Pagada al 100 %, autorizada manualmente o saldo dentro de tolerancia.
         if self._delivery_is_authorized_now():
             return False

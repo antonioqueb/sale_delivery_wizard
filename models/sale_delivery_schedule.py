@@ -268,7 +268,11 @@ class SaleDeliverySchedule(models.Model):
         group = self.env.ref('sale_delivery_auth.group_delivery_logistics', raise_if_not_found=False)
         if not group:
             return
-        users = group.sudo().user_ids.filtered(lambda u: u.active and not u.share)
+        # Odoo 19: user_ids trae solo miembros DIRECTOS; all_user_ids incluye
+        # a quien recibe el grupo por implicación (se quedaban sin aviso).
+        group = group.sudo()
+        members = group.all_user_ids if 'all_user_ids' in group._fields else group.user_ids
+        users = members.filtered(lambda u: u.active and not u.share)
         for rec in self:
             for user in users:
                 if user == self.env.user:
@@ -284,6 +288,10 @@ class SaleDeliverySchedule(models.Model):
                     date_deadline=rec.date)
 
     def write(self, vals):
+        if vals.get('state') == 'confirmed' and not self.env.su and not (
+                self._is_delivery_staff()
+                or self.env.user.has_group('base.group_system')):
+            raise UserError(_('Solo logística (Usuario de Entregas) confirma entregas programadas.'))
         # La fecha solo cambia por action_reschedule (deja historial). Un
         # write directo con otra fecha se registra igual como reprogramación.
         if 'date' in vals and not self.env.context.get('som_schedule_move'):
@@ -340,6 +348,10 @@ class SaleDeliverySchedule(models.Model):
         return True
 
     def action_confirm(self):
+        # "Logística confirma con camión": el candado vive en el servidor, no
+        # solo en la vista (el vendedor tiene escritura y confirmaba por RPC).
+        if not (self._is_delivery_staff() or self.env.user.has_group('base.group_system')):
+            raise UserError(_('Solo logística (Usuario de Entregas) confirma entregas programadas.'))
         for rec in self:
             if rec.state != 'scheduled':
                 raise UserError(_('Solo se confirman entregas programadas.'))
@@ -371,6 +383,10 @@ class SaleDeliverySchedule(models.Model):
         for rec in self:
             if rec.state != 'cancelled':
                 continue
+            # Reabrir = volver a programar: mismo candado de pago/autorización.
+            reason = rec.sale_order_id._som_schedule_block_reason()
+            if reason:
+                raise UserError(reason)
             rec.write({'state': 'scheduled', 'cancel_reason': False})
         return True
 
@@ -494,14 +510,21 @@ class SaleDeliverySchedule(models.Model):
     @api.model
     def _cron_rollover(self):
         today = datetime.now(MONTERREY).date()
-        stale = self.search([('date', '<', today), ('state', 'in', OPEN_STATES)])
+        # Órdenes canceladas o regresadas a cotización no se recorren.
+        stale = self.search([
+            ('date', '<', today), ('state', 'in', OPEN_STATES),
+            ('sale_order_id.state', 'in', ('sale', 'done')),
+        ])
         if not stale:
             return 0
         moved = self.env['sale.delivery.schedule']
         for rec in stale:
             old = rec.date
             try:
-                rec.with_context(som_schedule_move=True)._rollover_one(old, today)
+                # Savepoint: un error SQL ya no aborta la transacción del
+                # resto del barrido.
+                with self.env.cr.savepoint():
+                    rec.with_context(som_schedule_move=True)._rollover_one(old, today)
                 moved |= rec
             except Exception:  # noqa: BLE001 — una programación rota no detiene el barrido
                 _logger.exception('[PLANIFICACIÓN] no se pudo recorrer %s', rec.name)
@@ -739,6 +762,24 @@ class SaleOrder(models.Model):
         string='Puede programar entrega', compute='_compute_x_can_schedule_delivery',
         help='Verdadero cuando la orden tiene al menos un pago registrado o autorización de entrega sin pago.')
 
+    def _action_cancel(self):
+        """Cancelar la orden cierra su logística viva: programaciones
+        abiertas y pick tickets preparados. Antes quedaban abiertos para
+        siempre (el cron las recorría a diario con actividades y los PT
+        seguían reteniendo lotes)."""
+        res = super()._action_cancel()
+        for order in self:
+            open_sched = order.sudo().delivery_schedule_ids.filtered(
+                lambda s: s.state in OPEN_STATES)
+            if open_sched:
+                open_sched.action_cancel(reason=_('Orden %s cancelada') % order.name)
+            pts = order.sudo().delivery_document_ids.filtered(
+                lambda d: d.document_type == 'pick_ticket'
+                and d.state in ('draft', 'prepared'))
+            if pts:
+                pts.action_cancel()
+        return res
+
     @api.depends('state', 'amount_total')
     def _compute_x_can_schedule_delivery(self):
         for order in self:
@@ -751,10 +792,11 @@ class SaleOrder(models.Model):
         de entrega sin pago. Reusa el gate del pick ticket para que las dos
         puertas se abran y cierren juntas."""
         self.ensure_one()
+        # Una cotización no se programa (antes devolvía False = "sí se
+        # puede" y por RPC se programaban cotizaciones). Sin banderas de
+        # contexto para saltar el candado: el contexto lo manda el cliente.
         if self.state not in ('sale', 'done'):
-            return False
-        if self.env.context.get('som_skip_schedule_gate'):
-            return False
+            return _('Solo se programan entregas de órdenes confirmadas (%s).') % self.name
         if not self._som_pick_ticket_block_reason():
             return False
         requested = any(
@@ -854,22 +896,34 @@ class SaleDeliveryDocument(models.Model):
         Schedule = self.env['sale.delivery.schedule'].sudo()
         for doc in docs:
             try:
-                if doc.document_type == 'pick_ticket':
-                    sched = Schedule.browse(self.env.context.get('som_schedule_id')).exists() \
-                        if self.env.context.get('som_schedule_id') else Schedule
-                    if not sched or sched.sale_order_id != doc.sale_order_id:
-                        sched = Schedule._find_open_for_order(doc.sale_order_id)
-                    if sched:
-                        doc.schedule_id = sched.id
-                        sched._link_pick_ticket(doc)
-                elif doc.document_type == 'remission':
-                    sched = doc.pick_ticket_id.schedule_id or Schedule._find_open_for_order(doc.sale_order_id)
-                    if sched:
-                        doc.schedule_id = sched.id
-                        sched._link_remission(doc)
+                # Savepoint: un error SQL en la liga (informativa) no debe
+                # abortar la transacción de la remisión.
+                with self.env.cr.savepoint():
+                    doc._som_link_schedule(Schedule)
             except Exception:  # noqa: BLE001 — la liga es informativa; jamás bloquea la operación
                 _logger.exception('[PLANIFICACIÓN] no se pudo ligar %s a su programación', doc.name)
         return docs
+
+    def _som_link_schedule(self, Schedule):
+        self.ensure_one()
+        doc = self
+        ctx_sched = Schedule.browse(self.env.context.get('som_schedule_id') or []).exists()
+        if ctx_sched and ctx_sched.sale_order_id != doc.sale_order_id:
+            ctx_sched = Schedule
+        if doc.document_type == 'pick_ticket':
+            sched = ctx_sched or Schedule._find_open_for_order(doc.sale_order_id)
+            if sched:
+                doc.schedule_id = sched.id
+                sched._link_pick_ticket(doc)
+        elif doc.document_type == 'remission':
+            # La del contexto o la de SU pick ticket; la más antigua abierta
+            # solo como último recurso (con varias programaciones por orden
+            # se cerraba la equivocada).
+            sched = ctx_sched or doc.pick_ticket_id.schedule_id \
+                or Schedule._find_open_for_order(doc.sale_order_id)
+            if sched:
+                doc.schedule_id = sched.id
+                sched._link_remission(doc)
 
     def write(self, vals):
         res = super().write(vals)

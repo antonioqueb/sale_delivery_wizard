@@ -182,8 +182,31 @@ class SaleDeliveryDocument(models.Model):
         'document_type', 'line_ids',
     )
 
+    # Evidencia de entrega: la escriben SOLO la firma de la app
+    # (app_add_delivery_media) y la entrega manual del Gerente
+    # (_som_mark_delivered_manual), ambas con sudo() tras validar. Antes
+    # signed_at era readonly solo en la vista: por RPC se marcaba
+    # "entregada" (y se cerraba la programación) o se pisaba la firma.
+    # signed_at + GPS: solo plomería. Firmas/nombres: editables en el
+    # backend mientras la entrega no esté sellada (signed_at vacío); una vez
+    # sellada, la evidencia original ya no se pisa.
+    _SOM_SEAL_FIELDS = ('signed_at', 'signed_latitude', 'signed_longitude')
+    _SOM_SIGNATURE_FIELDS = (
+        'signature_image', 'signed_by',
+        'delivered_signature_image', 'delivered_by',
+    )
+
     def write(self, vals):
         if not self.env.su:
+            if any(f in vals for f in self._SOM_SEAL_FIELDS):
+                raise UserError(_(
+                    'La hora de entrega solo se registra desde la app móvil '
+                    'o con «Entregada» (Gerente de Entregas).'))
+            if any(f in vals for f in self._SOM_SIGNATURE_FIELDS) \
+                    and any(d.signed_at for d in self):
+                raise UserError(_(
+                    'La entrega ya está firmada: la evidencia original no '
+                    'se puede reemplazar.'))
             confirmed = self.filtered(lambda d: d.state == 'confirmed')
             if confirmed:
                 locked = [f for f in self._SOM_CONFIRMED_LOCKED_FIELDS if f in vals]
@@ -1120,7 +1143,10 @@ class SaleDeliveryDocument(models.Model):
         """
         self.ensure_one()
 
-        if self.document_type != 'remission':
+        # La REENTREGA también: el entregado neto ya resta lo devuelto, así
+        # que reentregar lo devuelto cabe; lo que se le agregue de más al
+        # picking de reentrega ya no sale (antes no pasaba por el candado).
+        if self.document_type not in ('remission', 'redelivery'):
             return
 
         by_sale_line = {}
@@ -1983,6 +2009,7 @@ class SaleDeliveryDocument(models.Model):
         picking = self.picking_id
 
         self._som_sync_redelivery_lines_from_picking()
+        self._som_assert_remission_within_demand()
 
         seq = self._som_next_sequence(
             'sale.delivery.remission', self.company_id) or '/'
