@@ -802,6 +802,63 @@ class SaleDeliveryDocument(models.Model):
             ('company_id', '=', company.id),
         ], order='quantity desc', limit=1)
 
+    def _som_spread_lot_remainder(self, doc_line, anchor_ml, remaining,
+                                  doc_ml_ids, doc_ml_qty):
+        """Reparte `remaining` (lo que el Pick Ticket pide por encima de lo
+        reservado) entre los quants LIBRES del lote dentro del origen del
+        movimiento: primero el bin de `anchor_ml` (se suma a esa línea),
+        luego una move line nueva por bin. Si el lote no vive bajo el origen
+        (OUT de regeneración), se buscan sus quants internos de la compañía.
+        Devuelve lo que no se pudo cubrir."""
+        move = anchor_ml.move_id
+        picking = anchor_ml.picking_id or move.picking_id
+        company = picking.company_id or move.company_id
+        Quant = self.env['stock.quant'].sudo()
+        base = [
+            ('product_id', '=', doc_line.product_id.id),
+            ('lot_id', '=', doc_line.lot_id.id),
+            ('quantity', '>', 0),
+            ('company_id', '=', company.id),
+        ]
+        quants = Quant.search(base + [('location_id', 'child_of', move.location_id.id)])
+        if not quants:
+            quants = Quant.search(base + [('location_id.usage', '=', 'internal')]).filtered(
+                lambda q: not (hasattr(q.location_id, '_som_is_transit')
+                               and q.location_id._som_is_transit()))
+        quants = quants.sorted(
+            lambda q: (q.location_id != anchor_ml.location_id, -(q.quantity or 0.0), q.id))
+
+        MoveLine = self.env['stock.move.line']
+        qty_field = 'quantity' if 'quantity' in MoveLine._fields else 'reserved_uom_qty'
+        for quant in quants:
+            if remaining <= 0.0001:
+                break
+            free = (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0)
+            if free <= 0.0001:
+                continue
+            take = min(remaining, free)
+            if quant.location_id == anchor_ml.location_id:
+                target = anchor_ml
+            else:
+                target = MoveLine.create({
+                    'move_id': move.id,
+                    'picking_id': picking.id,
+                    'company_id': company.id,
+                    'product_id': doc_line.product_id.id,
+                    'product_uom_id': anchor_ml.product_uom_id.id,
+                    'lot_id': doc_line.lot_id.id,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
+                    qty_field: take,
+                })
+            doc_ml_ids.add(target.id)
+            doc_ml_qty[target.id] = doc_ml_qty.get(target.id, 0.0) + take
+            remaining -= take
+            _logger.info(
+                '[REMISSION] Remanente %.4f del lote %s cargado a %s (ml %s).',
+                take, doc_line.lot_id.name, quant.location_id.complete_name, target.id)
+        return remaining
+
     def _som_repoint_out_move_line_to_source(self, move_line, qty):
         """Una move line de OUT que quedó apuntando al bin del lote (se armó
         antes de que el PICK lo bajara a Salida) se re-apunta a donde el lote
@@ -957,6 +1014,22 @@ class SaleDeliveryDocument(models.Model):
                     first_ml = candidate_mls.filtered(
                         lambda ml: ml.move_id == best_move
                     )[:1] or candidate_mls[0]
+                if doc_line.lot_id:
+                    # Candado de bin: el remanente se reparte entre los quants
+                    # LIBRES del lote (mismo bin primero, luego una move line
+                    # por bin). Antes todo iba a la primera move line: con el
+                    # bin A = 10 reservado y B = 20 libres, pedir 15 dejaba
+                    # A en −5 y B intacto.
+                    leftover = self._som_spread_lot_remainder(
+                        doc_line, first_ml, remaining, doc_ml_ids, doc_ml_qty)
+                    if leftover > 0.0001:
+                        raise UserError(_(
+                            'No se puede remisionar %(qty).3f de %(lot)s: no '
+                            'hay ese metraje libre del lote en el origen de la '
+                            'operación. El Pick Ticket está desactualizado — '
+                            'edítalo desde el asistente de entrega.'
+                        ) % {'qty': remaining, 'lot': doc_line.lot_id.name})
+                    continue
                 doc_ml_ids.add(first_ml.id)
                 doc_ml_qty[first_ml.id] = doc_ml_qty.get(first_ml.id, 0.0) + remaining
                 _logger.info(
