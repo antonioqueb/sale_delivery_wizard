@@ -168,6 +168,47 @@ class SaleDeliveryDocument(models.Model):
                     raise UserError(reason)
         return super().create(vals_list)
 
+    # ------------------------------------------------------------------
+    # CANDADO DE DOCUMENTO CONFIRMADO: una remisión/devolución/reentrega
+    # confirmada ya movió inventario; sus cantidades, lotes y ligas son la
+    # base del entregado neto (x_delivered_net_qty) y del candado
+    # anti-sobre-entrega. Antes se podían editar desde la lista o por RPC:
+    # poner qty_done=0 "borraba" lo entregado y se volvía a remisionar.
+    # Firma, fotos, vehículo y notas siguen editables. La plomería interna
+    # que ajusta un confirmado lo hace con sudo().
+    # ------------------------------------------------------------------
+    _SOM_CONFIRMED_LOCKED_FIELDS = (
+        'sale_order_id', 'picking_id', 'out_picking_id', 'return_picking_id',
+        'document_type', 'line_ids',
+    )
+
+    def write(self, vals):
+        if not self.env.su:
+            confirmed = self.filtered(lambda d: d.state == 'confirmed')
+            if confirmed:
+                locked = [f for f in self._SOM_CONFIRMED_LOCKED_FIELDS if f in vals]
+                if 'state' in vals and vals['state'] != 'confirmed':
+                    locked.append('state')
+                if locked:
+                    raise UserError(_(
+                        'El documento %(doc)s ya está confirmado (movió inventario): '
+                        'no se puede modificar %(fields)s. Para corregir una entrega '
+                        'usa una devolución o un swap.'
+                    ) % {'doc': ', '.join(confirmed.mapped('name')),
+                         'fields': ', '.join(locked)})
+        return super().write(vals)
+
+    def unlink(self):
+        # Las líneas se borran en cascada por SQL (sin pasar por su unlink):
+        # un confirmado no se borra fuera de la plomería con sudo().
+        if not self.env.su:
+            confirmed = self.filtered(lambda d: d.state == 'confirmed')
+            if confirmed:
+                raise UserError(_(
+                    'No se puede borrar %s: ya está confirmado y movió inventario.'
+                ) % ', '.join(confirmed.mapped('name')))
+        return super().unlink()
+
     x_pt_consumed = fields.Boolean(
         string='PTs descontados',
         copy=False,
@@ -303,7 +344,7 @@ class SaleDeliveryDocument(models.Model):
                     if new_qty > 0.0001:
                         pl.write({'qty_selected': new_qty})
                     else:
-                        pl.unlink()
+                        pl.sudo().unlink()
                 if changed:
                     if not pt.line_ids:
                         pt.write({'state': 'confirmed'})
@@ -337,9 +378,29 @@ class SaleDeliveryDocument(models.Model):
         return True
 
     def action_cancel(self):
-        self.filtered(
-            lambda d: d.state != 'confirmed'
-        ).write({'state': 'cancelled'})
+        to_cancel = self.filtered(lambda d: d.state != 'confirmed')
+        # La REENTREGA crea su propio OUT con las placas reservadas: cancelar
+        # solo el documento dejaba ese picking vivo (placas bloqueadas y un
+        # segundo picking vivo en la orden). Se cancela si no está hecho y
+        # ningún otro documento vivo lo usa. El picking de una remisión o PT
+        # es el de la venta y NO se toca.
+        for doc in to_cancel.filtered(
+                lambda d: d.document_type == 'redelivery' and d.picking_id):
+            picking = doc.picking_id
+            if picking.state in ('done', 'cancel'):
+                continue
+            others = self.search_count([
+                ('id', 'not in', to_cancel.ids),
+                ('picking_id', '=', picking.id),
+                ('state', '!=', 'cancelled'),
+            ])
+            if others:
+                continue
+            picking.action_cancel()
+            doc.message_post(body=_(
+                'Reentrega cancelada: se canceló también su salida %s y se '
+                'liberaron sus placas.') % picking.name)
+        to_cancel.write({'state': 'cancelled'})
         return True
 
     def action_edit_in_wizard(self):
@@ -1176,6 +1237,15 @@ class SaleDeliveryDocument(models.Model):
         # tocar cualquier picking.
         self._som_assert_remission_within_demand()
 
+        # Candado de pago EN VIVO, aquí y no solo en el OUT: si la remisión
+        # valida el PICK interno y no encuentra salida, el OUT (donde vive el
+        # candado de sale_delivery_auth) nunca se validaba y el documento
+        # quedaba confirmado sin revisar el pago.
+        if self.sale_order_id:
+            reason = self.sale_order_id._som_delivery_payment_block_reason()
+            if reason:
+                raise UserError(reason)
+
         picking = self.picking_id
 
         # ENTREGAS PARCIALES ENCADENADAS: si el picking del documento ya quedó
@@ -1347,10 +1417,22 @@ class SaleDeliveryDocument(models.Model):
                         out_picking.name,
                         out_picking.state,
                     )
+        elif picking.picking_type_code != 'outgoing':
+            # Se validó la preparación (PICK) pero no hay salida al cliente:
+            # el material quedó en Salida y la remisión contaría como
+            # entregado. Mejor detener todo (rollback) que confirmar a medias.
+            raise UserError(_(
+                'La remisión validó la preparación %(pick)s pero no encontró la '
+                'salida al cliente (OUT) de los lotes %(lots)s. Revisa que la '
+                'orden %(order)s tenga su entrega pendiente antes de remisionar.'
+            ) % {
+                'pick': picking.name,
+                'lots': ', '.join(self.env['stock.lot'].browse(
+                    list(doc_lot_ids)).mapped('name')) or '-',
+                'order': self.sale_order_id.name or '',
+            })
         else:
-            _logger.info(
-                'No OUT picking found. Single-step or push rule not triggered.'
-            )
+            _logger.info('Remisión de un paso: %s es la salida.', picking.name)
 
         return True
 
@@ -1399,6 +1481,23 @@ class SaleDeliveryDocument(models.Model):
                         and dest_move.picking_id.state not in ('done', 'cancel')
                     ):
                         return dest_move.picking_id
+
+        # Líneas Torre de Control: la cadena move_dest_ids suele no existir
+        # (reserva encadenada nativa apagada). La salida es la que tenga un
+        # movimiento vivo de los MISMOS renglones de venta, saliendo de
+        # donde el PICK dejó el material.
+        sale_lines = self.line_ids.mapped('sale_line_id')
+        if sale_lines and self.picking_id:
+            pick_dest = self.picking_id.location_dest_id
+            for out_pick in out_pickings.sorted('id'):
+                if any(
+                    m.sale_line_id in sale_lines
+                    and m.state not in ('done', 'cancel')
+                    and (not pick_dest or (pick_dest.parent_path or '').startswith(
+                        m.location_id.parent_path or '/'))
+                    for m in out_pick.move_ids
+                ):
+                    return out_pick
 
         return False
 
@@ -1691,7 +1790,7 @@ class SaleDeliveryDocument(models.Model):
             if qty <= 0:
                 continue
 
-            line.write({
+            line.sudo().write({
                 'qty_done': qty,
                 'qty_returned': qty,
             })
@@ -1708,7 +1807,7 @@ class SaleDeliveryDocument(models.Model):
                 or l.document_id.return_picking_id.state == 'done'
             )
 
-            origin_line.qty_returned = sum(
+            origin_line.sudo().qty_returned = sum(
                 l.qty_returned or l.qty_done or l.qty_selected or 0.0
                 for l in return_lines
             )
@@ -1873,7 +1972,7 @@ class SaleDeliveryDocument(models.Model):
                     sequence += 10
 
             if new_commands:
-                doc.line_ids.unlink()
+                doc.line_ids.sudo().unlink()
                 doc.write({'line_ids': new_commands})
 
     def _action_confirm_redelivery(self):
@@ -2025,6 +2124,47 @@ class SaleDeliveryDocumentLine(models.Model):
             self.env['sale.delivery.document.line'].invalidate_model(['company_id'])
             _logger.info('[SOM] company_id rellenada en %s líneas de entrega históricas', n)
         return True
+
+    # Campos que definen lo entregado: congelados en documentos confirmados
+    # (ver _SOM_CONFIRMED_LOCKED_FIELDS del documento).
+    _SOM_CONFIRMED_LOCKED_FIELDS = (
+        'qty_selected', 'qty_done', 'qty_returned', 'lot_id', 'product_id',
+        'sale_line_id', 'move_id', 'move_line_id', 'quant_id', 'document_id',
+        'origin_remission_line_id', 'origin_remission_id',
+    )
+
+    def _som_check_confirmed_lock(self, docs, what):
+        if self.env.su:
+            return
+        confirmed = docs.filtered(lambda d: d.state == 'confirmed')
+        if confirmed:
+            raise UserError(_(
+                'El documento %(doc)s ya está confirmado (movió inventario): no '
+                'se puede %(what)s. Para corregir una entrega usa una devolución '
+                'o un swap.'
+            ) % {'doc': ', '.join(confirmed.mapped('name')), 'what': what})
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        doc_ids = [v.get('document_id') for v in vals_list if v.get('document_id')]
+        self._som_check_confirmed_lock(
+            self.env['sale.delivery.document'].browse(doc_ids),
+            _('agregar líneas'))
+        return super().create(vals_list)
+
+    def write(self, vals):
+        locked = [f for f in self._SOM_CONFIRMED_LOCKED_FIELDS if f in vals]
+        if locked:
+            self._som_check_confirmed_lock(
+                self.mapped('document_id'),
+                _('modificar %s') % ', '.join(locked))
+        return super().write(vals)
+
+    def unlink(self):
+        self._som_check_confirmed_lock(
+            self.mapped('document_id'), _('borrar líneas'))
+        return super().unlink()
+
     sequence = fields.Integer(default=10)
 
     sale_line_id = fields.Many2one('sale.order.line', string='Línea de Venta')

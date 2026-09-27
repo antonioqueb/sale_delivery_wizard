@@ -297,7 +297,7 @@ class SaleDeliveryWizard(models.TransientModel):
 
         if duplicates:
             lot_names = ', '.join(duplicates.mapped('lot_id.name'))
-            duplicates.unlink()
+            duplicates.sudo().unlink()
             changed = True
             pt.message_post(body=_(
                 'Se eliminaron líneas duplicadas del Pick Ticket después de swap: %s.'
@@ -930,7 +930,7 @@ class SaleDeliveryWizard(models.TransientModel):
         if not new_lines:
             raise UserError(_('Seleccione al menos una línea.'))
 
-        pt.line_ids.unlink()
+        pt.line_ids.sudo().unlink()
         pt.write({
             'line_ids': new_lines,
             'delivery_address': self.delivery_address,
@@ -1134,11 +1134,9 @@ class SaleDeliveryWizard(models.TransientModel):
         pt = self.pick_ticket_id
         order = self.sale_order_id
 
-        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
-            if not self.env.user.has_group(
-                    'sale_delivery_wizard.group_delivery_authorizer'):
-                raise UserError(_(
-                    'Entrega bloqueada: pedido sin autorización de pago.'))
+        reason = order._som_delivery_payment_block_reason()
+        if reason:
+            raise UserError(reason)
 
         self._sync_pick_ticket_lines_from_live_move_lines(pt)
         pt.invalidate_recordset()
@@ -1268,11 +1266,9 @@ class SaleDeliveryWizard(models.TransientModel):
     def _generate_remission_from_selections(self, sels):
         order = self.sale_order_id
 
-        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
-            if not self.env.user.has_group(
-                    'sale_delivery_wizard.group_delivery_authorizer'):
-                raise UserError(_(
-                    'Entrega bloqueada: pedido sin autorización de pago.'))
+        reason = order._som_delivery_payment_block_reason()
+        if reason:
+            raise UserError(reason)
 
         sels = self._normalize_selections_from_live_move_lines(sels)
 
@@ -1327,11 +1323,9 @@ class SaleDeliveryWizard(models.TransientModel):
     def _generate_remission_from_lines(self):
         order = self.sale_order_id
 
-        if hasattr(order, 'delivery_auth_state') and order.delivery_auth_state == 'pending':
-            if not self.env.user.has_group(
-                    'sale_delivery_wizard.group_delivery_authorizer'):
-                raise UserError(_(
-                    'Entrega bloqueada: pedido sin autorización de pago.'))
+        reason = order._som_delivery_payment_block_reason()
+        if reason:
+            raise UserError(reason)
 
         selected = self._get_selected_lines()
 

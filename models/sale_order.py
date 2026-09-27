@@ -1461,18 +1461,33 @@ class SaleOrder(models.Model):
             ('state', '=', 'prepared'),
         ], order='create_date desc')
 
+    def _som_delivery_payment_block_reason(self):
+        """Motivo (str) por el que NO se puede entregar, o False.
+
+        MISMA regla que la validación de la salida (sale_delivery_auth,
+        stock.picking.button_validate): EN VIVO, 100% pagado, autorización
+        manual o saldo dentro de tolerancia. Antes el asistente miraba el
+        estado almacenado == 'pending' (dejaba pasar 'Solicitada' y un
+        'Pagado' viejo) y exentaba al Autorizador de Entregas; como el OUT
+        sí revisaba, la única salida real era por el PICK interno, que
+        confirmaba la remisión sin pasar por ningún candado."""
+        self.ensure_one()
+        if not hasattr(self, '_delivery_is_authorized_now'):
+            return False
+        if self._delivery_is_authorized_now():
+            return False
+        return _(
+            'Entrega bloqueada: la orden %s no está pagada al 100%% ni tiene '
+            'autorización para entregar sin pago. Solicítala con «Entregar '
+            'sin pago» desde la orden.') % self.name
+
     def _check_delivery_authorization(self):
         self.ensure_one()
         if self.state not in ('sale', 'done'):
             raise UserError(_('Solo puede entregar pedidos confirmados.'))
-        if hasattr(self, 'delivery_auth_state'):
-            if self.delivery_auth_state == 'pending':
-                if not self.env.user.has_group(
-                    'sale_delivery_wizard.group_delivery_authorizer'
-                ):
-                    raise UserError(_(
-                        'Este pedido no tiene autorización de entrega. '
-                        'Contacte a un autorizador.'))
+        reason = self._som_delivery_payment_block_reason()
+        if reason:
+            raise UserError(reason)
 
     def _som_trim_excess_delivery_demand(self):
         """Recorta la demanda viva que EXCEDE lo pendiente de la línea

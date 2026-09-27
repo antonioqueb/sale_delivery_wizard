@@ -93,7 +93,7 @@
                     </group>
                     <notebook>
                         <page string="Líneas">
-                            <field name="line_ids">
+                            <field name="line_ids" readonly="state == 'confirmed'">
                                 <list editable="bottom">
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
