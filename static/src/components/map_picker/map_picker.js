@@ -20,6 +20,29 @@
 // - Marcador propio (SVG inline): el ícono por defecto de Leaflet buscaba
 //   marker-icon.png junto al CSS y en el bundle de Odoo no existe → salía
 //   el ícono de imagen rota.
+//
+// 27 sep 2026 — relación CONTROLADA dirección ⇄ mapa:
+// - Dirección → mapa: al cambiar la dirección de entrega el mapa la vuelve
+//   a localizar (aunque el punto se hubiera fijado a mano antes).
+// - Mapa → dirección: NUNCA. Buscar en el mapa, pegar coordenadas, mover o
+//   hacer clic solo guarda latitud/longitud; la dirección comercial
+//   capturada queda intacta (antes la búsqueda la reemplazaba por la del
+//   proveedor de mapas).
+export const COORDS_RE = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+
+/** "25.68, -100.31" → [25.68, -100.31] si son coordenadas válidas. */
+export function parseCoords(text) {
+    const m = COORDS_RE.exec(text || "");
+    if (!m) {
+        return null;
+    }
+    const lat = parseFloat(m[1]);
+    const lng = parseFloat(m[2]);
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        return null;
+    }
+    return [lat, lng];
+}
 import { Component, onMounted, onPatched, onWillUnmount, useEffect, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
@@ -58,6 +81,7 @@ export class SomMapPicker extends Component {
         // vendedor fija el punto a mano (clic, arrastre, lista, GPS).
         this.pointIsAuto = !this.hasPoint;
         this.lastGeocoded = "";
+        this.seenAddress = null;
         this.geocodeTimer = null;
         this.liveTimer = null;
         this.liveSeq = 0;
@@ -84,7 +108,16 @@ export class SomMapPicker extends Component {
             () => [this.lat, this.lng]
         );
         useEffect(
-            () => this.scheduleAutoGeocode(AUTO_GEOCODE_DELAY),
+            () => {
+                const text = (this.addressText || "").trim();
+                // La dirección CAMBIÓ (no es la carga inicial): el mapa la
+                // sigue aunque el punto se hubiera fijado a mano.
+                if (this.seenAddress !== null && text !== this.seenAddress) {
+                    this.pointIsAuto = true;
+                }
+                this.seenAddress = text;
+                this.scheduleAutoGeocode(AUTO_GEOCODE_DELAY);
+            },
             () => [this.addressText]
         );
     }
@@ -310,7 +343,10 @@ export class SomMapPicker extends Component {
     onQueryKeydown(ev) {
         if (ev.key === "Enter") {
             ev.preventDefault();
-            if (this.state.results.length) {
+            const coords = parseCoords(this.state.query);
+            if (coords) {
+                this.useCoords(coords);
+            } else if (this.state.results.length) {
                 this.pick(this.state.results[0]);
             } else {
                 this.search();
@@ -320,7 +356,18 @@ export class SomMapPicker extends Component {
         }
     }
 
+    async useCoords([lat, lng]) {
+        this.state.results = [];
+        await this.setPoint(lat, lng, { manual: true });
+        this.placeMarker(lat, lng, true);
+        this.state.autoNote = "Coordenadas fijadas. La dirección de entrega no se modifica.";
+    }
+
     async search() {
+        const coords = parseCoords(this.state.query);
+        if (coords) {
+            return this.useCoords(coords);
+        }
         const q = (this.state.query || this.addressText || "").trim();
         if (!q) {
             this.notification.add("Escribe o captura primero la dirección a buscar.", { type: "warning" });
@@ -348,15 +395,11 @@ export class SomMapPicker extends Component {
     async pick(result) {
         this.state.results = [];
         this.state.query = result.label;
-        // La dirección elegida se PEGA en Dirección de entrega: el vendedor
-        // ya no captura dos veces, y el punto y el texto quedan ligados.
-        if (this.props.addressField && !this.readonly) {
-            this.lastGeocoded = result.label;
-            await this.props.record.update({ [this.props.addressField]: result.label });
-        }
+        // Mapa → dirección NO (27 sep 2026): el resultado del buscador solo
+        // fija el punto; la dirección de entrega capturada no se toca.
         await this.setPoint(result.lat, result.lng, { manual: true });
         this.placeMarker(result.lat, result.lng, true);
-        this.state.autoNote = "Dirección elegida de la lista y pegada en Dirección de entrega. Ajusta el punto si el acceso es distinto.";
+        this.state.autoNote = "Punto fijado desde el buscador del mapa. La dirección de entrega no se modifica.";
     }
 
     locateMe() {

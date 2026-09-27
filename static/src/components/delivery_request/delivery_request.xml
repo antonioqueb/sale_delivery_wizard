@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="sale_delivery_wizard.DeliveryRequestErr">
+        <div t-if="msg" class="o_dr_err"><i class="fa fa-exclamation-circle" title=""/> <t t-esc="msg"/></div>
+    </t>
+
+    <t t-name="sale_delivery_wizard.DeliveryRequest">
+        <div class="o_delivery_request o_action" t-ref="root">
+            <div class="o_dr_wrap">
+
+                <!-- ═══ Cabecera ═══ -->
+                <div class="o_dr_head">
+                    <button class="o_dr_back" t-if="orderId" t-on-click="openOrder" title="Volver a la orden">
+                        <i class="fa fa-arrow-left" title="Volver"/>
+                    </button>
+                    <div>
+                        <h1>Solicitar entrega</h1>
+                        <div class="o_dr_sub" t-if="state.data">
+                            <b t-esc="data.order.name"/> · <t t-esc="data.order.partner"/>
+                        </div>
+                    </div>
+                </div>
+
+                <div t-if="state.loading" class="o_dr_card o_dr_center">
+                    <i class="fa fa-circle-o-notch fa-spin" title="Cargando"/> Cargando la orden…
+                </div>
+                <div t-elif="state.loadError" class="o_dr_card o_dr_center text-danger">
+                    <t t-esc="state.loadError"/>
+                </div>
+                <div t-elif="data.blocked" class="o_dr_card">
+                    <div class="o_dr_blocked">
+                        <i class="fa fa-lock fa-2x" title="Bloqueada"/>
+                        <div>
+                            <b>Todavía no se puede solicitar la entrega.</b>
+                            <p class="mb-0" style="white-space: pre-line" t-esc="data.blocked"/>
+                        </div>
+                    </div>
+                    <div class="o_dr_actions"><button class="btn btn-secondary" t-on-click="openOrder">Volver a la orden</button></div>
+                </div>
+
+                <!-- ═══ Enviada ═══ -->
+                <div t-elif="state.done" class="o_dr_card o_dr_success">
+                    <div class="o_dr_success_icon"><i class="fa fa-check" title="Enviada"/></div>
+                    <h2>Solicitud <t t-esc="state.done.name"/> enviada a Logística</h2>
+                    <p>Logística la confirmará, asignará la unidad y te avisará si cambia la fecha.</p>
+                    <div class="o_dr_actions center">
+                        <button class="btn btn-primary" t-on-click="openRequest">Ver solicitud</button>
+                        <button class="btn btn-secondary" t-on-click="openOrder">Volver a la orden</button>
+                        <button class="btn btn-link" t-on-click="another">Solicitar otra entrega de esta orden</button>
+                    </div>
+                </div>
+
+                <t t-else="">
+                    <!-- ═══ Pasos ═══ -->
+                    <ol class="o_dr_steps">
+                        <t t-foreach="steps" t-as="s" t-key="s.n">
+                            <li t-att-class="stepClass(s)" t-on-click="() => this.clickStep(s)">
+                                <span class="n"><i t-if="s.n &lt; state.step" class="fa fa-check" title=""/><t t-else="" t-esc="s.n"/></span>
+                                <span class="t" t-esc="s.short"/>
+                            </li>
+                        </t>
+                    </ol>
+
+                    <div t-if="data.existing.length" class="o_dr_existing">
+                        <i class="fa fa-info-circle" title=""/> Esta orden ya tiene solicitudes abiertas:
+                        <t t-foreach="data.existing" t-as="e" t-key="e.id">
+                            <span class="chip"><b t-esc="e.name"/> · <t t-esc="e.date"/> · <t t-esc="e.state"/></span>
+                        </t>
+                        Lo ya solicitado se descuenta del pendiente.
+                    </div>
+
+                    <div class="o_dr_card">
+                        <h2 class="o_dr_title"><span class="num" t-esc="state.step"/> <t t-esc="currentStep.title"/></h2>
+
+                        <!-- ═══ 1. Materiales ═══ -->
+                        <section t-att-class="{ 'd-none': state.step !== 1 }">
+                            <p class="o_dr_hint">Marca solo lo que se entrega en esta ocasión y la cantidad. Lo demás queda pendiente para otra solicitud.</p>
+                            <label class="o_dr_label">Materiales a entregar <span class="req">*</span></label>
+                            <div t-att-class="{ 'o_dr_table_wrap': true, 'o_dr_invalid': state.errors.lines }">
+                                <table class="o_dr_table">
+                                    <thead>
+                                        <tr>
+                                            <th/>
+                                            <th class="l">Producto</th>
+                                            <th>Pedido</th>
+                                            <th>Entregado</th>
+                                            <th>Ya programado</th>
+                                            <th>Pendiente</th>
+                                            <th>Disponible</th>
+                                            <th class="qty">A entregar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="data.lines" t-as="l" t-key="l.sale_line_id">
+                                            <tr t-att-class="{ sel: state.selected[l.sale_line_id], off: !isSelectable(l), bad: state.lineErrors[l.sale_line_id] }"
+                                                t-on-click="(ev) => this.onRowClick(l, ev)">
+                                                <td class="chk">
+                                                    <input type="checkbox" t-att-checked="state.selected[l.sale_line_id]" t-att-disabled="!isSelectable(l)"
+                                                           t-on-change="() => this.toggleLine(l)"/>
+                                                </td>
+                                                <td class="l">
+                                                    <div class="p" t-esc="l.product"/>
+                                                    <div class="d" t-if="l.description and l.description !== l.product" t-esc="l.description"/>
+                                                </td>
+                                                <td><t t-esc="fmtQty(l.ordered)"/> <small t-esc="l.uom"/></td>
+                                                <td t-esc="fmtQty(l.delivered)"/>
+                                                <td t-esc="fmtQty(l.scheduled)"/>
+                                                <td class="b" t-esc="fmtQty(l.pending)"/>
+                                                <td t-att-class="{ warn: availabilityWarn(l) }" t-esc="fmtQty(l.available)"/>
+                                                <td class="qty">
+                                                    <t t-if="isSelectable(l)">
+                                                        <div class="o_dr_qty">
+                                                            <input type="number" min="0" step="any" inputmode="decimal"
+                                                                   t-att-class="{ 'o_dr_invalid': state.lineErrors[l.sale_line_id] }"
+                                                                   t-att-value="qtyValue(l)" placeholder="0"
+                                                                   t-on-input="(ev) => this.onQty(l, ev)"/>
+                                                            <button type="button" class="btn btn-link btn-sm" t-on-click="() => this.fillPending(l)" title="Todo lo pendiente">Todo</button>
+                                                        </div>
+                                                        <div t-if="state.lineErrors[l.sale_line_id]" class="o_dr_err small" t-esc="state.lineErrors[l.sale_line_id]"/>
+                                                        <div t-elif="availabilityWarn(l)" class="o_dr_warn small">Más de lo disponible hoy: logística lo verá.</div>
+                                                    </t>
+                                                    <span t-else="" class="text-muted small">Todo programado o entregado</span>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                        <tr t-if="!data.lines.length"><td colspan="8" class="o_dr_center text-muted">La orden no tiene materiales por entregar.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.lines"/></t>
+                        </section>
+
+                        <!-- ═══ 2. Dirección y mapa ═══ -->
+                        <section t-att-class="{ 'd-none': state.step !== 2 }">
+                            <label class="o_dr_label">Dirección de entrega del cliente <span class="req">*</span></label>
+                            <div t-att-class="{ 'o_dr_addrs': true, 'o_dr_invalid': state.errors.partner_id }">
+                                <t t-foreach="data.addresses" t-as="a" t-key="a.id">
+                                    <button type="button" t-att-class="{ 'o_dr_addr': true, on: state.addressId === a.id and !state.creating, empty: !a.has_address }"
+                                            t-on-click="() => this.selectAddress(a)">
+                                        <span class="n"><i t-att-class="a.type === 'delivery' ? 'fa fa-truck' : 'fa fa-building-o'" title=""/> <t t-esc="a.name"/>
+                                            <small t-if="a.type_label"> · <t t-esc="a.type_label"/></small></span>
+                                        <span class="a" t-if="a.has_address" t-esc="a.address"/>
+                                        <span class="a warn" t-else="">Sin dirección capturada</span>
+                                    </button>
+                                </t>
+                                <button type="button" t-att-class="{ 'o_dr_addr o_dr_addr_new': true, on: state.creating }" t-on-click="startCreate">
+                                    <span class="n"><i class="fa fa-plus" title=""/> Crear dirección de entrega</span>
+                                    <span class="a">Si el cliente no tiene la dirección adecuada</span>
+                                </button>
+                            </div>
+                            <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.partner_id"/></t>
+
+                            <!-- Nueva dirección, sin salir de la solicitud -->
+                            <div t-if="state.creating" class="o_dr_newaddr">
+                                <div class="h">Nueva dirección de entrega de <b t-esc="data.order.partner"/></div>
+                                <div class="o_dr_grid">
+                                    <t t-foreach="[
+                                        ['name', 'Nombre del sitio o de quien recibe', true, 'Obra Torre Norte / Ing. Pérez'],
+                                        ['phone', 'Teléfono', true, '81 1234 5678'],
+                                        ['street', 'Calle', true, ''],
+                                        ['number', 'Número', true, 'Ext. / Int.'],
+                                        ['street2', 'Colonia', true, ''],
+                                        ['city', 'Ciudad o municipio', true, ''],
+                                        ['zip', 'Código postal', true, ''],
+                                    ]" t-as="f" t-key="f[0]">
+                                        <div class="o_dr_field">
+                                            <label><t t-esc="f[1]"/> <span t-if="f[2]" class="req">*</span></label>
+                                            <input type="text" t-att-class="{ 'o_dr_invalid': state.newAddrErrors[f[0]] }" t-att-placeholder="f[3]"
+                                                   t-att-value="state.newAddr[f[0]]" t-on-input="(ev) => this.onNewAddr(f[0], ev)"/>
+                                            <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.newAddrErrors[f[0]]"/></t>
+                                        </div>
+                                    </t>
+                                    <div class="o_dr_field">
+                                        <label>Estado <span class="req">*</span></label>
+                                        <select t-att-class="{ 'o_dr_invalid': state.newAddrErrors.state_id }" t-on-change="(ev) => this.onNewAddr('state_id', ev)">
+                                            <option value="">Selecciona…</option>
+                                            <t t-foreach="data.states" t-as="st" t-key="st.id">
+                                                <option t-att-value="st.id" t-att-selected="isStateSelected(st)" t-esc="st.name"/>
+                                            </t>
+                                        </select>
+                                        <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.newAddrErrors.state_id"/></t>
+                                    </div>
+                                    <div class="o_dr_field wide">
+                                        <label>Referencias</label>
+                                        <input type="text" placeholder="Entre calles, color de la fachada, acceso…" t-att-value="state.newAddr.references"
+                                               t-on-input="(ev) => this.onNewAddr('references', ev)"/>
+                                    </div>
+                                </div>
+                                <div class="o_dr_actions">
+                                    <button type="button" class="btn btn-primary" t-att-disabled="state.savingAddr" t-on-click="saveNewAddress">
+                                        <i t-if="state.savingAddr" class="fa fa-circle-o-notch fa-spin" title=""/> Guardar y usar esta dirección
+                                    </button>
+                                    <button type="button" class="btn btn-link" t-on-click="cancelCreate">Cancelar</button>
+                                </div>
+                            </div>
+
+                            <div class="o_dr_grid mt-3">
+                                <div class="o_dr_field">
+                                    <label>Contacto en sitio <span class="req">*</span></label>
+                                    <input type="text" t-att-class="{ 'o_dr_invalid': state.errors.contact_name }" t-att-value="state.address.contact_name"
+                                           t-on-input="(ev) => this.onAddressField('contact_name', ev)"/>
+                                    <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.contact_name"/></t>
+                                </div>
+                                <div class="o_dr_field">
+                                    <label>Teléfono del contacto <span class="req">*</span></label>
+                                    <input type="tel" t-att-class="{ 'o_dr_invalid': state.errors.contact_phone }" t-att-value="state.address.contact_phone"
+                                           t-on-input="(ev) => this.onAddressField('contact_phone', ev)"/>
+                                    <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.contact_phone"/></t>
+                                </div>
+                                <div class="o_dr_field wide">
+                                    <label>Dirección de entrega <span class="req">*</span></label>
+                                    <textarea rows="3" t-att-class="{ 'o_dr_invalid': state.errors.delivery_address }"
+                                              placeholder="Calle, número, colonia, ciudad, estado, CP"
+                                              t-att-value="state.address.delivery_address"
+                                              t-on-input="(ev) => this.onAddressField('delivery_address', ev)"/>
+                                    <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.delivery_address"/></t>
+                                </div>
+                            </div>
+
+                            <label class="o_dr_label mt-3">Ubicación en el mapa <span class="req">*</span></label>
+                            <div t-att-class="{ 'o_dr_mapbox': true, 'o_dr_invalid': state.errors.location }">
+                                <div class="o_dr_mapbar">
+                                    <div class="o_dr_mapsearch">
+                                        <i class="fa fa-search" title=""/>
+                                        <input type="text" placeholder="Buscar en el mapa o pegar coordenadas (25.68, -100.31)…"
+                                               t-att-value="state.mapQuery" t-on-input="onMapQuery" t-on-keydown="onMapQueryKey"/>
+                                        <i t-if="state.mapSearching or state.geocoding" class="fa fa-circle-o-notch fa-spin" title=""/>
+                                        <div t-if="state.mapResults.length" class="o_dr_results">
+                                            <button type="button" t-foreach="state.mapResults" t-as="r" t-key="r_index" t-on-click="() => this.pickResult(r)">
+                                                <i class="fa fa-map-marker" title=""/> <t t-esc="r.label"/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" t-on-click="relocate" title="Volver a localizar la dirección de entrega">
+                                        <i class="fa fa-crosshairs" title=""/> Localizar la dirección
+                                    </button>
+                                </div>
+                                <div class="o_dr_map" t-ref="map"/>
+                                <div class="o_dr_mapfoot">
+                                    <span t-if="state.address.latitude and state.address.longitude" class="ok">
+                                        <i class="fa fa-check-circle" title=""/> Ubicación: <t t-esc="state.address.latitude.toFixed(6)"/>, <t t-esc="state.address.longitude.toFixed(6)"/>
+                                    </span>
+                                    <span t-else="" class="warn"><i class="fa fa-exclamation-triangle" title=""/> Sin ubicación todavía.</span>
+                                    <span t-if="state.mapNote" class="note" t-esc="state.mapNote"/>
+                                </div>
+                            </div>
+                            <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.location"/></t>
+                            <p class="o_dr_hint mt-2">El mapa sirve para validar la dirección: moverlo o buscar en él solo cambia el punto, nunca el texto de la dirección de entrega.</p>
+                        </section>
+
+                        <!-- ═══ 3. Fecha y condiciones ═══ -->
+                        <section t-att-class="{ 'd-none': state.step !== 3 }">
+                            <div class="o_dr_grid">
+                                <div class="o_dr_field">
+                                    <label>Fecha de entrega <span class="req">*</span></label>
+                                    <input type="date" t-att-min="data.today" t-att-class="{ 'o_dr_invalid': state.errors.date }"
+                                           t-att-value="state.date" t-on-change="onDate"/>
+                                    <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.date"/></t>
+                                </div>
+                            </div>
+                            <label class="o_dr_label mt-3">Horario <span class="req">*</span></label>
+                            <div class="o_dr_chips">
+                                <t t-foreach="data.time_windows" t-as="w" t-key="w.key">
+                                    <button type="button" t-att-class="{ 'o_dr_chip': true, on: state.timeWindow === w.key }" t-on-click="() => this.setWindow(w.key)" t-esc="w.label"/>
+                                </t>
+                            </div>
+                            <div t-if="state.timeWindow === 'exact'" class="o_dr_grid mt-3">
+                                <div class="o_dr_field">
+                                    <label>Hora <span class="req">*</span></label>
+                                    <input type="time" t-att-class="{ 'o_dr_invalid': state.errors.time_exact }" t-att-value="state.timeExact" t-on-change="onTime"/>
+                                    <t t-call="sale_delivery_wizard.DeliveryRequestErr"><t t-set="msg" t-value="state.errors.time_exact"/></t>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- ═══ 4. Especificaciones ═══ -->
+                        <section t-att-class="{ 'd-none': state.step !== 4 }">
+                            <label class="o_dr_label">Especificaciones de la entrega</label>
+                            <textarea class="o_dr_specs" rows="7"
+                                      placeholder="Quién recibe, horario del sitio, acceso y estacionamiento, maniobra o equipo necesario, piso, elevador, restricciones…"
+                                      t-att-value="state.instructions" t-on-input="onInstructions"/>
+                            <p class="o_dr_hint">Opcional, pero es lo primero que lee Logística. Si no hay nada especial, continúa.</p>
+                        </section>
+
+                        <!-- ═══ 5. Revisar ═══ -->
+                        <section t-if="state.step === 5" class="o_dr_review">
+                            <div class="o_dr_rev_grid">
+                                <div><span class="k">Cliente</span><span class="v" t-esc="data.order.partner"/></div>
+                                <div><span class="k">Orden de venta</span><span class="v" t-esc="data.order.name"/></div>
+                                <div><span class="k">Fecha solicitada</span><span class="v"><t t-esc="fmtIso(state.date)"/> · <t t-esc="windowLabel"/></span></div>
+                                <div><span class="k">Contacto</span><span class="v"><t t-esc="state.address.contact_name"/> · <t t-esc="state.address.contact_phone"/></span></div>
+                            </div>
+                            <div class="o_dr_rev_block">
+                                <span class="k">Materiales</span>
+                                <ul>
+                                    <li t-foreach="chosenLines" t-as="l" t-key="l.sale_line_id">
+                                        <b t-esc="l.product"/> — <t t-esc="fmtQty(l.qty)"/> <t t-esc="l.uom"/>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="o_dr_rev_block">
+                                <span class="k">Dirección</span>
+                                <div class="v pre" t-esc="state.address.delivery_address"/>
+                            </div>
+                            <div class="o_dr_rev_block">
+                                <span class="k">Especificaciones</span>
+                                <div class="v pre" t-esc="state.instructions || 'Sin especificaciones adicionales.'"/>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- ═══ Navegación ═══ -->
+                    <div class="o_dr_nav">
+                        <button class="btn btn-secondary" t-if="state.step > 1" t-on-click="back"><i class="fa fa-arrow-left" title=""/> Atrás</button>
+                        <button class="btn btn-link" t-else="" t-on-click="openOrder">Cancelar</button>
+                        <span class="grow"/>
+                        <button class="btn btn-primary" t-if="state.step &lt; 5" t-on-click="next">Siguiente <i class="fa fa-arrow-right" title=""/></button>
+                        <button class="btn btn-success" t-else="" t-att-disabled="state.submitting" t-on-click="submit">
+                            <i t-if="state.submitting" class="fa fa-circle-o-notch fa-spin" title=""/>
+                            <i t-else="" class="fa fa-paper-plane" title=""/> Solicitar programación
+                        </button>
+                    </div>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

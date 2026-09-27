@@ -50,25 +50,60 @@
         <field name="target">new</field>
     </record>
 
-    <!-- ═══════════ Formulario: lo que el vendedor debe completar ═══════════ -->
+    <!-- ═══════════ Logística: asignar unidad (→ Programada) ═══════════ -->
+    <record id="view_sale_delivery_schedule_plan_wizard" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.plan.wizard.form</field>
+        <field name="model">sale.delivery.schedule.plan.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Programar entrega">
+                <group>
+                    <field name="schedule_id"/>
+                    <field name="vehicle_id" options="{'no_create': True}"/>
+                    <field name="vehicle_driver_id" options="{'no_create': True}"/>
+                    <field name="logistics_user_id" options="{'no_create': True}"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Programar" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_sale_delivery_schedule_plan_wizard" model="ir.actions.act_window">
+        <field name="name">Programar entrega</field>
+        <field name="res_model">sale.delivery.schedule.plan.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ═══════════ Formulario ═══════════
+         Dos dominios (27 sep 2026): la SOLICITUD (qué, cuánto, dónde,
+         cuándo, especificaciones) la ven todos; lo de LOGÍSTICA (responsable,
+         unidad, chofer, documentos, botones de ejecución) solo el grupo
+         Usuario de Entregas. La solicitud nueva se captura en el asistente
+         guiado desde la orden, no aquí. -->
     <record id="view_sale_delivery_schedule_form" model="ir.ui.view">
         <field name="name">sale.delivery.schedule.form</field>
         <field name="model">sale.delivery.schedule</field>
         <field name="arch" type="xml">
-            <form string="Entrega programada">
+            <form string="Solicitud de entrega" create="0">
                 <header>
-                    <button name="action_confirm" type="object" string="Confirmar (logística)" class="btn-primary"
-                            invisible="state != 'scheduled'" groups="sale_delivery_wizard.group_delivery_user"/>
-                    <button name="action_generate_delivery" type="object" string="Generar entrega" class="btn-primary"
-                            invisible="state not in ('scheduled', 'confirmed', 'in_progress')"
-                            groups="sale_delivery_wizard.group_delivery_user"/>
+                    <button name="action_confirm" type="object" string="Confirmar solicitud" class="btn-primary"
+                            invisible="state not in ('scheduled', 'rescheduled')" groups="sale_delivery_wizard.group_delivery_user"/>
+                    <button name="%(action_sale_delivery_schedule_plan_wizard)d" type="action" string="Asignar unidad y programar"
+                            class="btn-primary" context="{'default_schedule_id': id, 'default_vehicle_id': vehicle_id, 'default_vehicle_driver_id': vehicle_driver_id}"
+                            invisible="state not in ('confirmed', 'programmed')" groups="sale_delivery_wizard.group_delivery_user"/>
+                    <button name="action_generate_delivery" type="object" string="Continuar a la entrega"
+                            invisible="state not in ('confirmed', 'programmed', 'in_progress')"
+                            groups="sale_delivery_wizard.group_delivery_user"
+                            help="Abre el asistente de entrega de la orden (flujo actual) con la dirección, la unidad y los materiales de esta solicitud."/>
                     <button name="%(action_sale_delivery_schedule_move_wizard)d" type="action" string="Reprogramar"
-                            invisible="state not in ('scheduled', 'confirmed', 'in_progress')"
+                            invisible="state not in ('scheduled', 'confirmed', 'programmed', 'rescheduled', 'in_progress')"
                             context="{'default_schedule_id': id}"/>
-                    <button name="%(action_sale_delivery_schedule_cancel_wizard)d" type="action" string="Cancelar programación"
+                    <button name="%(action_sale_delivery_schedule_cancel_wizard)d" type="action" string="Cancelar solicitud"
                             invisible="state in ('done', 'cancelled')" context="{'default_schedule_id': id}"/>
                     <button name="action_reopen" type="object" string="Reabrir" invisible="state != 'cancelled'"/>
-                    <field name="state" widget="statusbar" statusbar_visible="scheduled,confirmed,in_progress,done"/>
+                    <field name="state" widget="statusbar" statusbar_visible="scheduled,confirmed,programmed,in_progress,done"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
@@ -79,51 +114,84 @@
                             <div class="o_stat_info"><span class="o_stat_text">Ver en mapa</span></div>
                         </button>
                     </div>
-                    <div class="alert alert-warning" role="alert" invisible="not readiness or state in ('done','cancelled')">
+                    <div class="alert alert-info" role="alert" invisible="state != 'rescheduled'">
+                        <i class="fa fa-calendar" title="Reprogramada"/> La fecha cambió: logística debe volver a confirmar la solicitud.
+                    </div>
+                    <div class="alert alert-warning" role="alert" groups="sale_delivery_wizard.group_delivery_user"
+                         invisible="not readiness or state in ('done','cancelled')">
                         <b>Pendientes para logística:</b> <field name="readiness" readonly="1" nolabel="1" class="d-inline"/>
                     </div>
                     <div class="oe_title">
                         <h1><field name="name" readonly="1"/></h1>
+                        <div class="text-muted">
+                            <field name="partner_id" readonly="1" class="d-inline"/> ·
+                            Solicitó <field name="user_id" readonly="1" class="d-inline"/>
+                        </div>
                     </div>
+
+                    <!-- 1. Qué se entrega -->
+                    <separator string="1. Materiales a entregar"/>
+                    <field name="line_ids" readonly="1" nolabel="1" invisible="not line_ids">
+                        <list>
+                            <field name="product_id"/>
+                            <field name="qty"/>
+                            <field name="uom_name"/>
+                        </list>
+                    </field>
+                    <div class="text-muted mb-3" invisible="line_ids">
+                        Solicitud anterior al detalle por material: toda la orden. Pendiente por entregar:
+                        <field name="qty_summary" readonly="1" class="d-inline"/>
+                    </div>
+
+                    <!-- 2. Dónde -->
+                    <separator string="2. Dirección y ubicación"/>
                     <group>
-                        <group string="Cuándo">
-                            <field name="sale_order_id" options="{'no_create': True}" readonly="state != 'scheduled'"/>
-                            <field name="partner_id"/>
-                            <field name="user_id" readonly="1"/>
-                            <field name="date" readonly="id" help="Una vez creada, la fecha solo cambia con «Reprogramar» (queda historial)."/>
-                            <field name="time_window"/>
-                            <field name="time_exact" widget="float_time" invisible="time_window != 'exact'" required="time_window == 'exact'"/>
-                            <field name="qty_summary"/>
-                            <field name="auth_label" string="Autorización" invisible="not auth_label"/>
-                        </group>
-                        <group string="Con quién y dónde">
+                        <group>
                             <field name="commercial_partner_id" invisible="1"/>
                             <field name="partner_shipping_id" options="{'no_create': True, 'no_open': True}"
-                                   placeholder="Otra dirección o contacto del cliente…"/>
-                            <field name="contact_name"/>
-                            <field name="contact_phone" widget="phone"/>
-                            <field name="delivery_address" placeholder="Calle, número, colonia, municipio, referencias"
-                                   help="Se llena al elegir la dirección del cliente o una coincidencia del buscador del mapa; puedes ajustar el texto."/>
+                                   readonly="state not in ('scheduled', 'rescheduled')"/>
+                            <field name="contact_name" readonly="state not in ('scheduled', 'rescheduled')"/>
+                            <field name="contact_phone" widget="phone" readonly="state not in ('scheduled', 'rescheduled')"/>
+                        </group>
+                        <group>
+                            <field name="delivery_address" readonly="state not in ('scheduled', 'rescheduled')"
+                                   help="La dirección capturada no se cambia al mover el punto del mapa: el mapa solo guarda las coordenadas."/>
                         </group>
                     </group>
-                    <group string="Ubicación en el mapa: escribe la dirección y elige de la lista, o marca el punto">
-                        <field name="latitude" widget="som_map_picker" nolabel="1" colspan="2"
-                               options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
-                        <field name="longitude" invisible="1"/>
-                        <field name="has_location" invisible="1"/>
+                    <field name="latitude" widget="som_map_picker" nolabel="1"
+                           readonly="state not in ('scheduled', 'rescheduled', 'confirmed', 'programmed')"
+                           options="{'lng_field': 'longitude', 'address_field': 'delivery_address'}"/>
+                    <field name="longitude" invisible="1"/>
+                    <field name="has_location" invisible="1"/>
+
+                    <!-- 3. Cuándo -->
+                    <separator string="3. Fecha y condiciones"/>
+                    <group>
+                        <group>
+                            <field name="date" readonly="id" help="Una vez creada, la fecha solo cambia con «Reprogramar» (queda historial)."/>
+                            <field name="time_window" readonly="state not in ('scheduled', 'rescheduled')"/>
+                            <field name="time_exact" widget="float_time" invisible="time_window != 'exact'"
+                                   required="time_window == 'exact'" readonly="state not in ('scheduled', 'rescheduled')"/>
+                        </group>
+                        <group>
+                            <field name="auth_label" string="Pago / autorización" invisible="not auth_label"/>
+                        </group>
                     </group>
-                    <group string="Especificación de la entrega (lo que logística va a leer)">
-                        <field name="instructions" nolabel="1" colspan="2"
-                               placeholder="Qué se entrega y en qué presentación, quién recibe, horario del sitio, acceso y estacionamiento, maniobra o equipo necesario, piso, elevador, restricciones…"/>
-                    </group>
+
+                    <!-- 4. Especificaciones -->
+                    <separator string="4. Especificaciones de la entrega"/>
+                    <field name="instructions" nolabel="1" readonly="state in ('done', 'cancelled')"
+                           placeholder="Quién recibe, horario del sitio, acceso, maniobra o equipo necesario, piso, restricciones…"/>
+
                     <notebook>
-                        <page string="Logística" name="execution">
+                        <page string="Logística" name="execution" groups="sale_delivery_wizard.group_delivery_user">
                             <group>
-                                <group string="Unidad (la asigna logística al confirmar)">
-                                    <field name="vehicle_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
-                                    <field name="vehicle_driver_id" groups="sale_delivery_wizard.group_delivery_user" options="{'no_create': True}"/>
+                                <group string="Responsable y unidad">
+                                    <field name="logistics_user_id" options="{'no_create': True}"/>
+                                    <field name="vehicle_id" options="{'no_create': True}"/>
+                                    <field name="vehicle_driver_id" options="{'no_create': True}"/>
                                 </group>
-                                <group string="Documentos de entrega">
+                                <group string="Documentos de entrega (flujo actual)">
                                     <field name="pick_ticket_id" readonly="1"/>
                                     <field name="remission_id" readonly="1"/>
                                     <field name="delivered_at" readonly="1"/>
@@ -135,6 +203,7 @@
                             <group>
                                 <field name="original_date"/>
                                 <field name="reschedule_count"/>
+                                <field name="cancel_reason" invisible="not cancel_reason"/>
                             </group>
                             <field name="move_ids" readonly="1">
                                 <list>
@@ -155,23 +224,82 @@
         </field>
     </record>
 
+    <!-- ═══════════ Bandeja de logística ═══════════ -->
     <record id="view_sale_delivery_schedule_list" model="ir.ui.view">
         <field name="name">sale.delivery.schedule.list</field>
         <field name="model">sale.delivery.schedule</field>
         <field name="arch" type="xml">
-            <list decoration-success="state == 'done'" decoration-muted="state == 'cancelled'" decoration-info="state == 'in_progress'">
-                <field name="date"/>
-                <field name="time_window"/>
-                <field name="name"/>
-                <field name="sale_order_id"/>
+            <list create="0" decoration-success="state == 'done'" decoration-muted="state == 'cancelled'"
+                  decoration-info="state == 'in_progress'" decoration-warning="state in ('scheduled', 'rescheduled')">
+                <field name="name" string="Folio"/>
+                <field name="date" string="Fecha solicitada"/>
+                <field name="time_window" optional="show"/>
                 <field name="partner_id"/>
-                <field name="user_id"/>
-                <field name="contact_phone" optional="show"/>
+                <field name="sale_order_id" string="OV"/>
+                <field name="material_summary"/>
+                <field name="delivery_address" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-warning="state in ('scheduled', 'rescheduled')"
+                       decoration-info="state in ('confirmed', 'programmed', 'in_progress')"
+                       decoration-success="state == 'done'"/>
+                <field name="logistics_user_id" string="Responsable" optional="show"/>
                 <field name="vehicle_id" optional="show"/>
-                <field name="reschedule_count" optional="show"/>
-                <field name="readiness" optional="show"/>
-                <field name="state" widget="badge"/>
+                <field name="vehicle_driver_id" string="Chofer" optional="show"/>
+                <field name="user_id" string="Solicitó" optional="hide"/>
+                <field name="reschedule_count" optional="hide"/>
+                <field name="readiness" optional="hide"/>
             </list>
+        </field>
+    </record>
+
+    <!-- Lista del solicitante: sin datos de ejecución logística. -->
+    <record id="view_sale_delivery_schedule_list_requester" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.list.requester</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="priority">20</field>
+        <field name="arch" type="xml">
+            <list create="0" decoration-success="state == 'done'" decoration-muted="state == 'cancelled'"
+                  decoration-info="state == 'in_progress'">
+                <field name="name" string="Folio"/>
+                <field name="date" string="Fecha solicitada"/>
+                <field name="time_window" optional="show"/>
+                <field name="sale_order_id" string="OV"/>
+                <field name="partner_id"/>
+                <field name="material_summary"/>
+                <field name="delivery_address" optional="hide"/>
+                <field name="reschedule_count" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-warning="state in ('scheduled', 'rescheduled')"
+                       decoration-info="state in ('confirmed', 'programmed', 'in_progress')"
+                       decoration-success="state == 'done'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_sale_delivery_schedule_kanban" model="ir.ui.view">
+        <field name="name">sale.delivery.schedule.kanban</field>
+        <field name="model">sale.delivery.schedule</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="state" create="0" group_create="0" group_delete="0" group_edit="0"
+                    quick_create="0" records_draggable="0">
+                <field name="state"/>
+                <field name="color"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex justify-content-between">
+                            <field name="name" class="fw-bold"/>
+                            <field name="date"/>
+                        </div>
+                        <field name="partner_id"/>
+                        <div class="text-muted small"><field name="sale_order_id"/> · <field name="time_window"/></div>
+                        <div class="small mt-1"><field name="material_summary"/></div>
+                        <div class="d-flex justify-content-between small text-muted mt-1">
+                            <field name="vehicle_id"/>
+                            <field name="logistics_user_id" widget="many2one_avatar_user"/>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
         </field>
     </record>
 
@@ -184,7 +312,7 @@
                 <field name="partner_id"/>
                 <field name="time_window"/>
                 <field name="state"/>
-                <field name="vehicle_id"/>
+                <field name="material_summary"/>
                 <field name="user_id"/>
             </calendar>
         </field>
@@ -199,15 +327,27 @@
                 <field name="sale_order_id"/>
                 <field name="partner_id"/>
                 <field name="user_id"/>
+                <field name="material_summary"/>
                 <field name="vehicle_id"/>
-                <filter name="mine" string="Mis entregas" domain="[('user_id', '=', uid)]"/>
-                <filter name="open" string="Abiertas" domain="[('state', 'in', ('scheduled', 'confirmed', 'in_progress'))]"/>
-                <filter name="rescheduled" string="Reprogramadas" domain="[('reschedule_count', '>', 0)]"/>
+                <filter name="mine" string="Mis solicitudes" domain="[('user_id', '=', uid)]"/>
+                <filter name="my_logistics" string="Asignadas a mí" domain="[('logistics_user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="pending" string="Pendientes de confirmar" domain="[('state', 'in', ('scheduled', 'rescheduled'))]"/>
+                <filter name="confirmed" string="Confirmadas" domain="[('state', '=', 'confirmed')]"/>
+                <filter name="programmed" string="Programadas" domain="[('state', '=', 'programmed')]"/>
+                <filter name="state_rescheduled" string="Reprogramadas" domain="[('state', '=', 'rescheduled')]"/>
+                <filter name="in_progress" string="En proceso" domain="[('state', '=', 'in_progress')]"/>
+                <filter name="done" string="Entregadas" domain="[('state', '=', 'done')]"/>
+                <filter name="cancelled" string="Canceladas" domain="[('state', '=', 'cancelled')]"/>
+                <separator/>
+                <filter name="open" string="Abiertas" domain="[('state', 'in', ('scheduled', 'confirmed', 'programmed', 'rescheduled', 'in_progress'))]"/>
+                <filter name="rescheduled" string="Con reprogramaciones" domain="[('reschedule_count', '>', 0)]"/>
                 <filter name="no_location" string="Sin ubicación" domain="[('has_location', '=', False)]"/>
                 <separator/>
                 <filter name="group_date" string="Fecha" context="{'group_by': 'date'}"/>
-                <filter name="group_seller" string="Vendedor" context="{'group_by': 'user_id'}"/>
                 <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+                <filter name="group_logistics" string="Responsable" context="{'group_by': 'logistics_user_id'}"/>
+                <filter name="group_seller" string="Solicitante" context="{'group_by': 'user_id'}"/>
                 <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"/>
             </search>
         </field>
@@ -223,17 +363,35 @@
         <field name="tag">sale_delivery_wizard.delivery_planner</field>
         <field name="params" eval="{'only_mine': True}"/>
     </record>
+    <!-- Bandeja de logística: todas las solicitudes, abiertas por defecto. -->
     <record id="action_sale_delivery_schedule" model="ir.actions.act_window">
-        <field name="name">Entregas programadas</field>
+        <field name="name">Solicitudes de entrega</field>
         <field name="res_model">sale.delivery.schedule</field>
-        <field name="view_mode">calendar,list,form</field>
+        <field name="view_mode">list,kanban,calendar,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('view_sale_delivery_schedule_list')}),
+            (0, 0, {'view_mode': 'kanban', 'view_id': ref('view_sale_delivery_schedule_kanban')}),
+            (0, 0, {'view_mode': 'calendar', 'view_id': ref('view_sale_delivery_schedule_calendar')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_sale_delivery_schedule_form')})]"/>
         <field name="context">{'search_default_open': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Sin solicitudes de entrega</p>
+            <p>Las solicitudes nacen en la orden de venta con «Solicitar entrega».</p>
+        </field>
     </record>
     <record id="action_sale_delivery_schedule_mine" model="ir.actions.act_window">
-        <field name="name">Mis entregas programadas</field>
+        <field name="name">Mis solicitudes de entrega</field>
         <field name="res_model">sale.delivery.schedule</field>
         <field name="view_mode">list,calendar,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('view_sale_delivery_schedule_list_requester')}),
+            (0, 0, {'view_mode': 'calendar', 'view_id': ref('view_sale_delivery_schedule_calendar')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_sale_delivery_schedule_form')})]"/>
         <field name="context">{'search_default_mine': 1, 'search_default_open': 1}</field>
+    </record>
+    <record id="action_delivery_request" model="ir.actions.client">
+        <field name="name">Solicitar entrega</field>
+        <field name="tag">sale_delivery_wizard.delivery_request</field>
     </record>
 
     <!-- ═══════════ Menús ═══════════ -->
@@ -241,9 +399,10 @@
     <menuitem id="menu_delivery_planner" name="Planificación"
               parent="sale_delivery_wizard.menu_delivery_live_root"
               action="action_delivery_planner" sequence="-10"/>
-    <menuitem id="menu_delivery_schedule" name="Calendario"
+    <!-- Bandeja de Logística: lo primero que ve Entregas (27 sep 2026). -->
+    <menuitem id="menu_delivery_schedule" name="Solicitudes"
               parent="sale_delivery_wizard.menu_delivery_live_root"
-              action="action_sale_delivery_schedule" sequence="-5"/>
+              action="action_sale_delivery_schedule" sequence="-20"/>
 
     <!-- Mis Entregas (vendedores): raíz propia. Logística no la necesita:
          su trabajo vive en Entregas › Planificación. -->
@@ -252,7 +411,7 @@
               sequence="35" groups="sales_team.group_sale_salesman"/>
     <menuitem id="menu_my_deliveries_planner" name="Mi semana"
               parent="menu_my_deliveries_root" action="action_delivery_planner_mine" sequence="1"/>
-    <menuitem id="menu_my_deliveries_list" name="Mis entregas programadas"
+    <menuitem id="menu_my_deliveries_list" name="Mis solicitudes"
               parent="menu_my_deliveries_root" action="action_sale_delivery_schedule_mine" sequence="2"/>
 
     <!-- ═══════════ Orden de venta: botón y smart button ═══════════ -->
@@ -264,7 +423,7 @@
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
                 <button name="action_schedule_delivery"
-                        string="Programar entrega"
+                        string="Solicitar entrega"
                         type="object"
                         class="btn-primary"
                         icon="fa-calendar"
@@ -277,7 +436,7 @@
                         invisible="delivery_schedule_count == 0">
                     <div class="o_stat_info">
                         <span class="o_stat_value"><field name="next_delivery_date" nolabel="1" readonly="1"/></span>
-                        <span class="o_stat_text">Entrega programada</span>
+                        <span class="o_stat_text">Entregas solicitadas</span>
                     </div>
                 </button>
                 <field name="delivery_schedule_count" invisible="1"/>

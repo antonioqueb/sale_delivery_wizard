@@ -1,0 +1,211 @@
+// ═══ Solicitar entrega — asistente guiado ═══
+// Sin min()/max() de unidades mixtas (tumban el bundle).
+$dr-blue: #0b57d0;
+$dr-blue-dark: #083b8f;
+$dr-ink: #0f172a;
+$dr-mut: #64748b;
+$dr-line: #e2e8f0;
+$dr-bg: #f3f6fb;
+$dr-red: #d92d20;
+$dr-amber: #b45309;
+$dr-green: #159957;
+
+.o_delivery_request {
+    height: 100%;
+    overflow-y: auto;
+    background: $dr-bg;
+    color: $dr-ink;
+    font-size: 14px;
+
+    .o_dr_wrap { max-width: 1080px; margin: 0 auto; padding: 20px 20px 48px; }
+
+    // ─── Cabecera ───
+    .o_dr_head {
+        display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+        h1 { font-size: 22px; font-weight: 800; margin: 0; color: $dr-blue-dark; }
+        .o_dr_sub { color: $dr-mut; margin-top: 2px; }
+    }
+    .o_dr_back {
+        width: 38px; height: 38px; border-radius: 10px; border: 1px solid $dr-line; background: #fff;
+        color: $dr-blue; cursor: pointer; flex: 0 0 auto;
+        &:hover { border-color: $dr-blue; }
+    }
+
+    // ─── Pasos ───
+    .o_dr_steps {
+        list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 14px;
+        li {
+            flex: 1 1 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+            background: #fff; border: 1px solid $dr-line; border-radius: 12px; color: $dr-mut;
+            font-weight: 600; font-size: 13px; min-width: 0;
+            .n {
+                width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
+                background: #eef2f7; color: $dr-mut; font-weight: 800; flex: 0 0 auto;
+            }
+            .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            &.reachable { cursor: pointer; }
+            &.done { color: $dr-green; .n { background: #e6f5ec; color: $dr-green; } }
+            &.on { border-color: $dr-blue; color: $dr-blue-dark; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12);
+                .n { background: $dr-blue; color: #fff; } }
+        }
+    }
+
+    .o_dr_existing {
+        background: #eef4ff; border: 1px solid #d6e3fb; color: $dr-blue-dark; border-radius: 10px;
+        padding: 8px 12px; margin-bottom: 12px; font-size: 13px;
+        .chip { display: inline-block; background: #fff; border-radius: 999px; padding: 1px 9px; margin: 2px 4px; }
+    }
+
+    // ─── Tarjeta del paso ───
+    .o_dr_card {
+        background: #fff; border: 1px solid $dr-line; border-radius: 16px; padding: 22px 24px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .o_dr_center { text-align: center; padding: 36px 16px; }
+    .o_dr_title {
+        font-size: 18px; font-weight: 800; margin: 0 0 16px; display: flex; align-items: center; gap: 10px;
+        .num { width: 30px; height: 30px; border-radius: 9px; background: $dr-blue; color: #fff;
+            display: inline-grid; place-items: center; font-size: 15px; }
+    }
+    .o_dr_hint { color: $dr-mut; font-size: 13px; margin: 0 0 12px; }
+    .o_dr_label { display: block; font-weight: 700; margin-bottom: 6px; }
+    .req { color: $dr-red; font-weight: 800; }
+
+    // ─── Errores ───
+    .o_dr_err { color: $dr-red; font-size: 12.5px; font-weight: 600; margin-top: 4px; }
+    .o_dr_warn { color: $dr-amber; font-size: 12px; margin-top: 3px; }
+    input.o_dr_invalid, textarea.o_dr_invalid, select.o_dr_invalid {
+        border-color: $dr-red !important; background: #fff6f5 !important;
+        box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.12) !important;
+    }
+    div.o_dr_invalid { border-color: $dr-red !important; box-shadow: 0 0 0 3px rgba(217, 45, 32, 0.12); }
+
+    // ─── Campos ───
+    .o_dr_grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+    .o_dr_field {
+        display: flex; flex-direction: column; min-width: 0;
+        &.wide { grid-column: 1 / -1; }
+        label { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+        input, textarea, select {
+            border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 11px; background: #fff;
+            font-size: 14px; color: $dr-ink; width: 100%;
+            &:focus { outline: 0; border-color: $dr-blue; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+        }
+        textarea { resize: vertical; }
+    }
+
+    // ─── Materiales ───
+    .o_dr_table_wrap { border: 1px solid $dr-line; border-radius: 12px; overflow-x: auto; }
+    .o_dr_table {
+        width: 100%; border-collapse: collapse; font-size: 13.5px;
+        th, td { padding: 9px 10px; text-align: right; white-space: nowrap; vertical-align: middle; }
+        th.l, td.l { text-align: left; white-space: normal; min-width: 220px; }
+        th { background: #f6f8fc; color: $dr-mut; font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.03em; border-bottom: 1px solid $dr-line; }
+        td { border-top: 1px solid #f0f2f5; font-variant-numeric: tabular-nums; }
+        td.chk, th:first-child { width: 36px; text-align: center; }
+        td.b { font-weight: 700; }
+        td.warn { color: $dr-amber; font-weight: 700; }
+        td.qty, th.qty { width: 190px; }
+        .p { font-weight: 600; }
+        .d { color: $dr-mut; font-size: 12px; }
+        tbody tr { cursor: pointer; transition: background 0.1s ease; }
+        tbody tr:hover { background: #f8fafc; }
+        tbody tr.sel { background: #eef4ff; }
+        tbody tr.bad { background: #fff6f5; }
+        tbody tr.off { cursor: default; opacity: 0.55; }
+    }
+    .o_dr_qty {
+        display: flex; align-items: center; gap: 4px; justify-content: flex-end;
+        input { width: 110px; text-align: right; border: 1px solid #cbd5e1; border-radius: 8px; padding: 5px 8px;
+            &:focus { outline: 0; border-color: $dr-blue; } }
+    }
+
+    // ─── Direcciones ───
+    .o_dr_addrs {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
+        border: 1px solid transparent; border-radius: 12px;
+    }
+    .o_dr_addr {
+        text-align: left; background: #fff; border: 1.5px solid $dr-line; border-radius: 12px; padding: 10px 12px;
+        display: flex; flex-direction: column; gap: 3px; cursor: pointer; color: $dr-ink;
+        .n { font-weight: 700; small { color: $dr-mut; font-weight: 500; } }
+        .a { color: $dr-mut; font-size: 12.5px; white-space: pre-line; &.warn { color: $dr-amber; } }
+        &:hover { border-color: #9db6e6; }
+        &.on { border-color: $dr-blue; background: #eef4ff; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+        &.empty { opacity: 0.75; }
+    }
+    .o_dr_addr_new { border-style: dashed; .n { color: $dr-blue; } }
+    .o_dr_newaddr {
+        margin-top: 12px; padding: 16px; border: 1px solid #d6e3fb; background: #f8fbff; border-radius: 12px;
+        .h { font-weight: 700; margin-bottom: 10px; }
+    }
+
+    // ─── Mapa ───
+    .o_dr_mapbox { border: 1px solid $dr-line; border-radius: 12px; overflow: visible; background: #fff; }
+    .o_dr_mapbar { display: flex; gap: 8px; align-items: center; padding: 8px; border-bottom: 1px solid $dr-line; }
+    .o_dr_mapsearch {
+        position: relative; flex: 1 1 auto; display: flex; align-items: center; gap: 8px;
+        border: 1px solid #cbd5e1; border-radius: 10px; padding: 5px 10px; color: $dr-mut;
+        input { border: 0; outline: 0; flex: 1; min-width: 0; font-size: 13.5px; color: $dr-ink; }
+    }
+    .o_dr_results {
+        position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; z-index: 1000; background: #fff;
+        border: 1px solid $dr-line; border-radius: 10px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        max-height: 240px; overflow-y: auto;
+        button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 12px;
+            font-size: 13px; color: $dr-ink; &:hover { background: #f1f5fb; } }
+    }
+    .o_dr_map { height: 360px; z-index: 0; }
+    .o_dr_mapfoot {
+        display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; font-size: 12.5px; border-top: 1px solid $dr-line;
+        .ok { color: $dr-green; font-weight: 600; }
+        .warn { color: $dr-amber; font-weight: 600; }
+        .note { color: $dr-mut; }
+    }
+    .o_dr_pin { background: transparent; border: 0; }
+
+    // ─── Fecha ───
+    .o_dr_chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .o_dr_chip {
+        border: 1.5px solid $dr-line; background: #fff; border-radius: 999px; padding: 7px 14px; font-weight: 600;
+        color: $dr-ink; cursor: pointer;
+        &.on { background: $dr-blue; border-color: $dr-blue; color: #fff; }
+    }
+
+    // ─── Especificaciones ───
+    .o_dr_specs {
+        width: 100%; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px 14px; font-size: 14px;
+        line-height: 1.5; resize: vertical; margin-bottom: 8px;
+        &:focus { outline: 0; border-color: $dr-blue; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.12); }
+    }
+
+    // ─── Revisar ───
+    .o_dr_review {
+        .k { display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: $dr-mut; margin-bottom: 3px; }
+        .v { font-weight: 600; }
+        .pre { white-space: pre-line; font-weight: 500; }
+        ul { margin: 0; padding-left: 18px; }
+    }
+    .o_dr_rev_grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin-bottom: 16px;
+        > div { background: #f8fafc; border-radius: 10px; padding: 10px 12px; } }
+    .o_dr_rev_block { border-top: 1px solid $dr-line; padding: 12px 0; }
+
+    // ─── Navegación y estados ───
+    .o_dr_nav { display: flex; align-items: center; gap: 8px; margin-top: 14px; .grow { flex: 1; } .btn { padding: 8px 18px; font-weight: 600; } }
+    .o_dr_actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; &.center { justify-content: center; } }
+    .o_dr_blocked { display: flex; gap: 14px; align-items: flex-start; color: $dr-amber; b { color: $dr-ink; } p { color: $dr-ink; } }
+    .o_dr_success { text-align: center; padding: 40px 24px;
+        h2 { font-size: 20px; font-weight: 800; margin: 10px 0 6px; } p { color: $dr-mut; } }
+    .o_dr_success_icon { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto; display: grid; place-items: center;
+        background: #e6f5ec; color: $dr-green; font-size: 28px; }
+
+    @media (max-width: 760px) {
+        .o_dr_wrap { padding: 12px 10px 40px; }
+        .o_dr_card { padding: 16px 14px; }
+        .o_dr_steps li { padding: 8px; .t { display: none; } }
+        .o_dr_steps li.on .t { display: inline; }
+        .o_dr_grid, .o_dr_rev_grid { grid-template-columns: minmax(0, 1fr); }
+        .o_dr_map { height: 300px; }
+    }
+}

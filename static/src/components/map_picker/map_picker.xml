@@ -5,7 +5,7 @@
             <div class="o_smp_bar" t-if="!readonly">
                 <div class="o_smp_search">
                     <input type="text" class="o_smp_input"
-                           placeholder="Escribe la dirección y elige de la lista…"
+                           placeholder="Buscar en el mapa o pegar coordenadas (25.68, -100.31)…"
                            t-att-value="state.query" t-on-input="onQuery" t-on-keydown="onQueryKeydown"/>
                     <i t-if="state.searching" class="fa fa-circle-o-notch fa-spin o_smp_spin" title=""/>
                     <div t-if="state.results.length" class="o_smp_results">
@@ -31,7 +31,7 @@
                     <a href="#" t-on-click.prevent="openExternal">abrir en Google Maps</a>
                 </span>
                 <span t-else="" class="warn">
-                    <i class="fa fa-exclamation-triangle" title=""/> Sin ubicación: escribe la dirección arriba y elige de la lista, o haz clic en el mapa. Es obligatoria para programar.
+                    <i class="fa fa-exclamation-triangle" title=""/> Sin ubicación: busca en el mapa, pega coordenadas o haz clic en el punto de entrega. Es obligatoria.
                 </span>
                 <div t-if="state.autoNote" class="note">
                     <i class="fa fa-info-circle" title=""/> <t t-esc="state.autoNote"/>

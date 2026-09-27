@@ -1,6 +1,6 @@
 {
     'name': 'Sale Delivery Wizard - SOM',
-    'version': '19.0.12.16.0',
+    'version': '19.0.13.0.0',
     'category': 'Sales/Delivery',
     'summary': 'Hub de entregas y devoluciones centralizado en la orden de venta',
     'description': """
@@ -68,6 +68,10 @@
             'sale_delivery_wizard/static/src/components/map_picker/map_picker.scss',
             'sale_delivery_wizard/static/src/components/map_picker/map_picker.xml',
             'sale_delivery_wizard/static/src/components/map_picker/map_picker.js',
+            # Solicitud guiada de entrega (27 sep 2026)
+            'sale_delivery_wizard/static/src/components/delivery_request/delivery_request.scss',
+            'sale_delivery_wizard/static/src/components/delivery_request/delivery_request.xml',
+            'sale_delivery_wizard/static/src/components/delivery_request/delivery_request.js',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.scss',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.xml',
             'sale_delivery_wizard/static/src/components/delivery_report_dashboard/delivery_report_dashboard.js',

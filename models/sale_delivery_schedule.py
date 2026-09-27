@@ -21,6 +21,17 @@ Diseño:
 - Liga con la operación: el pick ticket de la orden se engancha solo a la
   programación abierta más próxima (en proceso); la remisión hereda; la
   firma cierra la programación (entregada).
+
+Rediseño (27 sep 2026) — dos dominios separados:
+- SOLICITUD (ventas/operación): asistente guiado desde la orden
+  (`sale_delivery_wizard.delivery_request`): qué materiales y cuánto, dónde,
+  cuándo y especificaciones. Sin vehículo, chofer ni documentos.
+  Una orden = N solicitudes; cada una guarda sus propias líneas
+  (`sale.delivery.schedule.line`) y el saldo pendiente se respeta.
+- LOGÍSTICA: bandeja «Solicitudes» (Entregas) — confirma, reprograma,
+  asigna unidad y chofer (Programada) y ejecuta con el flujo de entrega que
+  ya existe (asistente / pick ticket / remisión). La programación coordina;
+  no sustituye ni duplica la lógica de entrega.
 """
 import logging
 from datetime import date as ddate, datetime, timedelta
@@ -28,6 +39,7 @@ from zoneinfo import ZoneInfo
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools import html2plaintext as tools_html2text
 
 _logger = logging.getLogger(__name__)
 
@@ -41,18 +53,31 @@ TIME_WINDOWS = [
     ('pm', 'Tarde (13–18 h)'),
     ('exact', 'Hora exacta'),
 ]
+# Estados con la realidad operativa (27 sep 2026). Las claves técnicas
+# viejas se conservan (datos y liga con pick ticket/remisión); cambian las
+# etiquetas y se agregan Programada (logística asignó unidad) y
+# Reprogramada (cambió la fecha: logística debe volver a confirmar).
 STATES = [
-    ('scheduled', 'Programada'),
+    ('scheduled', 'Solicitada'),
     ('confirmed', 'Confirmada por logística'),
+    ('programmed', 'Programada'),
+    ('rescheduled', 'Reprogramada'),
     ('in_progress', 'En proceso'),
     ('done', 'Entregada'),
     ('cancelled', 'Cancelada'),
 ]
-OPEN_STATES = ('scheduled', 'confirmed', 'in_progress')
+OPEN_STATES = ('scheduled', 'confirmed', 'programmed', 'rescheduled', 'in_progress')
+# Abiertas y todavía sin documento de entrega (pueden pasar a En proceso).
+PRE_EXEC_STATES = ('scheduled', 'confirmed', 'programmed', 'rescheduled')
+QTY_TOL = 0.0001
 
 
 def _fmt_date(d):
     return '%d %s %d' % (d.day, MESES[d.month - 1], d.year) if d else ''
+
+
+def _fmt_qty(q):
+    return ('%.2f' % (q or 0.0)).rstrip('0').rstrip('.')
 
 
 class SaleDeliverySchedule(models.Model):
@@ -91,11 +116,16 @@ class SaleDeliverySchedule(models.Model):
     longitude = fields.Float('Longitud', digits=(10, 7))
     has_location = fields.Boolean('Con ubicación en mapa', compute='_compute_has_location', store=True)
     instructions = fields.Text(
-        'Especificación de la entrega', required=True,
+        'Especificaciones de la entrega',
         help='Qué se entrega, cómo se recibe, accesos, horarios del sitio, quién recibe, '
              'maniobra, equipo necesario. Es lo que logística va a leer.')
 
     state = fields.Selection(STATES, 'Estado', default='scheduled', required=True, tracking=True, index=True)
+    line_ids = fields.One2many('sale.delivery.schedule.line', 'schedule_id', 'Materiales a entregar', copy=True)
+    material_summary = fields.Char('Materiales', compute='_compute_material_summary', store=True)
+    logistics_user_id = fields.Many2one(
+        'res.users', 'Responsable de logística', tracking=True, index=True,
+        help='Quién de logística atiende esta solicitud. Se asigna solo al confirmar.')
     vehicle_id = fields.Many2one('fleet.vehicle', 'Vehículo', tracking=True)
     vehicle_driver_id = fields.Many2one('res.partner', 'Chofer', tracking=True)
     pick_ticket_id = fields.Many2one('sale.delivery.document', 'Pick ticket', readonly=True, copy=False)
@@ -119,6 +149,17 @@ class SaleDeliverySchedule(models.Model):
     def _compute_has_location(self):
         for rec in self:
             rec.has_location = bool(rec.latitude and rec.longitude)
+
+    @api.depends('line_ids.qty', 'line_ids.product_id', 'line_ids.uom_name')
+    def _compute_material_summary(self):
+        for rec in self:
+            if not rec.line_ids:
+                # Programaciones anteriores al rediseño: sin detalle por material.
+                rec.material_summary = _('Toda la orden (sin detalle)')
+                continue
+            rec.material_summary = ' · '.join(
+                '%s — %s %s' % (l.product_id.display_name or '', _fmt_qty(l.qty), l.uom_name or '')
+                for l in rec.line_ids)
 
     @api.depends('move_ids')
     def _compute_reschedule_count(self):
@@ -152,13 +193,14 @@ class SaleDeliverySchedule(models.Model):
                 issues.append(rec.auth_label)
             if not rec.has_location:
                 issues.append('Sin ubicación en mapa')
-            if not rec.vehicle_id and rec.state in ('scheduled', 'confirmed'):
+            if not rec.vehicle_id and rec.state == 'confirmed':
                 issues.append('Sin camión')
             rec.readiness = ' · '.join(issues)
 
     @api.depends('state')
     def _compute_color(self):
-        palette = {'scheduled': 4, 'confirmed': 10, 'in_progress': 2, 'done': 10, 'cancelled': 1}
+        palette = {'scheduled': 4, 'confirmed': 10, 'programmed': 10, 'rescheduled': 3,
+                   'in_progress': 2, 'done': 10, 'cancelled': 1}
         for rec in self:
             rec.color = palette.get(rec.state, 0)
 
@@ -206,16 +248,16 @@ class SaleDeliverySchedule(models.Model):
     # ------------------------------------------------------------------
     # Reglas: sin información completa no hay programación
     # ------------------------------------------------------------------
-    @api.constrains('contact_phone', 'delivery_address', 'instructions', 'latitude', 'longitude', 'state', 'date')
+    @api.constrains('contact_phone', 'delivery_address', 'latitude', 'longitude', 'state', 'date')
     def _check_complete(self):
-        for rec in self.filtered(lambda r: r.state in ('scheduled', 'confirmed')):
+        # Especificaciones: opcionales desde el rediseño (27 sep 2026, paso
+        # "¿Existe alguna especificación adicional?").
+        for rec in self.filtered(lambda r: r.state in PRE_EXEC_STATES):
             missing = []
             if not (rec.contact_phone or '').strip():
                 missing.append('teléfono del contacto')
             if len((rec.delivery_address or '').strip()) < 10:
                 missing.append('dirección de entrega completa')
-            if len((rec.instructions or '').strip()) < 10:
-                missing.append('especificación de la entrega')
             if not (rec.latitude and rec.longitude):
                 missing.append('ubicación en el mapa')
             if missing:
@@ -254,25 +296,29 @@ class SaleDeliverySchedule(models.Model):
         records = super().create(vals_list)
         for rec in records:
             rec.sale_order_id.message_post(body=_(
-                '📅 Entrega <b>programada</b> para el <b>%s</b> (%s) por %s. Folio %s.'
-            ) % (_fmt_date(rec.date), dict(TIME_WINDOWS)[rec.time_window], self.env.user.name, rec.name),
+                '📅 <b>Solicitud de entrega</b> %s para el <b>%s</b> (%s) por %s.%s'
+            ) % (rec.name, _fmt_date(rec.date), dict(TIME_WINDOWS)[rec.time_window], self.env.user.name,
+                 (' Materiales: %s.' % rec.material_summary) if rec.line_ids else ''),
                 message_type='notification', subtype_xmlid='mail.mt_note')
         records._som_notify_logistics_new()
         return records
+
+    def _som_logistics_notice_users(self):
+        group = self.env.ref('sale_delivery_auth.group_delivery_logistics', raise_if_not_found=False)
+        if not group:
+            return self.env['res.users']
+        # Odoo 19: user_ids trae solo miembros DIRECTOS; all_user_ids incluye
+        # a quien recibe el grupo por implicación (se quedaban sin aviso).
+        group = group.sudo()
+        members = group.all_user_ids if 'all_user_ids' in group._fields else group.user_ids
+        return members.filtered(lambda u: u.active and not u.share)
 
     def _som_notify_logistics_new(self):
         """Al guardar la programación arranca el proceso de logística: aviso
         (Centro de Actividades) a los usuarios del grupo «Logística — Avisos»
         para que confirmen con camión y chofer. Sin el grupo instalado o sin
         usuarios, no hace nada."""
-        group = self.env.ref('sale_delivery_auth.group_delivery_logistics', raise_if_not_found=False)
-        if not group:
-            return
-        # Odoo 19: user_ids trae solo miembros DIRECTOS; all_user_ids incluye
-        # a quien recibe el grupo por implicación (se quedaban sin aviso).
-        group = group.sudo()
-        members = group.all_user_ids if 'all_user_ids' in group._fields else group.user_ids
-        users = members.filtered(lambda u: u.active and not u.share)
+        users = self._som_logistics_notice_users()
         for rec in self:
             for user in users:
                 if user == self.env.user:
@@ -288,7 +334,7 @@ class SaleDeliverySchedule(models.Model):
                     date_deadline=rec.date)
 
     def write(self, vals):
-        if vals.get('state') == 'confirmed' and not self.env.su and not (
+        if vals.get('state') in ('confirmed', 'programmed') and not self.env.su and not (
                 self._is_delivery_staff()
                 or self.env.user.has_group('base.group_system')):
             raise UserError(_('Solo logística (Usuario de Entregas) confirma entregas programadas.'))
@@ -329,13 +375,35 @@ class SaleDeliverySchedule(models.Model):
                 continue
             old = rec.date
             rec._log_move('reschedule', old, new_date, reason, source)
-            rec.with_context(som_schedule_move=True).write({'date': new_date})
+            vals = {'date': new_date}
+            # La movió alguien que NO es logística (el solicitante o un cambio
+            # directo): logística la vuelve a confirmar y queda en su bandeja
+            # como Reprogramada. Si la movió logística, la decisión ya es
+            # suya y el estado se conserva (el historial la registra). Con
+            # documento de entrega (En proceso) el estado nunca retrocede.
+            if source != 'logistics' and rec.state in PRE_EXEC_STATES:
+                vals['state'] = 'rescheduled'
+            rec.with_context(som_schedule_move=True).write(vals)
             who = self.env.user.name
             body = _('📅 Entrega <b>reprogramada</b> del %s al <b>%s</b> por %s.%s') % (
                 _fmt_date(old), _fmt_date(new_date), who,
                 (' Motivo: %s' % reason) if reason else '')
             rec.message_post(body=body, message_type='notification', subtype_xmlid='mail.mt_note')
             rec.sale_order_id.message_post(body=body, message_type='notification', subtype_xmlid='mail.mt_note')
+            # El solicitante movió la fecha: la solicitud vuelve a la bandeja
+            # de logística como Reprogramada y se le avisa para confirmar.
+            if source == 'seller':
+                for user in rec._som_logistics_notice_users():
+                    if user == self.env.user:
+                        continue
+                    rec.activity_schedule(
+                        'mail.mail_activity_data_todo', user_id=user.id,
+                        summary=_('Entrega reprogramada por el solicitante: %s · %s') % (
+                            rec.sale_order_id.name, rec.partner_id.name or ''),
+                        note=_('<p>%s movió la solicitud <b>%s</b> del %s al <b>%s</b>. Confírmala de nuevo.</p><p>%s</p>') % (
+                            who, rec.name, _fmt_date(old), _fmt_date(new_date),
+                            ('Motivo: %s' % reason) if reason else ''),
+                        date_deadline=new_date)
             # Aviso al vendedor cuando NO fue él quien movió (Centro de Actividades).
             if rec.user_id and rec.user_id != self.env.user and source != 'seller':
                 rec.activity_schedule(
@@ -347,23 +415,70 @@ class SaleDeliverySchedule(models.Model):
                     date_deadline=new_date)
         return True
 
-    def action_confirm(self):
-        # "Logística confirma con camión": el candado vive en el servidor, no
-        # solo en la vista (el vendedor tiene escritura y confirmaba por RPC).
-        if not (self._is_delivery_staff() or self.env.user.has_group('base.group_system')):
-            raise UserError(_('Solo logística (Usuario de Entregas) confirma entregas programadas.'))
+    def _som_check_logistics(self):
+        # El candado vive en el servidor, no solo en la vista (el vendedor
+        # tiene escritura y confirmaba por RPC).
+        if not (self.env.su or self._is_delivery_staff() or self.env.user.has_group('base.group_system')):
+            raise UserError(_('Solo logística (Usuario de Entregas) confirma y programa entregas.'))
+
+    def _som_close_request_activities(self, feedback):
+        """Cierra los avisos «Confirmar entrega» de logística (antes quedaban
+        colgados en el Centro después de confirmar o cancelar)."""
         for rec in self:
-            if rec.state != 'scheduled':
-                raise UserError(_('Solo se confirman entregas programadas.'))
+            acts = rec.sudo().activity_ids.filtered(
+                lambda a: (a.summary or '').startswith(('Confirmar entrega', 'Entrega reprogramada por el solicitante')))
+            if acts:
+                acts.action_feedback(feedback=feedback)
+
+    def action_confirm(self):
+        self._som_check_logistics()
+        for rec in self:
+            if rec.state not in ('scheduled', 'rescheduled'):
+                raise UserError(_('Solo se confirman solicitudes pendientes (Solicitada o Reprogramada).'))
             # Camión y chofer NO son obligatorios en la programación (22 sep
             # 2026): quien programa es el vendedor y no sabe qué unidad irá;
             # la unidad se define al generar la entrega (asistente). Si
             # logística ya puso camión, el chofer se toma de la unidad.
             if not rec.vehicle_driver_id and 'driver_id' in rec.vehicle_id._fields and rec.vehicle_id.driver_id:
                 rec.vehicle_driver_id = rec.vehicle_id.driver_id
-            rec.state = 'confirmed'
+            vals = {'state': 'confirmed'}
+            if not rec.logistics_user_id:
+                vals['logistics_user_id'] = self.env.uid
+            # Ya traía unidad (confirmada antes de reprogramarse): vuelve a
+            # quedar Programada.
+            if rec.vehicle_id:
+                vals['state'] = 'programmed'
+            rec.write(vals)
+            rec._som_close_request_activities(_('Confirmada por %s') % self.env.user.name)
             rec.message_post(body=_('✅ Confirmada por logística (%s).') % self.env.user.name,
                              message_type='notification', subtype_xmlid='mail.mt_note')
+        return True
+
+    def action_program(self, vehicle_id=None, driver_id=None, logistics_user_id=None):
+        """Logística asigna unidad (y chofer) → Programada. El chofer sale de
+        la unidad si no se indica. Confirma de paso si venía pendiente."""
+        self._som_check_logistics()
+        for rec in self:
+            if rec.state not in ('scheduled', 'rescheduled', 'confirmed', 'programmed'):
+                raise UserError(_('%s ya está %s; no se programa.') % (rec.name, dict(STATES)[rec.state].lower()))
+            vehicle = self.env['fleet.vehicle'].browse(vehicle_id) if vehicle_id else rec.vehicle_id
+            if not vehicle:
+                raise UserError(_('Asigna la unidad (vehículo) para programar la entrega.'))
+            driver = self.env['res.partner'].browse(driver_id) if driver_id else (
+                rec.vehicle_driver_id if rec.vehicle_id == vehicle and rec.vehicle_driver_id else
+                (vehicle.driver_id if 'driver_id' in vehicle._fields else self.env['res.partner']))
+            vals = {
+                'state': 'programmed',
+                'vehicle_id': vehicle.id,
+                'vehicle_driver_id': driver.id if driver else False,
+                'logistics_user_id': logistics_user_id or rec.logistics_user_id.id or self.env.uid,
+            }
+            rec.write(vals)
+            rec._som_close_request_activities(_('Programada por %s') % self.env.user.name)
+            rec.message_post(body=_('🚚 Programada por logística (%s): unidad <b>%s</b>%s.') % (
+                self.env.user.name, vehicle.display_name,
+                (', chofer %s' % driver.display_name) if driver else ''),
+                message_type='notification', subtype_xmlid='mail.mt_note')
         return True
 
     def action_cancel(self, reason=None):
@@ -373,6 +488,7 @@ class SaleDeliverySchedule(models.Model):
                 raise UserError(_('Una entrega ya realizada no se cancela.'))
             rec._log_move('cancel', rec.date, False, reason, 'seller' if not rec._is_delivery_staff() else 'logistics')
             rec.write({'state': 'cancelled', 'cancel_reason': reason})
+            rec._som_close_request_activities(_('Cancelada por %s') % self.env.user.name)
             body = _('⛔ Programación <b>cancelada</b> por %s.%s') % (
                 self.env.user.name, (' Motivo: %s' % reason) if reason else '')
             rec.message_post(body=body, message_type='notification', subtype_xmlid='mail.mt_note')
@@ -399,12 +515,30 @@ class SaleDeliverySchedule(models.Model):
                              subtype_xmlid='mail.mt_note')
         return True
 
+    def _som_pre_exec_state(self):
+        """Estado al que vuelve si se cancela su documento de entrega."""
+        self.ensure_one()
+        if self.vehicle_id:
+            return 'programmed'
+        return 'confirmed' if self.logistics_user_id else 'scheduled'
+
     def action_open_order(self):
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window', 'res_model': 'sale.order', 'res_id': self.sale_order_id.id,
             'view_mode': 'form', 'target': 'current',
         }
+
+    def _instructions_for_wizard(self):
+        """Especificaciones + materiales solicitados, para que quien arma la
+        entrega en el asistente (flujo existente) sepa qué pidió la solicitud."""
+        self.ensure_one()
+        parts = []
+        if self.line_ids:
+            parts.append(_('Materiales solicitados (%s): %s') % (self.name, self.material_summary))
+        if self.instructions:
+            parts.append(self.instructions)
+        return '\n'.join(parts)
 
     def action_generate_delivery(self):
         """Logística ejecuta: abre el asistente de entrega de la orden con la
@@ -414,7 +548,7 @@ class SaleDeliverySchedule(models.Model):
             raise UserError(_('La programación %s ya está %s.') % (self.name, dict(STATES)[self.state].lower()))
         action = self.sale_order_id.with_context(
             default_delivery_address=self._address_for_wizard(),
-            default_special_instructions=self.instructions,
+            default_special_instructions=self._instructions_for_wizard(),
             default_vehicle_id=self.vehicle_id.id,
             default_vehicle_driver_id=self.vehicle_driver_id.id,
             som_schedule_id=self.id,
@@ -423,7 +557,7 @@ class SaleDeliverySchedule(models.Model):
             ctx = dict(action.get('context') or {})
             ctx.update({
                 'default_delivery_address': self._address_for_wizard(),
-                'default_special_instructions': self.instructions,
+                'default_special_instructions': self._instructions_for_wizard(),
                 'som_schedule_id': self.id,
             })
             if self.vehicle_id:
@@ -448,6 +582,257 @@ class SaleDeliverySchedule(models.Model):
             raise UserError(_('Esta programación no tiene ubicación en el mapa.'))
         return {'type': 'ir.actions.act_url', 'target': 'new',
                 'url': 'https://maps.google.com/?q=%s,%s' % (self.latitude, self.longitude)}
+
+    # ------------------------------------------------------------------
+    # Solicitud guiada (client action sale_delivery_wizard.delivery_request)
+    # ------------------------------------------------------------------
+    @api.model
+    def _som_request_order(self, order_id):
+        order = self.env['sale.order'].browse(int(order_id or 0)).exists()
+        if not order:
+            raise UserError(_('La orden de venta ya no existe.'))
+        order.check_access('read')
+        return order
+
+    @api.model
+    def _som_order_material_lines(self, order):
+        """Materiales de la orden con su saldo: pedido, entregado, ya
+        programado (solicitudes abiertas), pendiente de programar y
+        disponible para entregar (el MISMO cálculo que usa el asistente de
+        entrega; solo se lee, no se duplica la lógica)."""
+        Line = self.env['sale.delivery.schedule.line'].sudo()
+        open_lines = Line.search([
+            ('schedule_id.sale_order_id', '=', order.id),
+            ('schedule_id.state', 'in', OPEN_STATES),
+        ])
+        scheduled = {}
+        for l in open_lines:
+            scheduled[l.sale_line_id.id] = scheduled.get(l.sale_line_id.id, 0.0) + l.qty
+        available_by_line, available_by_product = {}, {}
+        available_known = True
+        try:
+            for group in order.sudo().get_delivery_grouped_data(mode='delivery') or []:
+                for ld in group.get('lines', []):
+                    qty = float(ld.get('qtyAvailable') or 0.0)
+                    if ld.get('saleLineId'):
+                        available_by_line[ld['saleLineId']] = available_by_line.get(ld['saleLineId'], 0.0) + qty
+                    else:
+                        pid = ld.get('productId') or 0
+                        available_by_product[pid] = available_by_product.get(pid, 0.0) + qty
+        except Exception:  # noqa: BLE001 — el disponible es informativo; la solicitud no se bloquea por él
+            _logger.exception('[SOLICITUD ENTREGA] no se pudo calcular el disponible de %s', order.name)
+            available_known = False
+        out = []
+        for line in order.order_line:
+            if line.display_type or not line.product_id or line.product_id.type == 'service':
+                continue
+            if hasattr(line, '_is_delivery') and line._is_delivery():
+                continue
+            ordered = line.product_uom_qty or 0.0
+            delivered = line.qty_delivered or 0.0
+            sched = scheduled.get(line.id, 0.0)
+            pending = max(0.0, ordered - delivered - sched)
+            if line.id in available_by_line:
+                available = available_by_line[line.id]
+            elif line.product_id.id in available_by_product:
+                available = available_by_product.pop(line.product_id.id)
+            else:
+                available = 0.0 if available_known else None
+            uom = line.product_uom_id if 'product_uom_id' in line._fields else line.product_uom
+            out.append({
+                'sale_line_id': line.id,
+                'product': line.product_id.display_name,
+                'description': (line.name or '').split('\n')[0][:120],
+                'uom': uom.name if uom else '',
+                'ordered': ordered,
+                'delivered': delivered,
+                'scheduled': sched,
+                'pending': pending,
+                'available': available,
+            })
+        return out
+
+    @api.model
+    def _som_address_payload(self, partner):
+        vals = self._som_vals_from_partner(partner)
+        state = partner.state_id
+        return {
+            'id': partner.id,
+            'name': partner.name or partner.commercial_partner_id.name or '',
+            'type': partner.type,
+            'type_label': dict(partner._fields['type']._description_selection(self.env)).get(partner.type, ''),
+            'is_company': bool(partner.is_company),
+            'contact_name': vals.get('contact_name') or '',
+            'contact_phone': vals.get('contact_phone') or partner.phone or '',
+            'address': vals.get('delivery_address') or '',
+            'street': partner.street or '',
+            'street2': partner.street2 or '',
+            'city': partner.city or '',
+            'state': state.name if state else '',
+            'zip': partner.zip or '',
+            'references': (partner.comment and tools_html2text(partner.comment)) or '',
+            'latitude': vals.get('latitude') or 0.0,
+            'longitude': vals.get('longitude') or 0.0,
+            'has_address': len((vals.get('delivery_address') or '').strip()) >= 10,
+        }
+
+    @api.model
+    def _som_order_addresses(self, order):
+        commercial = order.partner_id.commercial_partner_id
+        candidates = (commercial | commercial.child_ids | order.partner_shipping_id | order.partner_id).filtered(
+            lambda p: p.active and p.type in ('delivery', 'contact', 'other', 'invoice') or p == commercial)
+        # Primero las direcciones de ENTREGA, luego la de la orden, luego el resto.
+        def rank(p):
+            return (0 if p.type == 'delivery' else 1 if p == order.partner_shipping_id else 2 if p == commercial else 3,
+                    p.name or '')
+        return [self._som_address_payload(p) for p in candidates.sorted(key=rank)]
+
+    @api.model
+    def request_prepare(self, order_id):
+        """Todo lo que el asistente de solicitud necesita en una llamada."""
+        order = self._som_request_order(order_id)
+        block = order._som_schedule_block_reason()
+        addresses = self._som_order_addresses(order)
+        preferred = next((a for a in addresses if a['type'] == 'delivery' and a['has_address']), None) \
+            or next((a for a in addresses if a['id'] == order.partner_shipping_id.id and a['has_address']), None) \
+            or next((a for a in addresses if a['has_address']), None)
+        mx = self.env.ref('base.mx', raise_if_not_found=False)
+        states = self.env['res.country.state'].search([('country_id', '=', mx.id)], order='name') if mx else []
+        return {
+            'order': {
+                'id': order.id,
+                'name': order.name,
+                'partner': order.partner_id.display_name,
+                'seller': order.user_id.name or '',
+            },
+            'blocked': block or False,
+            'lines': self._som_order_material_lines(order),
+            'addresses': addresses,
+            'default_address_id': preferred['id'] if preferred else False,
+            'default_date': (datetime.now(MONTERREY).date() + timedelta(days=1)).isoformat(),
+            'today': datetime.now(MONTERREY).date().isoformat(),
+            'time_windows': [{'key': k, 'label': v} for k, v in TIME_WINDOWS],
+            'states': [{'id': st.id, 'name': st.name} for st in states],
+            'existing': [{
+                'id': r.id, 'name': r.name, 'date': _fmt_date(r.date), 'state': dict(STATES)[r.state],
+                'materials': r.material_summary or '',
+            } for r in order.delivery_schedule_ids.filtered(lambda r: r.state in OPEN_STATES).sorted('date')],
+        }
+
+    @api.model
+    def request_create_address(self, order_id, vals):
+        """«+ Crear dirección de entrega» sin salir de la solicitud: nace
+        como dirección de entrega del cliente y se devuelve lista para usarse."""
+        order = self._som_request_order(order_id)
+        vals = vals or {}
+        errors = {}
+        for key, label in (('name', 'Nombre o sitio'), ('phone', 'Teléfono'), ('street', 'Calle'),
+                           ('number', 'Número'), ('street2', 'Colonia'), ('city', 'Ciudad'),
+                           ('state_id', 'Estado'), ('zip', 'Código postal')):
+            if not str(vals.get(key) or '').strip():
+                errors[key] = _('Este campo es obligatorio.')
+        if errors:
+            return {'errors': errors}
+        commercial = order.partner_id.commercial_partner_id
+        mx = self.env.ref('base.mx', raise_if_not_found=False)
+        street = ' '.join(x for x in [str(vals.get('street') or '').strip(), str(vals.get('number') or '').strip()] if x)
+        partner = self.env['res.partner'].sudo().create({
+            'type': 'delivery',
+            'parent_id': commercial.id,
+            'name': vals['name'].strip(),
+            'phone': str(vals['phone']).strip(),
+            'street': street,
+            'street2': str(vals.get('street2') or '').strip(),
+            'city': str(vals.get('city') or '').strip(),
+            'state_id': int(vals['state_id']),
+            'zip': str(vals.get('zip') or '').strip(),
+            'country_id': mx.id if mx else False,
+            'comment': str(vals.get('references') or '').strip() or False,
+            'company_id': commercial.company_id.id or False,
+        })
+        order.message_post(body=_('📍 Nueva dirección de entrega creada desde la solicitud: <b>%s</b>.') % partner.display_name,
+                           message_type='notification', subtype_xmlid='mail.mt_note')
+        return {'address': self._som_address_payload(partner)}
+
+    @api.model
+    def request_submit(self, order_id, payload):
+        """Valida y crea la solicitud. Errores por campo para que la pantalla
+        marque cada uno en rojo junto a su dato: {'errors': {campo: msg}}."""
+        order = self._som_request_order(order_id)
+        block = order._som_schedule_block_reason()
+        if block:
+            return {'errors': {'general': block}}
+        payload = payload or {}
+        errors = {}
+        # Paso 1 — materiales
+        material_rows = {r['sale_line_id']: r for r in self._som_order_material_lines(order)}
+        lines = []
+        line_errors = {}
+        for item in payload.get('lines') or []:
+            slid = int(item.get('sale_line_id') or 0)
+            qty = float(item.get('qty') or 0.0)
+            if qty <= QTY_TOL:
+                continue
+            row = material_rows.get(slid)
+            if not row:
+                line_errors[slid] = _('Este material ya no está en la orden.')
+                continue
+            if qty > row['pending'] + QTY_TOL:
+                line_errors[slid] = _('Máximo %s %s pendientes de programar.') % (_fmt_qty(row['pending']), row['uom'])
+                continue
+            lines.append((0, 0, {'sale_line_id': slid, 'qty': qty}))
+        if line_errors:
+            errors['lines'] = _('Revisa las cantidades marcadas.')
+            errors['line_errors'] = {str(k): v for k, v in line_errors.items()}
+        elif not lines:
+            errors['lines'] = _('Selecciona al menos un material y la cantidad a entregar.')
+        # Paso 2 — dirección y ubicación
+        addr = payload.get('address') or {}
+        if len((addr.get('delivery_address') or '').strip()) < 10:
+            errors['delivery_address'] = _('Este campo es obligatorio: calle, número, colonia y ciudad.')
+        if not (addr.get('contact_name') or '').strip():
+            errors['contact_name'] = _('Este campo es obligatorio.')
+        if not (addr.get('contact_phone') or '').strip():
+            errors['contact_phone'] = _('Este campo es obligatorio.')
+        lat, lng = float(addr.get('latitude') or 0.0), float(addr.get('longitude') or 0.0)
+        if not (lat and lng):
+            errors['location'] = _('Ubica la dirección en el mapa: búscala o haz clic en el punto de entrega.')
+        # Paso 3 — fecha y condiciones
+        today = datetime.now(MONTERREY).date()
+        req_date = fields.Date.to_date(payload.get('date')) if payload.get('date') else None
+        if not req_date:
+            errors['date'] = _('Este campo es obligatorio.')
+        elif req_date < today:
+            errors['date'] = _('La fecha no puede ser anterior a hoy.')
+        tw = payload.get('time_window') or 'any'
+        if tw not in dict(TIME_WINDOWS):
+            errors['time_window'] = _('Horario inválido.')
+        time_exact = float(payload.get('time_exact') or 0.0)
+        if tw == 'exact' and not (0 < time_exact < 24):
+            errors['time_exact'] = _('Captura la hora exacta.')
+        if errors:
+            return {'errors': errors}
+        partner_id = int(addr.get('partner_id') or 0)
+        vals = {
+            'sale_order_id': order.id,
+            'user_id': order.user_id.id or self.env.uid,
+            'date': req_date,
+            'time_window': tw,
+            'time_exact': time_exact if tw == 'exact' else 0.0,
+            'partner_shipping_id': partner_id or False,
+            'contact_name': addr['contact_name'].strip(),
+            'contact_phone': addr['contact_phone'].strip(),
+            'delivery_address': addr['delivery_address'].strip(),
+            'latitude': lat,
+            'longitude': lng,
+            'instructions': (payload.get('instructions') or '').strip() or False,
+            'line_ids': lines,
+        }
+        try:
+            rec = self.create(vals)
+        except (UserError, ValidationError) as exc:
+            return {'errors': {'general': str(exc)}}
+        return {'id': rec.id, 'name': rec.name}
 
     # ------------------------------------------------------------------
     # Liga con la operación (pick ticket / remisión / firma)
@@ -485,7 +870,7 @@ class SaleDeliverySchedule(models.Model):
     def _link_pick_ticket(self, doc):
         for rec in self:
             vals = {'pick_ticket_id': doc.id}
-            if rec.state in ('scheduled', 'confirmed'):
+            if rec.state in PRE_EXEC_STATES:
                 vals['state'] = 'in_progress'
             if doc.vehicle_id and not rec.vehicle_id:
                 vals['vehicle_id'] = doc.vehicle_id.id
@@ -496,7 +881,7 @@ class SaleDeliverySchedule(models.Model):
     def _link_remission(self, doc):
         for rec in self:
             vals = {'remission_id': doc.id}
-            if rec.state in ('scheduled', 'confirmed'):
+            if rec.state in PRE_EXEC_STATES:
                 vals['state'] = 'in_progress'
             if doc.vehicle_id:
                 vals['vehicle_id'] = doc.vehicle_id.id
@@ -536,7 +921,10 @@ class SaleDeliverySchedule(models.Model):
     def _rollover_one(self, old, today):
         self.ensure_one()
         self._log_move('reschedule', old, today, _('No se entregó el %s') % _fmt_date(old), 'rollover')
-        self.write({'date': today})
+        vals = {'date': today}
+        if self.state in PRE_EXEC_STATES:
+            vals['state'] = 'rescheduled'
+        self.write(vals)
         body = _('⏭️ Entrega <b>no realizada</b> el %s: se recorre automáticamente al <b>%s</b>.') % (
             _fmt_date(old), _fmt_date(today))
         self.message_post(body=body, message_type='notification', subtype_xmlid='mail.mt_note')
@@ -639,6 +1027,7 @@ class SaleDeliverySchedule(models.Model):
             'days': days,
             'overdue': overdue,
             'is_staff': self.env.user.has_group('sale_delivery_wizard.group_delivery_user'),
+            'confirmable': ['scheduled', 'rescheduled'],
             'can_generate': self.env.user.has_group('sale_delivery_wizard.group_delivery_user'),
         }
 
@@ -673,6 +1062,8 @@ class SaleDeliverySchedule(models.Model):
             'vehicle': rec.vehicle_id.display_name if rec.vehicle_id else '',
             'driver': rec.vehicle_driver_id.display_name if rec.vehicle_driver_id else '',
             'qty': rec.qty_summary,
+            'materials': rec.material_summary or '',
+            'logistics_user': rec.logistics_user_id.name or '',
             'instructions': (rec.instructions or '')[:220],
             'reschedules': rec.reschedule_count,
             'last_move': ('%s → %s (%s)' % (_fmt_date(last_move.date_from), _fmt_date(last_move.date_to),
@@ -706,6 +1097,41 @@ class SaleDeliverySchedule(models.Model):
         return {'ok': True}
 
 
+class SaleDeliveryScheduleLine(models.Model):
+    """Material y cantidad de UNA solicitud de entrega. Solo coordina: la
+    entrega física sigue usando el asistente/pick ticket/remisión."""
+    _name = 'sale.delivery.schedule.line'
+    _description = 'Material de la entrega programada'
+    _order = 'schedule_id, sequence, id'
+
+    schedule_id = fields.Many2one('sale.delivery.schedule', required=True, index=True, ondelete='cascade')
+    sequence = fields.Integer(default=10)
+    sale_line_id = fields.Many2one(
+        'sale.order.line', 'Línea de venta', required=True, index=True, ondelete='cascade')
+    product_id = fields.Many2one(related='sale_line_id.product_id', string='Producto', store=True)
+    uom_name = fields.Char('Unidad', compute='_compute_uom_name', store=True)
+    qty = fields.Float('Cantidad a entregar', required=True, digits='Product Unit')
+    company_id = fields.Many2one(related='schedule_id.company_id', store=True)
+    state = fields.Selection(related='schedule_id.state', string='Estado de la entrega')
+
+    @api.depends('sale_line_id')
+    def _compute_uom_name(self):
+        for line in self:
+            sl = line.sale_line_id
+            uom = sl.product_uom_id if 'product_uom_id' in sl._fields else getattr(sl, 'product_uom', False)
+            line.uom_name = uom.name if uom else ''
+
+    @api.constrains('qty', 'sale_line_id', 'schedule_id')
+    def _check_qty(self):
+        for line in self:
+            if line.qty <= QTY_TOL:
+                raise ValidationError(_('La cantidad a entregar de %s debe ser mayor a cero.') % (
+                    line.product_id.display_name or ''))
+            if line.sale_line_id.order_id != line.schedule_id.sale_order_id:
+                raise ValidationError(_('El material %s no pertenece a la orden de la solicitud.') % (
+                    line.product_id.display_name or ''))
+
+
 class SaleDeliveryScheduleMove(models.Model):
     _name = 'sale.delivery.schedule.move'
     _description = 'Movimiento de entrega programada'
@@ -736,6 +1162,31 @@ class SaleDeliveryScheduleMoveWizard(models.TransientModel):
         self.ensure_one()
         source = 'logistics' if self.schedule_id._is_delivery_staff() else 'seller'
         self.schedule_id.action_reschedule(self.new_date, reason=self.reason, source=source)
+        return {'type': 'ir.actions.act_window_close'}
+
+
+class SaleDeliverySchedulePlanWizard(models.TransientModel):
+    _name = 'sale.delivery.schedule.plan.wizard'
+    _description = 'Programar entrega: asignar unidad'
+
+    schedule_id = fields.Many2one('sale.delivery.schedule', required=True, readonly=True)
+    vehicle_id = fields.Many2one('fleet.vehicle', 'Vehículo', required=True)
+    vehicle_driver_id = fields.Many2one('res.partner', 'Chofer',
+                                        help='Si lo dejas vacío se toma el chofer de la unidad.')
+    logistics_user_id = fields.Many2one('res.users', 'Responsable de logística',
+                                        default=lambda self: self.env.user)
+
+    @api.onchange('vehicle_id')
+    def _onchange_vehicle_id(self):
+        if self.vehicle_id and 'driver_id' in self.vehicle_id._fields and self.vehicle_id.driver_id:
+            self.vehicle_driver_id = self.vehicle_id.driver_id
+
+    def action_confirm(self):
+        self.ensure_one()
+        self.schedule_id.action_program(
+            vehicle_id=self.vehicle_id.id,
+            driver_id=self.vehicle_driver_id.id or None,
+            logistics_user_id=self.logistics_user_id.id or None)
         return {'type': 'ir.actions.act_window_close'}
 
 
@@ -865,14 +1316,15 @@ class SaleOrder(models.Model):
         reason = self._som_schedule_block_reason()
         if reason:
             raise UserError(reason)
-        # VARIAS ENTREGAS POR ORDEN (21 sep 2026): una venta puede entregarse
-        # en varios lugares o fechas; cada «Programar entrega» abre una
-        # programación NUEVA prellenada. Las anteriores se ven en el botón
-        # «Entregas programadas» de la orden. (Antes redirigía a la abierta.)
+        # VARIAS ENTREGAS POR ORDEN: cada «Programar entrega» es una
+        # solicitud NUEVA. Desde el rediseño (27 sep 2026) se captura en el
+        # asistente guiado (materiales → dirección → fecha → especificaciones
+        # → resumen), sin datos de logística.
         return {
-            'type': 'ir.actions.act_window', 'name': _('Programar entrega'),
-            'res_model': 'sale.delivery.schedule', 'view_mode': 'form', 'target': 'current',
-            'context': self._som_schedule_defaults(),
+            'type': 'ir.actions.client', 'name': _('Solicitar entrega'),
+            'tag': 'sale_delivery_wizard.delivery_request', 'target': 'current',
+            'params': {'order_id': self.id},
+            'context': {'som_request_order_id': self.id},
         }
 
     def action_view_delivery_schedules(self):
@@ -936,8 +1388,9 @@ class SaleDeliveryDocument(models.Model):
         if vals.get('state') == 'cancelled':
             for doc in self.filtered(lambda d: d.schedule_id and d.schedule_id.state == 'in_progress'):
                 sched = doc.schedule_id.sudo()
+                back = sched._som_pre_exec_state()
                 if doc.document_type == 'pick_ticket' and sched.pick_ticket_id == doc:
-                    sched.write({'pick_ticket_id': False, 'state': 'scheduled'})
+                    sched.write({'pick_ticket_id': False, 'state': back})
                 elif doc.document_type == 'remission' and sched.remission_id == doc:
-                    sched.write({'remission_id': False, 'state': 'scheduled' if not sched.pick_ticket_id else 'in_progress'})
+                    sched.write({'remission_id': False, 'state': back if not sched.pick_ticket_id else 'in_progress'})
         return res

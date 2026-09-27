@@ -144,6 +144,8 @@ $dp-bg: #f3f6fb;
         &:hover { box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1); }
         &.dragging { opacity: 0.45; }
         &.st-confirmed { border-left-color: $dp-blue; }
+        &.st-programmed { border-left-color: #4f46e5; }
+        &.st-rescheduled { border-left-color: $dp-amber; }
         &.st-in_progress { border-left-color: #0284c7; }
         &.st-done { border-left-color: $dp-green; cursor: default; opacity: 0.85; }
         &.st-cancelled { border-left-color: #cbd5e1; cursor: default; opacity: 0.6; text-decoration: line-through; }
@@ -163,6 +165,8 @@ $dp-bg: #f3f6fb;
         letter-spacing: 0.03em;
         background: #eef2f7; color: $dp-mut;
         &.st-confirmed { background: #e4ecfb; color: $dp-blue-dark; }
+        &.st-programmed { background: #eef0ff; color: #4338ca; }
+        &.st-rescheduled { background: #fff4e0; color: $dp-amber; }
         &.st-in_progress { background: #e0f2fe; color: #0369a1; }
         &.st-done { background: #e6f5ec; color: $dp-green; }
         &.st-cancelled { background: #f1f5f9; color: #94a3b8; }

@@ -35,3 +35,7 @@ access_sale_delivery_schedule_move_user,sale.delivery.schedule.move delivery use
 access_sale_delivery_schedule_move_manager,sale.delivery.schedule.move manager,model_sale_delivery_schedule_move,group_delivery_manager,1,1,1,1
 access_sale_delivery_schedule_move_wizard,sale.delivery.schedule.move.wizard,model_sale_delivery_schedule_move_wizard,base.group_user,1,1,1,1
 access_sale_delivery_schedule_cancel_wizard,sale.delivery.schedule.cancel.wizard,model_sale_delivery_schedule_cancel_wizard,base.group_user,1,1,1,1
+access_sale_delivery_schedule_line_seller,sale.delivery.schedule.line seller,model_sale_delivery_schedule_line,sales_team.group_sale_salesman,1,1,1,0
+access_sale_delivery_schedule_line_user,sale.delivery.schedule.line delivery user,model_sale_delivery_schedule_line,group_delivery_user,1,1,1,0
+access_sale_delivery_schedule_line_manager,sale.delivery.schedule.line manager,model_sale_delivery_schedule_line,group_delivery_manager,1,1,1,1
+access_sale_delivery_schedule_plan_wizard,sale.delivery.schedule.plan.wizard,model_sale_delivery_schedule_plan_wizard,group_delivery_user,1,1,1,1

@@ -15,7 +15,7 @@
             </div>
             <div class="o_dp_partner" t-esc="card.partner"/>
             <div class="o_dp_line"><span class="lbl">Vend.</span> <t t-esc="card.seller"/></div>
-            <div class="o_dp_line qty" t-esc="card.qty"/>
+            <div class="o_dp_line qty" t-esc="card.materials or card.qty"/>
             <div t-if="card.readiness" class="o_dp_issues" t-att-title="card.readiness">
                 <i class="fa fa-exclamation-triangle" title=""/> <t t-esc="card.readiness"/>
             </div>
@@ -24,6 +24,7 @@
                 <span t-if="card.last_move" class="muted"> · <t t-esc="card.last_move"/></span>
             </div>
             <div t-if="card.vehicle" class="o_dp_line"><i class="fa fa-truck" title=""/> <t t-esc="card.vehicle"/><t t-if="card.driver"> · <t t-esc="card.driver"/></t></div>
+            <div t-if="card.logistics_user" class="o_dp_line"><span class="lbl">Resp.</span> <t t-esc="card.logistics_user"/></div>
 
             <div t-if="this.isExpanded(card)" class="o_dp_detail" t-on-click.stop="() => {}">
                 <div class="o_dp_line"><span class="lbl">Contacto</span> <t t-esc="card.contact"/> · <a t-att-href="'tel:' + card.phone" t-esc="card.phone"/></div>
@@ -35,7 +36,7 @@
                     <button class="o_dp_btn ghost" t-on-click.stop="() => this.openOrder(card)">Orden</button>
                     <button t-if="card.has_location" class="o_dp_btn ghost" t-on-click.stop="() => this.openMap(card)"><i class="fa fa-map-marker" title=""/> Mapa</button>
                     <span class="grow"/>
-                    <button t-if="data.is_staff and card.state === 'scheduled'" class="o_dp_btn" t-att-disabled="state.busy" t-on-click.stop="() => this.confirmCard(card)">Confirmar</button>
+                    <button t-if="data.is_staff and (data.confirmable or ['scheduled']).includes(card.state)" class="o_dp_btn" t-att-disabled="state.busy" t-on-click.stop="() => this.confirmCard(card)">Confirmar</button>
                     <button t-if="data.can_generate and this.isOpen(card)" class="o_dp_btn" t-att-disabled="state.busy" t-on-click.stop="() => this.generateDelivery(card)">Generar entrega</button>
                 </div>
             </div>
