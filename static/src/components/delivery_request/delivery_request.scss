@@ -11,11 +11,29 @@ $dr-amber: #b45309;
 $dr-green: #159957;
 
 .o_delivery_request {
+    // Patrón de Odoo (.o_content): la raíz del client action es una columna
+    // flex de alto acotado SIN scroll; el scroll vive en el hijo con
+    // min-height: 0. Con overflow en la raíz el action manager la deja
+    // crecer sin límite y no había scroll vertical.
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
     height: 100%;
-    overflow-y: auto;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: $dr-bg;
     color: $dr-ink;
     font-size: 14px;
+
+    .o_dr_scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
 
     .o_dr_wrap { max-width: 1080px; margin: 0 auto; padding: 20px 20px 48px; }
 

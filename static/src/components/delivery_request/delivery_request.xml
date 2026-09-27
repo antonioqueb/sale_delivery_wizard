@@ -6,7 +6,8 @@
     </t>
 
     <t t-name="sale_delivery_wizard.DeliveryRequest">
-        <div class="o_delivery_request o_action" t-ref="root">
+        <div class="o_delivery_request o_action">
+          <div class="o_dr_scroll" t-ref="root">
             <div class="o_dr_wrap">
 
                 <!-- ═══ Cabecera ═══ -->
@@ -323,6 +324,7 @@
                     </div>
                 </t>
             </div>
+          </div>
         </div>
     </t>
 </templates>
