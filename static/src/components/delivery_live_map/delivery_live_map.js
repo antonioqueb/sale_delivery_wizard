@@ -87,10 +87,12 @@ export class DeliveryLiveMap extends Component {
             zoomAnimation: true,
             wheelDebounceTime: 25,
         }).setView([25.6866, -100.3161], 12); // Monterrey, MX
-        L.tileLayer(
-            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-            { attribution: "&copy; OpenStreetMap &copy; CARTO", maxZoom: 19, updateWhenZooming: false }
-        ).addTo(this.map);
+        // OpenStreetMap sin llave: CARTO pinta "API key required" sin cuenta.
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+            maxZoom: 19,
+            updateWhenZooming: false,
+        }).addTo(this.map);
         this.layer = L.layerGroup().addTo(this.map);
         this.load();
         // En vivo cada 8 s (la app manda posición cada 8 s): se siente

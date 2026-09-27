@@ -26,7 +26,8 @@ import { useService } from "@web/core/utils/hooks";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 
 const DEFAULT_CENTER = [25.6866, -100.3161]; // Monterrey
-const TILES = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+// OpenStreetMap sin subdominios (a/b/c están en desuso en su servidor).
+const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const AUTO_GEOCODE_DELAY = 900; // ms sin teclear en la dirección antes de estimar
 const LIVE_SEARCH_DELAY = 450; // ms sin teclear en el buscador antes de consultar
 const MIN_ADDRESS_LEN = 10;
@@ -138,7 +139,10 @@ export class SomMapPicker extends Component {
         }
         const center = this.hasPoint ? [this.lat, this.lng] : DEFAULT_CENTER;
         this.map = L.map(this.mapRef.el, { center, zoom: this.hasPoint ? 16 : 11, zoomControl: true });
-        L.tileLayer(TILES, { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(this.map);
+        L.tileLayer(TILES, {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+        }).addTo(this.map);
         if (this.hasPoint) {
             this.placeMarker(this.lat, this.lng, false);
         }
