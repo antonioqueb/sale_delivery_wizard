@@ -1285,10 +1285,31 @@ class SaleDeliveryDocument(models.Model):
         if not lot_ids:
             return False
 
+        # UN PASO: el picking recién validado YA es la salida al cliente; no
+        # hay segundo paso que buscar. Antes, en 1 paso, se tomaba como "OUT"
+        # el backorder que acababa de nacer con el pendiente del mismo
+        # formato y se validaba otra vez (28.32 vendidos → 40 entregados y
+        # el bin en −11.68).
+        if self.picking_id and self.picking_id.picking_type_code == 'outgoing':
+            return False
+
+        # El picking del documento y su cadena de backorders nunca son "el
+        # OUT del siguiente paso".
+        own_chain = self.env['stock.picking']
+        if self.picking_id:
+            live = self.picking_id
+            seen = set()
+            while live and live.id not in seen:
+                seen.add(live.id)
+                own_chain |= live
+                live = self.env['stock.picking'].search(
+                    [('backorder_id', '=', live.id)], limit=1)
+
         order = self.sale_order_id
         out_pickings = order.picking_ids.filtered(
             lambda p: p.picking_type_code == 'outgoing'
             and p.state not in ('done', 'cancel')
+            and p not in own_chain
         )
 
         for out_pick in out_pickings:
