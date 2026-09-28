@@ -1059,8 +1059,11 @@ class SaleDeliverySchedule(models.Model):
             'auth_ok': rec.auth_ok,
             'auth_label': rec.auth_label,
             'readiness': rec.readiness,
-            'vehicle': rec.vehicle_id.display_name if rec.vehicle_id else '',
-            'driver': rec.vehicle_driver_id.display_name if rec.vehicle_driver_id else '',
+            # Unidad y chofer se LEEN como sistema: el vendedor no tiene
+            # acceso a fleet.vehicle y, en cuanto logística asignaba unidad a
+            # una de sus entregas, «Mi semana» no cargaba (AccessError).
+            'vehicle': rec.sudo().vehicle_id.display_name if rec.vehicle_id else '',
+            'driver': rec.sudo().vehicle_driver_id.display_name if rec.vehicle_driver_id else '',
             'qty': rec.qty_summary,
             'materials': rec.material_summary or '',
             'logistics_user': rec.logistics_user_id.name or '',

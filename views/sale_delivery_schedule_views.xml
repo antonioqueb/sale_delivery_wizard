@@ -423,7 +423,7 @@
                 <field name="partner_id"/>
                 <field name="user_id"/>
                 <field name="material_summary"/>
-                <field name="vehicle_id"/>
+                <field name="vehicle_id" groups="sale_delivery_wizard.group_delivery_user"/>
                 <filter name="mine" string="Mis solicitudes" domain="[('user_id', '=', uid)]"/>
                 <filter name="my_logistics" string="Asignadas a mí" domain="[('logistics_user_id', '=', uid)]"/>
                 <separator/>
@@ -443,7 +443,8 @@
                 <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
                 <filter name="group_logistics" string="Responsable" context="{'group_by': 'logistics_user_id'}"/>
                 <filter name="group_seller" string="Solicitante" context="{'group_by': 'user_id'}"/>
-                <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"/>
+                <filter name="group_vehicle" string="Vehículo" context="{'group_by': 'vehicle_id'}"
+                        groups="sale_delivery_wizard.group_delivery_user"/>
             </search>
         </field>
     </record>
