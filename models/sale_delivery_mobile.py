@@ -21,7 +21,7 @@ import pytz
 import requests
 
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.addons.sale_delivery_wizard.models.som_date_format import MESES_ES
 
 _logger = logging.getLogger(__name__)
@@ -139,6 +139,31 @@ class SaleDeliveryDocument(models.Model):
     signed_longitude = fields.Float(string='Longitud de Firma', digits=(10, 7), readonly=True, copy=False)
 
     # ──────────────────────────────────────────────
+    # Permisos de la app: el chofer NO necesita ventas ni inventario
+    # ──────────────────────────────────────────────
+
+    _SOM_APP_DELIVERY_GROUPS = (
+        'sale_delivery_wizard.group_delivery_driver',
+        'sale_delivery_wizard.group_delivery_user',
+        'stock.group_stock_user',
+    )
+
+    @api.model
+    def _som_app_delivery_sudo(self):
+        """Las salidas desde la app (leer el PT, generar la remisión, firma
+        y evidencia) leen la orden de venta y validan la salida de
+        inventario. El chofer solo tiene "Entregas / Chofer": en vez de
+        abrirle ventas e inventario completos, estas llamadas corren con
+        sudo SOLO para quien tenga un grupo de entregas o almacén. sudo()
+        conserva el uid: remisión, adjuntos y chatter quedan a su nombre."""
+        user = self.env.user
+        if not any(user.has_group(g) for g in self._SOM_APP_DELIVERY_GROUPS):
+            raise AccessError(_(
+                'Tu usuario no tiene permiso para hacer salidas desde la '
+                'app. Pide el grupo "Entregas / Chofer".'))
+        return self.sudo()
+
+    # ──────────────────────────────────────────────
     # RPC móvil: cargar el pick ticket escaneado
     # ──────────────────────────────────────────────
 
@@ -146,6 +171,7 @@ class SaleDeliveryDocument(models.Model):
     def app_get_pick_ticket(self, name):
         """Pick ticket por folio (barcode escaneado). Devuelve cabecera y
         líneas con lote/producto/cantidad para verificación física."""
+        self = self._som_app_delivery_sudo()
         pt = self.search([
             ('name', '=', name),
             ('document_type', '=', 'pick_ticket'),
@@ -200,6 +226,7 @@ class SaleDeliveryDocument(models.Model):
         Exige que TODAS las placas del PT estén escaneadas — el control
         físico es el punto de esta herramienta.
         """
+        self = self._som_app_delivery_sudo()
         pt = self.browse(pick_ticket_id)
         if not pt.exists() or pt.document_type != 'pick_ticket':
             raise UserError(_('Pick ticket inválido'))
@@ -274,6 +301,7 @@ class SaleDeliveryDocument(models.Model):
           'send_email': bool,                           # correo al firmar
         }
         """
+        self = self._som_app_delivery_sudo()
         doc = self.browse(doc_id)
         if not doc.exists():
             raise UserError(_('Documento de entrega inexistente'))
