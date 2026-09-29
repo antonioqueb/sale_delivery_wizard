@@ -7,5 +7,6 @@ from . import sale_order
 from . import sale_order_line
 from . import sale_delivery_mobile
 from . import stock_return_guard
+from . import stock_delivery_guard
 from . import sale_delivery_schedule
 from . import stock_return_credit_note
