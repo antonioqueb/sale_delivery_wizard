@@ -32,4 +32,6 @@
             <field name="sequence">99</field>
         </record>
     </data>
+    <!-- Catálogo vigente (2 oct 2026): se aplica una sola vez. -->
+    <function model="sale.return.reason" name="_som_apply_return_reasons_v2"/>
 </odoo>
